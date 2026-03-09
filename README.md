@@ -6,6 +6,33 @@
 - Позиции отправляются в iiko через Playwright (UI-автоматизация).
 
 ## Структура
+
+### Корень проекта
+
+Основные файлы в корневой директории:
+- `bot.py` — запуск Telegram-бота (polling).
+- `worker.py` — запуск воркера очереди (RQ).
+- `main.py` — вспомогательный вход (если нужен для утилит/отладки).
+- `invoice_llm_client.py` — отдельный LLM-клиент для пакетной обработки файлов из папки.
+- `README.md` — этот файл, общее описание.
+- `TODO.md` — план работ/идей.
+- `TESTCASES.md` — список QA-сценариев.
+- `requirements.txt` — зависимости Python.
+- `docker-compose.yml`, `Dockerfile`, `nginx_bot.conf` — файлы для контейнерного деплоя.
+- `.env`, `.env.example` — конфиги окружения (секреты / токены **не должны** попадать в git).
+- `dialogue_dump.jsonl` — дамп старого диалога с Codex (исторический артефакт, не используется рантаймом).
+
+Служебные папки в корне:
+- `app/` — код backend-а, пайплайна и интеграций (подробности в `app/README.md`).
+- `scripts/` — дев-скрипты (`diagnose_request.py`, `cleanup_dev_artifacts.py` и т.п.).
+- `docs/` — документация для разработчика/агента (`AGENT_HANDOFF.md`, `DEV_SETUP.md`, `BOT_COMMAND_MATRIX.md`).
+- `data/` — рабочие данные (БД, job-директории); не коммитится.
+- `logs/` — runtime-логи; не коммитятся.
+- `tmp/` — временные диагностические файлы; можно очищать.
+- `.veai/` — конфигурация воркфлоу Veai (шпаргалки для агента).
+- `.venv/` — локальное виртуальное окружение Python.
+
+### Кодовая структура
 - `app/api.py` - FastAPI endpoint `/process`
 - `app/services/pipeline.py` - orchestration обработки
 - `app/parsers/file_text_extractor.py` - извлечение текста из PDF/DOCX/TXT
