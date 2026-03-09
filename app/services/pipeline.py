@@ -560,6 +560,12 @@ class InvoicePipelineService:
             )
 
             llm_data = await self._call_llm(prompt, source_type, filename, content, raw_text)
+
+            # Сохраняем стоимость LLM сразу после успешного ответа, независимо от того,
+            # распознали мы накладную или вернули пользователю ошибку (not_invoice и пр.).
+            if llm_data.get("_cost"):
+                self._append_cost_log(user_id, request_id, llm_data["_cost"])
+
             items = self._build_items_from_llm(llm_data)
             warnings: list[str] = []
 
@@ -678,8 +684,6 @@ class InvoicePipelineService:
                 "llm_usage": llm_data.get("_usage"),
                 "llm_cost": llm_data.get("_cost"),
             }
-            if llm_data.get("_cost"):
-                self._append_cost_log(user_id, request_id, llm_data["_cost"])
             (REQUESTS_DIR / f"{request_id}.json").write_text(
                 json.dumps(payload, ensure_ascii=False, indent=2, default=str),
                 encoding="utf-8",
