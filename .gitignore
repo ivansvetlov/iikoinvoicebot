@@ -1,0 +1,40 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtualenv ---
+.venv/
+venv/
+ENV/
+
+# --- IDE ---
+.idea/
+
+# --- OS ---
+Thumbs.db
+.DS_Store
+
+# --- Project secrets ---
+.env
+id_ed25519
+id_ed25519.pub
+
+# --- Runtime data & logs ---
+logs/
+data/
+tmp/
+
+# --- Large / temporary artifacts ---
+deploy.tar.gz
+dialogue_dump.jsonl
+
+# --- Local scratch files ---
+tmp_*.txt
+tmp_*.html
+tmp_*.js
