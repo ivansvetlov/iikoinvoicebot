@@ -25,6 +25,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import re
 
 # Чтобы импортировать пакет `app/` при запуске как скрипт.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +48,7 @@ LLM_COSTS_CSV = LOGS_DIR / "llm_costs.csv"
 class Match:
     request_id: str
     source: str
+    created_at: str | None = None
 
 
 def _sha256(path: Path, limit_bytes: int | None = None) -> str:
@@ -77,13 +79,49 @@ def _tail_lines(path: Path, n: int = 120) -> list[str]:
         return []
 
 
+_SHORT_CODE_RE = re.compile(r"^(\d{6})_(\d{3})$")
+
+
+def _normalize_fragment(raw: str) -> str:
+    """Нормализует ввод пользователя.
+
+    Пользователь часто копирует строку целиком: "Код заявки: 000736_800".
+    Мы вытащим из неё то, что похоже на код.
+    """
+
+    raw = (raw or "").strip()
+    raw = raw.replace("Код заявки:", "").replace("код заявки:", "").strip()
+    # Оставляем только цифры, подчёркивания и латиницу (на случай request_id целиком).
+    cleaned = re.sub(r"[^0-9A-Za-z_]+", "", raw)
+    return cleaned or raw
+
+
+def _is_short_code(fragment: str) -> bool:
+    return bool(_SHORT_CODE_RE.match(fragment))
+
+
 def _find_by_job_dirs(fragment: str) -> list[Match]:
     if not DATA_JOBS_DIR.exists():
         return []
+
+    # Если это короткий код HHMMSS_mmm, ищем более строго: "_HHMMSS_mmm_".
+    needle = fragment
+    strict_needle = f"_{fragment}_" if _is_short_code(fragment) else None
+
     matches: list[Match] = []
     for p in DATA_JOBS_DIR.iterdir():
-        if p.is_dir() and fragment in p.name:
-            matches.append(Match(request_id=p.name, source="data/jobs"))
+        if not p.is_dir():
+            continue
+        name = p.name
+        if strict_needle:
+            if strict_needle in name:
+                matches.append(Match(request_id=name, source="data/jobs"))
+        else:
+            if needle in name:
+                matches.append(Match(request_id=name, source="data/jobs"))
+
+    # Самые свежие request_id (по имени) — в конце. Отсортируем по убыванию.
+    matches.sort(key=lambda m: m.request_id, reverse=True)
     return matches
 
 
@@ -91,15 +129,23 @@ def _find_by_db(fragment: str) -> list[Match]:
     engine = _build_engine()
     if engine is None:
         return []
+
+    # Для короткого кода HHMMSS_mmm ищем более строго: "_HHMMSS_mmm_".
+    strict = f"_{fragment}_" if _is_short_code(fragment) else fragment
+
     with Session(engine) as s:
         rows = (
             s.query(TaskRecord)
-            .filter(TaskRecord.request_id.contains(fragment))
+            .filter(TaskRecord.request_id.contains(strict))
             .order_by(TaskRecord.created_at.desc())
             .limit(20)
             .all()
         )
-    return [Match(request_id=r.request_id, source="db") for r in rows]
+
+    return [
+        Match(request_id=r.request_id, source="db", created_at=str(getattr(r, "created_at", None)))
+        for r in rows
+    ]
 
 
 def _load_task_record(request_id: str) -> dict[str, Any] | None:
@@ -174,18 +220,37 @@ def _load_llm_costs(request_id: str) -> list[dict[str, Any]]:
 
 
 def _resolve_request_id(fragment: str) -> tuple[str | None, list[Match]]:
-    # 1) По папкам jobs
+    """Пытается найти полный request_id по тому, что ввёл человек.
+
+    Удобство для человека:
+    - если ввели короткий код HHMMSS_mmm и совпадений несколько (например через неделю),
+      мы автоматически выбираем самый свежий, но выводим альтернативы.
+    """
+
     job_matches = _find_by_job_dirs(fragment)
-    if len(job_matches) == 1:
-        return job_matches[0].request_id, job_matches
-
-    # 2) По БД
     db_matches = _find_by_db(fragment)
-    all_matches = {m.request_id: m for m in (job_matches + db_matches)}
-    if len(all_matches) == 1:
-        return next(iter(all_matches.values())).request_id, list(all_matches.values())
 
-    return None, list(all_matches.values())
+    # Объединяем без дублей
+    all_matches_map: dict[str, Match] = {m.request_id: m for m in job_matches}
+    for m in db_matches:
+        all_matches_map.setdefault(m.request_id, m)
+
+    all_matches = list(all_matches_map.values())
+
+    if not all_matches:
+        return None, []
+
+    if len(all_matches) == 1:
+        return all_matches[0].request_id, all_matches
+
+    # Если совпадений несколько:
+    # - для короткого кода выбираем самый свежий (по request_id, он лексикографически упорядочен по времени)
+    # - для произвольной строки — просим уточнить (оставляем как было)
+    if _is_short_code(fragment):
+        all_matches.sort(key=lambda m: m.request_id, reverse=True)
+        return all_matches[0].request_id, all_matches
+
+    return None, all_matches
 
 
 def main() -> None:
@@ -193,15 +258,23 @@ def main() -> None:
         print("Usage: python scripts/diagnose_request.py <request_id_or_fragment>")
         sys.exit(2)
 
-    fragment = sys.argv[1].strip()
+    fragment = _normalize_fragment(sys.argv[1])
     request_id, matches = _resolve_request_id(fragment)
 
     if request_id is None:
         print(f"Не удалось однозначно определить request_id по фрагменту: {fragment}")
         print("Найденные совпадения (до 20):")
         for m in matches[:20]:
-            print(f"- {m.request_id}  (source={m.source})")
+            created = f" created_at={m.created_at}" if m.created_at else ""
+            print(f"- {m.request_id}  (source={m.source}){created}")
         sys.exit(1)
+
+    # Если совпадений было много, но мы выбрали самый свежий — скажем об этом явно.
+    if len(matches) > 1 and _is_short_code(fragment):
+        print(
+            f"Найдено несколько заявок с кодом {fragment}. "
+            f"Беру самую свежую: {request_id}. Остальные — внизу (alt_matches)."
+        )
 
     task = _load_task_record(request_id)
     payload = _load_payload(request_id)

@@ -14,6 +14,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from app.config import settings
 from app.services.user_store import get_iiko_credentials, get_pdf_mode, set_iiko_credentials, set_pdf_mode
+from app.utils.user_messages import format_user_response
 
 logger = logging.getLogger(__name__)
 
@@ -830,56 +831,15 @@ class TelegramBotManager:
         return False
 
     def _format_response(self, payload: dict) -> str:
-        """Форматирует краткий ответ пользователю по результатам обработки."""
-        status = payload.get("status")
-        parsed = payload.get("parsed", {})
-        warnings = parsed.get("warnings", [])
-        iiko_uploaded = payload.get("iiko_uploaded")
-        iiko_error = payload.get("iiko_error")
-        error_code = payload.get("error_code")
-        message = payload.get("message")
-        request_id = payload.get("request_id")
+        """Форматирует сообщение пользователю.
 
-        lines = [
-            f"Статус: {status}",
-            f"Загрузка в iiko: {'да' if iiko_uploaded else 'нет'}",
-        ]
+        Пояснение человеческим языком:
+        - внутри системы request_id длинный и нужен для уникальности (логи/БД);
+        - пользователю показываем короткий «Код заявки» вида HHMMSS_mmm,
+          чтобы его было легко продиктовать/вставить.
 
-        if message:
-            lines.append(message)
+        Логику форматирования держим в одном месте (app.utils.user_messages),
+        чтобы бот и воркер писали одинаково.
+        """
 
-        if warnings:
-            lines.append("Предупреждения: " + "; ".join(warnings[:2]))
-
-        # Если backend вернул error_code, можно дать лаконичную подсказку.
-        if status == "error" and error_code:
-            hints = {
-                "unsupported_format": "Поддерживаемые форматы: фото (JPG/PNG), PDF, DOCX.",
-                "bad_pdf": "PDF повреждён. Попробуйте пересохранить файл и отправить снова.",
-                "bad_docx": "DOCX повреждён. Попробуйте пересохранить файл и отправить снова.",
-                "empty_file": "Похоже, файл пустой. Проверьте и отправьте снова.",
-                "file_too_large": f"Сожмите файл. Максимум {settings.max_upload_mb} MB.",
-                "not_invoice": "Проверьте, что на документе есть таблица позиций и слово «накладная/УПД/ТОРГ-12».",
-                "llm_timeout": "Сервис распознавания медленно отвечает. Попробуйте через минуту.",
-                "llm_unavailable": "Сервис распознавания временно недоступен. Попробуйте позже.",
-                "llm_bad_response": "Модель вернула неполный/некорректный ответ. Попробуйте отправить фото ещё раз или PDF.",
-                "llm_garbage": "Ответ распознавания некорректен (похоже на зацикливание). Попробуйте фото целиком или PDF.",
-                "iiko_auth_missing": "Нажмите /start и введите логин/пароль iiko.",
-                "iiko_upload_failed": "Не удалось загрузить в iiko. Попробуйте позже.",
-            }
-            hint = hints.get(str(error_code))
-            if hint and (not message or hint not in message):
-                lines.append(hint)
-
-        # Технические детали не показываем пользователю.
-        # Но если message по какой-то причине отсутствует, дадим безопасную общую формулировку.
-        if status == "error" and not message:
-            lines.append("Не удалось обработать файл. Проверьте формат и попробуйте снова.")
-
-        # Не выводим iiko_error пользователю, чтобы не утекали внутренности.
-        # (См. логи backend/bot и request_id.)
-        _ = iiko_error
-
-        if request_id:
-            lines.append(f"Код заявки: {request_id}")
-        return "\n".join(lines)
+        return format_user_response(payload)

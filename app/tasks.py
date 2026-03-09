@@ -1,4 +1,11 @@
-﻿"""Р¤РѕРЅРѕРІС‹Рµ Р·Р°РґР°С‡Рё РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё РЅР°РєР»Р°РґРЅС‹С…."""
+﻿"""Задачи воркера (RQ).
+
+Этот модуль запускается воркером и делает две вещи:
+1) обрабатывает файл через пайплайн
+2) редактирует (или отправляет) сообщение в Telegram с результатом
+
+Важно: пользователю не показываем технические детали ошибок.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +19,7 @@ import httpx
 from app.config import settings
 from app.services.pipeline import InvoicePipelineService
 from app.task_store import mark_done, mark_error, mark_processing
+from app.utils.user_messages import format_user_response
 
 
 def _send_telegram_message(chat_id: int, text: str) -> None:
@@ -131,25 +139,6 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
 
 
 def _format_response(payload: dict[str, Any]) -> str:
-    status = payload.get("status")
-    parsed = payload.get("parsed", {})
-    warnings = parsed.get("warnings", [])
-    iiko_uploaded = payload.get("iiko_uploaded")
-    iiko_error = payload.get("iiko_error")
-    message = payload.get("message")
-    request_id = payload.get("request_id")
-
-    lines = [
-        f"Статус: {status}",
-        f"Загрузка в iiko: {'да' if iiko_uploaded else 'нет'}",
-    ]
-    if message:
-        lines.append(message)
-    if warnings:
-        lines.append("Предупреждения: " + "; ".join(warnings[:2]))
-    if iiko_error:
-        lines.append(f"Ошибка iiko: {iiko_error}")
-    if request_id:
-        lines.append(f"Код заявки: {request_id}")
-    return "\n".join(lines)
+    # Используем единый формат для бота и воркера.
+    return format_user_response(payload)
 
