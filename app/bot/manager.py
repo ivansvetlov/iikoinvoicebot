@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup, KeyboardButton
 
 from app.config import settings
 from app.services.user_store import get_iiko_credentials, get_pdf_mode, set_iiko_credentials, set_pdf_mode
@@ -56,11 +56,17 @@ class TelegramBotManager:
     def _register_handlers(self) -> None:
         """Регистрирует обработчики сообщений."""
         self.dp.message.register(self.start, CommandStart())
+        # /mode \/ /modefast \/ /modeaccurate
         self.dp.message.register(self.set_mode, Command("mode"))
+        self.dp.message.register(self.set_mode_fast, Command("modefast"))
+        self.dp.message.register(self.set_mode_accurate, Command("modeaccurate"))
+
         self.dp.message.register(self.start_split, Command("split"))
         self.dp.message.register(self.choose_batch, Command("multi"))
         self.dp.message.register(self.finish_split, Command("done"))
         self.dp.message.register(self.cancel_split, Command("cancel"))
+
+        # выбор режима обработки ожидающих файлов (объединить/раздельно)
         self.dp.callback_query.register(self.on_mode_choice)
         self.dp.message.register(self.on_reply_to_file, F.reply_to_message)
         self.dp.message.register(self.on_text, F.text)
@@ -82,33 +88,59 @@ class TelegramBotManager:
         self._log_status(user_id, "auth_requested", {"message_id": message.message_id})
 
     async def set_mode(self, message: Message) -> None:
-        """Меняет режим обработки PDF (fast/accurate)."""
+        """Показывает и (опционально) меняет режим обработки PDF.
+
+        Варианты использования для пользователя:
+        - `/mode` — просто показать текущий режим и краткие подсказки.
+        - `/mode fast` или `/mode accurate` — переключить режим.
+
+        Отдельные команды `/modefast` и `/modeaccurate` обрабатываются
+        хендлерами `set_mode_fast` / `set_mode_accurate`.
+        """
         if not message.from_user:
             return
         user_id = str(message.from_user.id)
         text = (message.text or "").strip().lower()
-        if text.startswith("/modefast"):
-            mode = "fast"
-        elif text.startswith("/modeaccurate"):
-            mode = "accurate"
-        else:
-            parts = text.split()
-            if len(parts) == 1:
-                current = get_pdf_mode(user_id)
-                await message.answer(
-                    "Режим обработки PDF:\n"
-                    f"Сейчас: {current}\n"
-                    "fast — быстрее и дешевле, но может пропускать строки.\n"
-                    "accurate — точнее, но дороже.\n"
-                    "Команды: /modefast или /modeaccurate."
-                )
-                return
-            mode = parts[1].strip().lower()
-            if mode not in {"fast", "accurate"}:
-                await message.answer("Неверный режим. Используйте /modefast или /modeaccurate.")
-                return
+        parts = text.split()
+
+        # Только /mode — показать текущий режим и подсказки.
+        if len(parts) == 1:
+            current = get_pdf_mode(user_id)
+            await message.answer(
+                "Режим обработки PDF:\n"
+                f"Сейчас: {current}\n"
+                "fast — быстрее и дешевле, но может пропускать строки.\n"
+                "accurate — точнее, но медленнее и дороже.\n"
+                "Можно использовать: /mode fast или /mode accurate."
+            )
+            return
+
+        # /mode fast | /mode accurate
+        mode = parts[1].strip().lower()
+        if mode not in {"fast", "accurate"}:
+            await message.answer(
+                "Неверный режим. Используйте `/mode fast` или `/mode accurate`."
+            )
+            return
+
         set_pdf_mode(user_id, mode)
         await message.answer(f"Готово. Режим PDF: {mode}.")
+
+    async def set_mode_fast(self, message: Message) -> None:
+        """Явная команда /modefast — переключает режим PDF в fast."""
+        if not message.from_user:
+            return
+        user_id = str(message.from_user.id)
+        set_pdf_mode(user_id, "fast")
+        await message.answer("Готово. Режим PDF: fast.")
+
+    async def set_mode_accurate(self, message: Message) -> None:
+        """Явная команда /modeaccurate — переключает режим PDF в accurate."""
+        if not message.from_user:
+            return
+        user_id = str(message.from_user.id)
+        set_pdf_mode(user_id, "accurate")
+        await message.answer("Готово. Режим PDF: accurate.")
 
     async def on_text(self, message: Message) -> None:
         """Обрабатывает текстовые сообщения для авторизации."""
@@ -176,9 +208,19 @@ class TelegramBotManager:
             return
         self._split_users.add(user_id)
         self._clear_split_dir(user_id)
+
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="/done"), KeyboardButton(text="/cancel")],
+            ],
+            resize_keyboard=True,
+            one_time_keyboard=False,
+        )
+
         await message.answer(
             "Режим объединения включен. Отправляйте части накладной. "
-            "Когда закончите — отправьте /done. Для отмены — /cancel."
+            "Когда закончите — нажмите /done. Для отмены — /cancel.",
+            reply_markup=keyboard,
         )
         self._log_status(user_id, "split_started")
 
@@ -201,9 +243,16 @@ class TelegramBotManager:
             await message.answer("Режим объединения не включен. Введите /split для начала.")
             return
         self._log_status(user_id, "split_finish_requested")
+
+        # При нажатии /done убираем клавиатуру split-режима,
+        # чтобы не оставлять "висячие" кнопки.
+        await message.answer("Завершаю режим объединения.", reply_markup=None)
+
         files = self._collect_split_files(user_id)
         if not files:
-            await message.answer("Нет файлов для обработки. Отправьте части и снова /done.")
+            await message.answer(
+                "Нет файлов для обработки. Отправьте части и снова /done."
+            )
             return
         status_msg = await message.answer(f"Собрано файлов: {len(files)}. Отправляю на сервер…")
         try:
@@ -219,7 +268,8 @@ class TelegramBotManager:
             logger.exception("Backend batch request failed")
             await status_msg.edit_text("Ошибка при обработке файлов.")
             await message.answer(
-                "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова."
+                "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.\n"
+                "Код события: BOT_BACKEND_UNAVAILABLE"
             )
             self._log_status(user_id, "backend_batch_error")
             return
@@ -237,7 +287,10 @@ class TelegramBotManager:
         user_id = str(message.from_user.id)
         self._clear_split_dir(user_id)
         self._split_users.discard(user_id)
-        await message.answer("Режим объединения отменен. Буфер очищен.")
+        await message.answer(
+            "Режим объединения отменен. Буфер очищен.",
+            reply_markup=None,
+        )
         self._log_status(user_id, "split_cancelled")
 
     async def _send_to_backend(
@@ -356,7 +409,8 @@ class TelegramBotManager:
         if not self._check_rate_limit(user_id):
             await message.answer(
                 "Сейчас слишком много файлов. Я продолжу обработку через минуту. "
-                "Если нужно срочно — отправьте позже."
+                "Если нужно срочно — отправьте позже.\n"
+                "Код события: BOT_RATE_LIMIT"
             )
             self._log_status(user_id, "rate_limited")
             return
@@ -399,17 +453,28 @@ class TelegramBotManager:
         if not self._check_rate_limit(user_id):
             await message.answer(
                 "Сейчас слишком много файлов. Я продолжу обработку через минуту. "
-                "Если нужно срочно — отправьте позже."
+                "Если нужно срочно — отправьте позже.\n"
+                "Код события: BOT_RATE_LIMIT"
             )
             self._log_status(user_id, "rate_limited")
             return
         if user_id in self._split_users:
+            # В режиме split просто накапливаем части в буфере. Пользователю важно
+            # понимать, что делать дальше, поэтому после каждого фото показываем
+            # текущий прогресс и напоминаем про /done и /cancel.
             largest = photo_list[-1]
             file = await self.bot.get_file(largest.file_id)
             data = await self.bot.download_file(file.file_path)
             content = data.read()
             await self._store_split_bytes("invoice_photo.jpg", content, user_id)
-            await message.answer("Фото добавлено в сплит. Отправьте /done, когда все части будут готовы.")
+
+            count = len(self._collect_split_files(user_id))
+            await message.answer(
+                "Фото добавлено в режим объединения. "
+                f"Сейчас собрано: {count}. "
+                "Когда все части будут отправлены — нажмите /done. Для отмены — /cancel."
+            )
+
             self._log_status(user_id, "split_photo_added")
             return
         if message.media_group_id:
@@ -596,7 +661,8 @@ class TelegramBotManager:
                 await self.bot.send_message(
                     chat_id,
                     "Не удалось отправить файл на обработку. "
-                    "Проверьте соединение и попробуйте снова.",
+                    "Проверьте соединение и попробуйте снова.\n"
+                    "Код события: BOT_BACKEND_UNAVAILABLE",
                 )
                 self._log_status(user_id, "backend_error", {"filename": name})
                 return
@@ -619,30 +685,44 @@ class TelegramBotManager:
                 await self.bot.send_message(
                     chat_id,
                     "Не удалось отправить файл на обработку. "
-                    "Проверьте соединение и попробуйте снова.",
+                    "Проверьте соединение и попробуйте снова.\n"
+                    "Код события: BOT_BACKEND_UNAVAILABLE",
                 )
                 self._log_status(user_id, "backend_error", {"filename": name, "index": index})
 
     async def _handle_pending_choice(self, message: Message, user_id: str) -> None:
         files = self._collect_pending_files(user_id)
-        if files and self._is_duplicate(user_id, files[-1][1]):
-            await message.answer("Этот файл уже был отправлен. Пропускаю повтор.")
-            self._log_status(user_id, "duplicate_skipped")
-            return
+
+        # Раньше здесь была жёсткая дедупликация по хэшу содержимого.
+        # Она мешала пользователю повторно отправлять файл, если он не
+        # получил понятный результат. Сейчас мы принимаем повтор и даём
+        # новый код заявки.
 
         if not settings.enable_split_mode:
             await self._process_pending_as_batch_chat(message.chat.id, user_id)
             return
 
-        if len(files) <= 1:
-            await self._process_pending_as_batch_chat(message.chat.id, user_id)
+        if not files:
+            await message.answer("Нет ожидающих файлов.")
             return
 
+        # Новая логика pending:
+        # - при первом файле кладём его в pending и ждём немного (через
+        #   _auto_process_pending), не спрашивая режим;
+        # - как только файлов становится >= 2, показываем клавиатуру
+        #   "Объединить" / "Раздельно".
         if user_id not in self._pending_users:
             self._pending_users.add(user_id)
             self._pending_chats[user_id] = message.chat.id
-            self._pending_tasks[user_id] = asyncio.create_task(self._auto_process_pending(user_id))
+            self._pending_tasks[user_id] = asyncio.create_task(
+                self._auto_process_pending(user_id)
+            )
 
+        if len(files) == 1:
+            # Первый файл: просто ждём, может придут ещё файлы.
+            return
+
+        # len(files) >= 2 → есть смысл спрашивать режим
         await self._send_mode_keyboard(message)
 
     async def _add_media_group_file(self, message: Message, user_id: str | None, filename: str, content: bytes) -> None:
@@ -687,7 +767,8 @@ class TelegramBotManager:
             await status_msg.edit_text("Ошибка при обработке файлов.")
             await self.bot.send_message(
                 chat_id,
-                "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.",
+                "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.\n"
+                "Код события: BOT_BACKEND_UNAVAILABLE",
             )
             self._log_status(user_id or "unknown", "media_group_batch_error")
             return
@@ -713,7 +794,9 @@ class TelegramBotManager:
                 )
                 return
             except Exception:  # noqa: BLE001
-                logger.exception("Failed to edit pending prompt")
+                # Если сообщение "не изменилось" — это не критично, просто
+                # не логируем это как ошибку.
+                logger.debug("Pending prompt not modified for user_id=%s", user_id)
         sent = await message.answer(text, reply_markup=keyboard)
         if user_id:
             self._pending_prompt[user_id] = sent.message_id
@@ -725,7 +808,10 @@ class TelegramBotManager:
         data = (query.data or "").strip().lower()
         await query.answer()
         if user_id not in self._pending_users:
-            await query.message.answer("Нет ожидающих файлов. Отправьте файлы заново.")
+            await query.message.answer(
+                "Нет ожидающих файлов. Отправьте файлы заново.\n"
+                "Код события: BOT_NO_PENDING"
+            )
             return
         task = self._pending_tasks.pop(user_id, None)
         if task:
@@ -741,13 +827,35 @@ class TelegramBotManager:
         await query.message.answer("Неизвестный выбор. Используйте кнопки.")
 
     async def _auto_process_pending(self, user_id: str) -> None:
-        await asyncio.sleep(30)
+        # Небольшой таймаут: даём пользователю шанс отправить несколько
+        # файлов подряд. Если за это время не дошло до len(files) >= 2,
+        # просто обрабатываем одиночный файл как обычный.
+        await asyncio.sleep(5)
         if user_id not in self._pending_users:
             return
         chat_id = self._pending_chats.get(user_id)
         if not chat_id:
             return
-        await self.bot.send_message(chat_id, "Время ожидания истекло. Обрабатываю раздельно.")
+        files = self._collect_pending_files(user_id)
+        if not files:
+            self._pending_users.discard(user_id)
+            self._pending_tasks.pop(user_id, None)
+            self._pending_prompt.pop(user_id, None)
+            return
+        if len(files) == 1:
+            await self.bot.send_message(
+                chat_id,
+                "Получен 1 файл. Обрабатываю его как отдельную накладную.",
+            )
+            await self._process_pending_as_batch_chat(chat_id, user_id)
+            self._pending_tasks.pop(user_id, None)
+            self._pending_prompt.pop(user_id, None)
+            return
+        await self.bot.send_message(
+            chat_id,
+            "Время ожидания истекло. Обрабатываю файлы раздельно.\n"
+            "Код события: BOT_PENDING_TIMEOUT",
+        )
         await self._process_pending_as_batch_chat(chat_id, user_id)
         self._pending_tasks.pop(user_id, None)
         self._pending_prompt.pop(user_id, None)
@@ -781,6 +889,8 @@ class TelegramBotManager:
             "extra": extra or {},
         }
         try:
+            # На всякий случай убеждаемся, что каталог для логов существует
+            STATUS_LOG_DIR.mkdir(parents=True, exist_ok=True)
             path = STATUS_LOG_DIR / f"{user_id}.jsonl"
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False))
