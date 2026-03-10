@@ -72,7 +72,7 @@ def format_user_response(payload: dict[str, Any]) -> str:
             lines.append(message)
             message = ""
         else:
-            lines.append("Принято. Идёт обработка — результат пришлю позже.")
+            lines.append("Принято. Результат пришлю позже.")
     elif status == "ok":
         lines.append("Готово.")
     elif status == "error":

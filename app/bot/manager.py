@@ -540,6 +540,10 @@ class TelegramBotManager:
                 try:
                     await status_msg.edit_text("Файл получен. Отправляю на сервер…")
                 except Exception:  # noqa: BLE001
+                    try:
+                        await status_msg.delete()
+                    except Exception:  # noqa: BLE001
+                        pass
                     status_msg = None
             if status_msg is None:
                 status_msg = await self.bot.send_message(chat_id, "Файл получен. Отправляю на сервер…")
@@ -731,10 +735,15 @@ class TelegramBotManager:
             task.cancel()
 
         if data == "mode:process":
+            status_message = query.message
+            try:
+                await status_message.edit_text("⏳ Отправляю на обработку…")
+            except Exception:  # noqa: BLE001
+                status_message = None
             await self._process_pending_as_batch_chat(
                 query.message.chat.id,
                 user_id,
-                status_message=query.message,
+                status_message=status_message,
             )
             self._log_status(user_id, "mode_selected", {"mode": "process"})
             return
