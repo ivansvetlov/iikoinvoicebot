@@ -96,6 +96,7 @@ class TelegramBotManager:
         if not message.from_user:
             return
         user_id = str(message.from_user.id)
+        self._reset_user_buffers(user_id)
         if get_iiko_credentials(user_id):
             await message.answer("Вы уже авторизованы в iiko. Можете отправлять накладные.")
             return
@@ -220,6 +221,11 @@ class TelegramBotManager:
             return
         self._split_users.add(user_id)
         self._clear_split_dir(user_id)
+        # На старте split очищаем pending, чтобы не смешивать режимы.
+        self._clear_pending_dir(user_id)
+        self._pending_users.discard(user_id)
+        self._pending_tasks.pop(user_id, None)
+        self._pending_prompt.pop(user_id, None)
 
         keyboard = ReplyKeyboardMarkup(
             keyboard=[
@@ -231,7 +237,7 @@ class TelegramBotManager:
 
         await message.answer(
             "Режим объединения включен. Отправляйте части накладной. "
-            "Когда закончите — нажмите /done. Для отмены — /cancel.",
+            "Дальше используйте кнопки под сообщением.",
             reply_markup=keyboard,
         )
         self._log_status(user_id, "split_started")
@@ -436,7 +442,12 @@ class TelegramBotManager:
     def _clear_pending_dir(self, user_id: str) -> None:
         self._storage.clear_pending_dir(user_id)
 
-    async def _accept_pending_as_split(self, message: Message, user_id: str) -> None:
+    async def _accept_pending_as_split(
+        self,
+        message: Message,
+        user_id: str,
+        status_message: Message | None = None,
+    ) -> None:
         files = self._collect_pending_files(user_id)
         if not files:
             await message.answer("Нет ожидающих файлов.")
@@ -452,10 +463,9 @@ class TelegramBotManager:
         self._pending_users.discard(user_id)
         self._pending_prompt.pop(user_id, None)
         self._split_users.add(user_id)
-        await message.answer(
-            "Файлы перенесены в объединение. "
-            "Отправляйте следующие части и затем /done."
-        )
+        if status_message:
+            self._split_prompt[user_id] = status_message.message_id
+        await self._update_split_prompt(message, user_id)
 
     async def _process_pending_as_batch(self, message: Message, user_id: str) -> None:
         await self._process_pending_as_batch_chat(message.chat.id, user_id)
@@ -696,8 +706,11 @@ class TelegramBotManager:
             self._log_status(user_id, "mode_selected", {"mode": "process"})
             return
         if data == "mode:merge":
-            await query.message.edit_text("⏳ Объединяю и отправляю…")
-            await self._accept_pending_as_split(query.message, user_id)
+            await self._accept_pending_as_split(
+                query.message,
+                user_id,
+                status_message=query.message,
+            )
             self._log_status(user_id, "mode_selected", {"mode": "merge"})
             return
         await query.message.answer("Неизвестный выбор. Используйте кнопки.")
@@ -713,7 +726,7 @@ class TelegramBotManager:
             return
 
         if data == "split:wait":
-            await query.message.edit_text("Ок, жду ещё файлы. Отправляйте.")
+            await self._update_split_prompt(query.message, user_id)
             return
 
         if data == "split:cancel":
@@ -786,8 +799,19 @@ class TelegramBotManager:
             try:
                 await status_msg.edit_text("⏳ Отправляю на сервер…")
             except Exception:  # noqa: BLE001
+                try:
+                    await status_msg.delete()
+                except Exception:  # noqa: BLE001
+                    pass
                 status_msg = None
         if status_msg is None:
+            # Удаляем старое split-сообщение, чтобы не оставлять “висячие” кнопки.
+            message_id = self._split_prompt.get(user_id)
+            if message_id:
+                try:
+                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                except Exception:  # noqa: BLE001
+                    pass
             status_msg = await self.bot.send_message(
                 chat_id, f"Собрано файлов: {len(files)}. Отправляю на сервер…"
             )
@@ -818,6 +842,18 @@ class TelegramBotManager:
 
         await status_msg.edit_text(self._format_response(result))
         self._log_status(user_id, "backend_batch_done", {"request_id": result.get("request_id")})
+
+    def _reset_user_buffers(self, user_id: str) -> None:
+        """Очищает pending/split состояния пользователя, чтобы не тянуть старые файлы."""
+        self._clear_pending_dir(user_id)
+        self._clear_split_dir(user_id)
+        self._pending_users.discard(user_id)
+        self._split_users.discard(user_id)
+        task = self._pending_tasks.pop(user_id, None)
+        if task:
+            task.cancel()
+        self._pending_prompt.pop(user_id, None)
+        self._split_prompt.pop(user_id, None)
 
     def _collect_split_files(self, user_id: str) -> list[tuple[str, bytes]]:
         return self._storage.collect_split_files(user_id)
