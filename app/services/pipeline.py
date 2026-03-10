@@ -595,7 +595,7 @@ class InvoicePipelineService:
             garbage_reasons = self._detect_garbage_items(items, llm_data)
             if garbage_reasons:
                 raise UserFacingError(
-                    "Не удалось корректно распознать таблицу позиций (ответ модели выглядит некорректным).",
+                    "Не удалось корректно распознать таблицу позиций.",
                     hint=(
                         "Попробуйте отправить фото целиком (одним кадром) или PDF. "
                         "Если фото разрезано на части — попробуйте /split и отправьте части отдельно."

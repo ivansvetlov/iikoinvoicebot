@@ -16,6 +16,7 @@ from aiogram.types import (
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 
 from app.bot.backend_client import send_batch_to_backend, send_file_to_backend
@@ -227,18 +228,9 @@ class TelegramBotManager:
         self._pending_tasks.pop(user_id, None)
         self._pending_prompt.pop(user_id, None)
 
-        keyboard = ReplyKeyboardMarkup(
-            keyboard=[
-                [KeyboardButton(text="/done"), KeyboardButton(text="/cancel")],
-            ],
-            resize_keyboard=True,
-            one_time_keyboard=False,
-        )
-
         await message.answer(
-            "Режим объединения включен. Отправляйте части накладной. "
-            "Дальше используйте кнопки под сообщением.",
-            reply_markup=keyboard,
+            "Режим объединения включен. Отправляйте части накладной.",
+            reply_markup=ReplyKeyboardRemove(),
         )
         self._log_status(user_id, "split_started")
 
@@ -250,7 +242,7 @@ class TelegramBotManager:
         if user_id not in self._split_users:
             await message.answer("Режим объединения не включен. Введите /split для начала.")
             return
-        await message.answer("Завершаю режим объединения.", reply_markup=None)
+        await message.answer("Завершаю режим объединения.", reply_markup=ReplyKeyboardRemove())
         await self._finalize_split(message.chat.id, user_id, status_message=None)
 
     async def cancel_split(self, message: Message) -> None:
@@ -263,7 +255,7 @@ class TelegramBotManager:
         self._split_prompt.pop(user_id, None)
         await message.answer(
             "Режим объединения отменен. Буфер очищен.",
-            reply_markup=None,
+            reply_markup=ReplyKeyboardRemove(),
         )
         self._log_status(user_id, "split_cancelled")
 
@@ -733,7 +725,10 @@ class TelegramBotManager:
             self._clear_split_dir(user_id)
             self._split_users.discard(user_id)
             self._split_prompt.pop(user_id, None)
-            await query.message.edit_text("Режим объединения отменен. Буфер очищен.")
+            await query.message.edit_text(
+                "Режим объединения отменен. Буфер очищен.",
+                reply_markup=None,
+            )
             self._log_status(user_id, "split_cancelled")
             return
 
@@ -750,14 +745,7 @@ class TelegramBotManager:
     async def _update_split_prompt(self, message: Message, user_id: str) -> None:
         """Обновляет единое сообщение split-режима с кнопками."""
         count = len(self._collect_split_files(user_id))
-        text = f"Добавлено файлов: {count}. Что дальше?"
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Завершить", callback_data="split:done")],
-                [InlineKeyboardButton(text="➕ Добавить ещё", callback_data="split:wait")],
-                [InlineKeyboardButton(text="✖ Отменить", callback_data="split:cancel")],
-            ]
-        )
+        text, keyboard = self._build_split_prompt(count)
         message_id = self._split_prompt.get(user_id)
         if message_id:
             try:
@@ -784,20 +772,21 @@ class TelegramBotManager:
         if not files:
             if status_message:
                 await status_message.edit_text(
-                    "Нет файлов для обработки. Отправьте части и снова /done."
+                    "Пока нет файлов. Отправьте части.",
+                    reply_markup=None,
                 )
+                await self._update_split_prompt(status_message, user_id)
             else:
-                await self.bot.send_message(
-                    chat_id,
-                    "Нет файлов для обработки. Отправьте части и снова /done.",
-                )
+                text, keyboard = self._build_split_prompt(0)
+                sent = await self.bot.send_message(chat_id, text, reply_markup=keyboard)
+                self._split_prompt[user_id] = sent.message_id
             return
 
         self._log_status(user_id, "split_finish_requested")
         status_msg = status_message
         if status_msg:
             try:
-                await status_msg.edit_text("⏳ Отправляю на сервер…")
+                await status_msg.edit_text("⏳ Отправляю на сервер…", reply_markup=None)
             except Exception:  # noqa: BLE001
                 try:
                     await status_msg.delete()
@@ -840,8 +829,22 @@ class TelegramBotManager:
             self._split_users.discard(user_id)
             self._split_prompt.pop(user_id, None)
 
-        await status_msg.edit_text(self._format_response(result))
+        await status_msg.edit_text(self._format_response(result), reply_markup=None)
         self._log_status(user_id, "backend_batch_done", {"request_id": result.get("request_id")})
+
+    @staticmethod
+    def _build_split_prompt(count: int) -> tuple[str, InlineKeyboardMarkup]:
+        text = f"Добавлено файлов: {count}. Отправляйте части или завершите."
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✖ Отменить", callback_data="split:cancel"),
+                    InlineKeyboardButton(text="✅ Завершить", callback_data="split:done"),
+                ],
+                [InlineKeyboardButton(text="➕ Добавить ещё", callback_data="split:wait")],
+            ]
+        )
+        return text, keyboard
 
     def _reset_user_buffers(self, user_id: str) -> None:
         """Очищает pending/split состояния пользователя, чтобы не тянуть старые файлы."""
