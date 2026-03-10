@@ -38,6 +38,10 @@ dialogue_dump.jsonl
 dump_chat_*
 docs/dumps/
 
+# --- IDE/agent local metadata ---
+.cursor/
+cursor.plan.md
+
 # --- Local scratch files ---
 tmp_*.txt
 tmp_*.html

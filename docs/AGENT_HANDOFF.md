@@ -31,6 +31,7 @@
   - rate-limit/идемпотентность/логирование событий.
 - `app/bot/backend_client.py` — HTTP‑клиент для `/process` и `/process-batch` (бот → backend).
 - `app/bot/file_storage.py` — файловое хранилище pending/split (bot side).
+- `docs/_md/root/ARCHITECTURE.md` — краткий обзор модулей и потоков.
 
 ## 3) Что добавили для устойчивости (негативные кейсы)
 ### 3.1 User-friendly ошибки + error_code
@@ -86,6 +87,7 @@
 - Переработан pending-UX в боте: вместо скрытого таймера — явные кнопки "Обработать/Добавить ещё", и явный выбор режима при 2+ файлах. Файлы: `app/bot/manager.py`, `app/bot/backend_client.py`, `app/bot/file_storage.py`.
 - Лог стоимости LLM переведён в append-only (без перечтения CSV). Файл: `app/services/pipeline.py`.
 - `.env` читается с `utf-8-sig` из-за BOM; добавлены утилиты `scripts/check_bom.py` и `scripts/strip_bom.py`.
+- Архитектурный обзор перенесён в `docs/_md/root/ARCHITECTURE.md`.
 
 Проверка: запустить `python bot.py`, отправить 1 файл и убедиться, что появляется явная клавиатура "Обработать/Добавить ещё"; отправить 2 файла — увидеть выбор "Объединить/Раздельно".
 
