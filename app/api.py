@@ -84,6 +84,7 @@ async def setup_webhook() -> None:
 @app.on_event("startup")
 async def init_database() -> None:
     init_db()
+    logger.info("✅ Backend ready (http://127.0.0.1:8000)")
 
 
 @app.post(WEBHOOK_PATH)
@@ -116,6 +117,7 @@ async def process_invoice(
     status_message_id: str | None = Form(default=None),
 ) -> ProcessResponse:
     """Принимает файл, извлекает позиции и при необходимости отправляет в iiko."""
+    logger.info("Received /process request: file=%s, user_id=%s", file.filename, user_id)
     try:
         if file.size and file.size > settings.max_upload_mb * 1024 * 1024:
             return _error_response(

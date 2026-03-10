@@ -34,6 +34,10 @@ tmp/
 deploy.tar.gz
 dialogue_dump.jsonl
 
+# --- Agent chat dumps (eat context, not needed at runtime) ---
+dump_chat_*
+docs/dumps/
+
 # --- Local scratch files ---
 tmp_*.txt
 tmp_*.html

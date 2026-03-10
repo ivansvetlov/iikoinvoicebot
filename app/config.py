@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     """Настройки приложения с загрузкой из .env и переменных окружения."""
 
     _env_path = Path(__file__).resolve().parent.parent / ".env"
-    model_config = SettingsConfigDict(env_file=_env_path, env_file_encoding="utf-8", extra="ignore")
+    # NB: используем utf-8-sig, чтобы безопасно читать .env даже если он был сохранён с BOM.
+    # Это устраняет класс проблем, когда первый ключ превращается в "\ufeffKEY".
+    model_config = SettingsConfigDict(env_file=_env_path, env_file_encoding="utf-8-sig", extra="ignore")
 
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     backend_url: HttpUrl = Field(default="http://127.0.0.1:8000", alias="BACKEND_URL")

@@ -282,62 +282,47 @@ class InvoicePipelineService:
         return f"{timestamp}_{user_part}"
 
     def _append_cost_log(self, user_id: str | None, request_id: str, cost: dict[str, Any]) -> None:
+        """Быстро дописывает строку в `logs/llm_costs.csv`.
+
+        Раньше файл перечитывался и перезаписывался целиком (с пересчётом TOTAL/TOTAL_RUB) при каждом запросе,
+        что начинало тормозить при росте нагрузки. Для прод-метрик totals лучше считать отдельным батчем/агрегацией.
+
+        Формат строк:
+            user_id,request_id,model,input_tokens,output_tokens,input_cost_usd,output_cost_usd,total_cost_usd
+        """
+
+        header = "user_id,request_id,model,input_tokens,output_tokens,input_cost_usd,output_cost_usd,total_cost_usd"
+        safe_user = user_id or "unknown"
+
+        row = [
+            safe_user,
+            request_id,
+            str(cost.get("model")),
+            str(cost.get("input_tokens")),
+            str(cost.get("output_tokens")),
+            str(cost.get("input_cost_usd")),
+            str(cost.get("output_cost_usd")),
+            str(cost.get("total_cost_usd")),
+        ]
+
         try:
-            rows: list[str] = []
+            # Создаём каталог логов на всякий случай.
+            LLM_COSTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+
+            need_header = True
             if LLM_COSTS_LOG.exists():
-                rows = LLM_COSTS_LOG.read_text(encoding="utf-8").splitlines()
-
-            header = "user_id,request_id,model,input_tokens,output_tokens,input_cost_usd,output_cost_usd,total_cost_usd"
-            data_rows: list[list[str]] = []
-            for line in rows:
-                if not line or line.startswith("TOTAL"):
-                    continue
-                if line.startswith("request_id,"):
-                    continue
-                if line.startswith("user_id,"):
-                    continue
-                parts = [p.strip() for p in line.split(",")]
-                if not parts:
-                    continue
-                if len(parts) == 7:
-                    req_id = parts[0]
-                    derived_user = req_id.split("_")[-1] if req_id.split("_")[-1].isdigit() else "unknown"
-                    data_rows.append([derived_user] + parts)
-                    continue
-                if len(parts) == 8:
-                    data_rows.append(parts)
-                    continue
-
-            safe_user = user_id or "unknown"
-            data_rows.append(
-                [
-                    safe_user,
-                    request_id,
-                    str(cost.get("model")),
-                    str(cost.get("input_tokens")),
-                    str(cost.get("output_tokens")),
-                    str(cost.get("input_cost_usd")),
-                    str(cost.get("output_cost_usd")),
-                    str(cost.get("total_cost_usd")),
-                ]
-            )
-
-            total = 0.0
-            for row in data_rows:
                 try:
-                    total += float(row[-1])
+                    # Быстрая проверка: файл не пустой и начинается с заголовка.
+                    with LLM_COSTS_LOG.open("r", encoding="utf-8", errors="replace") as check:
+                        first = check.readline().strip()
+                    need_header = not first.startswith("user_id,request_id,")
                 except Exception:
-                    continue
+                    need_header = True
 
-            rate = self._get_usd_rub_rate()
-            total_rub = total * rate if rate else 0.0
-
-            with LLM_COSTS_LOG.open("w", encoding="utf-8") as handle:
-                handle.write(header + "\n")
-                for row in data_rows:
-                    handle.write(",".join(row) + "\n")
-                handle.write(f"TOTAL,,,,,,,{total:.6f}\n")
-                handle.write(f"TOTAL_RUB,rate={rate:.4f},,,,,,{total_rub:.2f}\n")
+            with LLM_COSTS_LOG.open("a", encoding="utf-8") as handle:
+                if need_header:
+                    handle.write(header + "\n")
+                handle.write(",".join(row) + "\n")
         except Exception:  # noqa: BLE001
             logger.exception("Failed to append LLM cost log", extra={"request_id": request_id})
 

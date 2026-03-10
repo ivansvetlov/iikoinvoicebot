@@ -1,4 +1,4 @@
-﻿"""Модуль управления Telegram-ботом и его обработчиками."""
+"""Модуль управления Telegram-ботом и его обработчиками."""
 
 import asyncio
 import hashlib
@@ -7,13 +7,26 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import httpx
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
+)
 
+from app.bot.backend_client import send_batch_to_backend, send_file_to_backend
+from app.bot.file_storage import PendingSplitStorage
 from app.config import settings
-from app.services.user_store import get_iiko_credentials, get_pdf_mode, set_iiko_credentials, set_pdf_mode
+from app.services.user_store import (
+    get_iiko_credentials,
+    get_pdf_mode,
+    set_iiko_credentials,
+    set_pdf_mode,
+)
 from app.utils.user_messages import format_user_response
 
 logger = logging.getLogger(__name__)
@@ -32,11 +45,13 @@ class TelegramBotManager:
         self._register_handlers()
         self._auth_state: dict[str, str] = {}
         self._pending_login: dict[str, str] = {}
+        base_data_dir = Path(__file__).resolve().parents[2] / "data"
+        self._storage = PendingSplitStorage(base_data_dir=base_data_dir)
+        # Сохраняем директории для обратной совместимости и простоты отладки
+        self._split_dir = self._storage.split_dir
+        self._pending_dir = self._storage.pending_dir
+
         self._split_users: set[str] = set()
-        self._split_dir = Path(__file__).resolve().parents[2] / "data" / "split"
-        self._split_dir.mkdir(parents=True, exist_ok=True)
-        self._pending_dir = Path(__file__).resolve().parents[2] / "data" / "pending"
-        self._pending_dir.mkdir(parents=True, exist_ok=True)
         self._pending_users: set[str] = set()
         self._pending_tasks: dict[str, asyncio.Task] = {}
         self._pending_chats: dict[str, int] = {}
@@ -46,11 +61,12 @@ class TelegramBotManager:
         self._rate_limits: dict[str, list[datetime]] = {}
         self._recent_hashes: dict[str, dict[str, datetime]] = {}
         logger.info("Bot manager initialized")
-        self._cleanup_pending_dirs()
+        self._storage.cleanup_old()
 
     async def run(self) -> None:
         """Запускает polling-цикл бота."""
         logger.info("Starting bot polling")
+        logger.info("✅ Bot ready, polling started")
         await self.dp.start_polling(self.bot)
 
     def _register_handlers(self) -> None:
@@ -258,7 +274,8 @@ class TelegramBotManager:
         try:
             await status_msg.edit_text("Идет обработка объединенной накладной…")
             self._log_status(user_id, "backend_batch_sending", {"count": len(files)})
-            result = await self._send_batch_to_backend(
+            result = await send_batch_to_backend(
+                self._backend_url,
                 files,
                 user_id,
                 message.chat.id,
@@ -292,112 +309,6 @@ class TelegramBotManager:
             reply_markup=None,
         )
         self._log_status(user_id, "split_cancelled")
-
-    async def _send_to_backend(
-        self,
-        filename: str,
-        content: bytes,
-        user_id: str | None,
-        chat_id: int | None,
-        status_message_id: int | None = None,
-    ) -> dict:
-        """Отправляет файл в backend и возвращает JSON-ответ."""
-        logger.info("Sending file to backend: %s", filename)
-        async with httpx.AsyncClient(timeout=300) as client:
-            for attempt in range(3):
-                try:
-                    data = {
-                        "push_to_iiko": "true" if settings.push_to_iiko else "false",
-                    }
-                    if user_id:
-                        data["user_id"] = user_id
-                        data["pdf_mode"] = get_pdf_mode(user_id)
-                    if chat_id:
-                        data["chat_id"] = str(chat_id)
-                    if status_message_id:
-                        data["status_message_id"] = str(status_message_id)
-                    response = await client.post(
-                        f"{self._backend_url}/process",
-                        files={"file": (filename, content)},
-                        data=data,
-                    )
-                    try:
-                        return response.json()
-                    except ValueError:
-                        response.raise_for_status()
-                        raise
-                except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-                    logger.warning("Backend unavailable, attempt %s", attempt + 1)
-                    if attempt < 2:
-                        await asyncio.sleep(1 + attempt)
-                        continue
-                    raise exc
-                except httpx.HTTPStatusError as exc:
-                    status_code = exc.response.status_code
-                    logger.warning("Backend status error: %s", status_code)
-                    # 413 - payload too large
-                    if status_code == 413:
-                        return {
-                            "status": "error",
-                            "message": f"Файл слишком большой. Максимум {settings.max_upload_mb} MB.",
-                        }
-                    # 422 - validation
-                    if status_code == 422:
-                        return {
-                            "status": "error",
-                            "message": "Не удалось обработать запрос. Проверьте файл и попробуйте снова.",
-                        }
-                    # 429 - rate limit
-                    if status_code == 429:
-                        return {
-                            "status": "error",
-                            "message": "Сервис перегружен. Попробуйте отправить файл чуть позже.",
-                        }
-                    # прочие коды
-                    return {
-                        "status": "error",
-                        "message": "Сервер временно недоступен. Попробуйте позже.",
-                    }
-
-    async def _send_batch_to_backend(
-        self,
-        files: list[tuple[str, bytes]],
-        user_id: str | None,
-        chat_id: int | None,
-        status_message_id: int | None = None,
-    ) -> dict:
-        """Отправляет несколько файлов одной накладной в backend."""
-        logger.info("Sending batch to backend: %s files", len(files))
-        async with httpx.AsyncClient(timeout=300) as client:
-            for attempt in range(3):
-                try:
-                    data = {
-                        "push_to_iiko": "true" if settings.push_to_iiko else "false",
-                    }
-                    if user_id:
-                        data["user_id"] = user_id
-                        data["pdf_mode"] = get_pdf_mode(user_id)
-                    if chat_id:
-                        data["chat_id"] = str(chat_id)
-                    if status_message_id:
-                        data["status_message_id"] = str(status_message_id)
-                    payload = [("files", (name, content)) for name, content in files]
-                    response = await client.post(
-                        f"{self._backend_url}/process-batch",
-                        files=payload,
-                        data=data,
-                    )
-                    try:
-                        return response.json()
-                    except ValueError:
-                        response.raise_for_status()
-                        raise
-                except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-                    logger.warning("Backend unavailable, attempt %s", attempt + 1)
-                    if attempt < 2:
-                        await asyncio.sleep(1 + attempt)
-                        continue
-                    raise exc
 
     async def _handle_document(self, message: Message, document, filename: str | None) -> None:
         user_id = str(message.from_user.id) if message.from_user else None
@@ -563,12 +474,7 @@ class TelegramBotManager:
         await self._store_split_bytes(filename, content, user_id)
 
     async def _store_split_bytes(self, filename: str, content: bytes, user_id: str) -> None:
-        user_dir = self._split_dir / user_id
-        user_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-        safe_name = Path(filename).name
-        target = user_dir / f"{stamp}_{safe_name}"
-        target.write_bytes(content)
+        self._storage.store_split_bytes(user_id=user_id, filename=filename, content=content)
 
     async def _store_pending_file(self, document, filename: str, user_id: str) -> None:
         file = await self.bot.get_file(document.file_id)
@@ -577,33 +483,13 @@ class TelegramBotManager:
         await self._store_pending_bytes(filename, content, user_id)
 
     async def _store_pending_bytes(self, filename: str, content: bytes, user_id: str) -> None:
-        user_dir = self._pending_dir / user_id
-        user_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-        safe_name = Path(filename).name
-        target = user_dir / f"{stamp}_{safe_name}"
-        target.write_bytes(content)
+        self._storage.store_pending_bytes(user_id=user_id, filename=filename, content=content)
 
     def _collect_pending_files(self, user_id: str) -> list[tuple[str, bytes]]:
-        user_dir = self._pending_dir / user_id
-        if not user_dir.exists():
-            return []
-        files: list[tuple[str, bytes]] = []
-        for path in sorted(user_dir.glob("*")):
-            if path.is_file():
-                files.append((path.name, path.read_bytes()))
-        return files
+        return self._storage.collect_pending_files(user_id)
 
     def _clear_pending_dir(self, user_id: str) -> None:
-        user_dir = self._pending_dir / user_id
-        if not user_dir.exists():
-            return
-        for path in user_dir.glob("*"):
-            if path.is_file():
-                try:
-                    path.unlink()
-                except Exception:  # noqa: BLE001
-                    logger.exception("Failed to remove pending file")
+        self._storage.clear_pending_dir(user_id)
 
     async def _accept_pending_as_split(self, message: Message, user_id: str) -> None:
         files = self._collect_pending_files(user_id)
@@ -648,7 +534,8 @@ class TelegramBotManager:
             try:
                 await status_msg.edit_text("Файл на сервере. Идет обработка…")
                 self._log_status(user_id, "backend_sending", {"filename": name})
-                result = await self._send_to_backend(
+                result = await send_file_to_backend(
+                    self._backend_url,
                     name,
                     content,
                     user_id,
@@ -675,7 +562,7 @@ class TelegramBotManager:
             try:
                 await status_msg.edit_text(f"Файл {index}/{len(files)}. Отправляю на сервер…")
                 self._log_status(user_id, "backend_sending", {"filename": name, "index": index})
-                result = await self._send_to_backend(name, content, user_id, chat_id)
+                result = await send_file_to_backend(self._backend_url, name, content, user_id, chat_id)
                 await status_msg.edit_text(
                     f"Файл {index}/{len(files)} обработан.\n{self._format_response(result)}"
                 )
@@ -691,12 +578,8 @@ class TelegramBotManager:
                 self._log_status(user_id, "backend_error", {"filename": name, "index": index})
 
     async def _handle_pending_choice(self, message: Message, user_id: str) -> None:
+        """Явный UI: после каждого файла показываем кнопки действия."""
         files = self._collect_pending_files(user_id)
-
-        # Раньше здесь была жёсткая дедупликация по хэшу содержимого.
-        # Она мешала пользователю повторно отправлять файл, если он не
-        # получил понятный результат. Сейчас мы принимаем повтор и даём
-        # новый код заявки.
 
         if not settings.enable_split_mode:
             await self._process_pending_as_batch_chat(message.chat.id, user_id)
@@ -706,23 +589,17 @@ class TelegramBotManager:
             await message.answer("Нет ожидающих файлов.")
             return
 
-        # Новая логика pending:
-        # - при первом файле кладём его в pending и ждём немного (через
-        #   _auto_process_pending), не спрашивая режим;
-        # - как только файлов становится >= 2, показываем клавиатуру
-        #   "Объединить" / "Раздельно".
+        # Регистрируем пользователя в pending (без таймера)
         if user_id not in self._pending_users:
             self._pending_users.add(user_id)
             self._pending_chats[user_id] = message.chat.id
-            self._pending_tasks[user_id] = asyncio.create_task(
-                self._auto_process_pending(user_id)
-            )
 
         if len(files) == 1:
-            # Первый файл: просто ждём, может придут ещё файлы.
+            # Один файл — кнопка "Обработать" + возможность добавить ещё
+            await self._send_single_file_keyboard(message, user_id)
             return
 
-        # len(files) >= 2 → есть смысл спрашивать режим
+        # 2+ файлов — "Объединить" / "Раздельно"
         await self._send_mode_keyboard(message)
 
     async def _add_media_group_file(self, message: Message, user_id: str | None, filename: str, content: bytes) -> None:
@@ -756,7 +633,8 @@ class TelegramBotManager:
         )
         try:
             self._log_status(user_id or "unknown", "media_group_batch_sending", {"count": len(files)})
-            result = await self._send_batch_to_backend(
+            result = await send_batch_to_backend(
+                self._backend_url,
                 files,
                 user_id,
                 chat_id,
@@ -775,12 +653,29 @@ class TelegramBotManager:
         await status_msg.edit_text(self._format_response(result))
         self._log_status(user_id or "unknown", "media_group_batch_done", {"request_id": result.get("request_id")})
 
-    async def _send_mode_keyboard(self, message: Message) -> None:
-        text = "Выберите режим обработки (если не выбрать — через 30 сек будет 'Раздельно'):"
+    async def _send_single_file_keyboard(self, message: Message, user_id: str) -> None:
+        """Один файл в pending — показываем кнопку 'Обработать' и 'Ещё файл'."""
+        text = "📄 Файл получен. Что делаем?"
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Объединить", callback_data="mode:merge")],
-                [InlineKeyboardButton(text="Раздельно", callback_data="mode:multi")],
+                [InlineKeyboardButton(text="▶️ Обработать", callback_data="mode:process")],
+                [InlineKeyboardButton(text="📎 Добавить ещё", callback_data="mode:wait")],
+            ]
+        )
+        sent = await message.answer(text, reply_markup=keyboard)
+        self._pending_prompt[user_id] = sent.message_id
+
+    async def _send_mode_keyboard(self, message: Message) -> None:
+        """2+ файлов — показываем 'Объединить' / 'Раздельно' / 'Ещё файл'."""
+        files = self._collect_pending_files(
+            str(message.from_user.id) if message.from_user else ""
+        )
+        text = f"Получено файлов: {len(files)}. Выберите режим:"
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔗 Объединить", callback_data="mode:merge")],
+                [InlineKeyboardButton(text="📑 Раздельно", callback_data="mode:multi")],
+                [InlineKeyboardButton(text="📎 Добавить ещё", callback_data="mode:wait")],
             ]
         )
         user_id = str(message.from_user.id) if message.from_user else None
@@ -794,8 +689,6 @@ class TelegramBotManager:
                 )
                 return
             except Exception:  # noqa: BLE001
-                # Если сообщение "не изменилось" — это не критично, просто
-                # не логируем это как ошибку.
                 logger.debug("Pending prompt not modified for user_id=%s", user_id)
         sent = await message.answer(text, reply_markup=keyboard)
         if user_id:
@@ -807,79 +700,46 @@ class TelegramBotManager:
         user_id = str(query.from_user.id)
         data = (query.data or "").strip().lower()
         await query.answer()
+
+        # "Добавить ещё" — просто убираем клавиатуру, ждём следующий файл
+        if data == "mode:wait":
+            await query.message.edit_text("Ок, жду ещё файлы. Отправляйте.")
+            return
+
         if user_id not in self._pending_users:
             await query.message.answer(
                 "Нет ожидающих файлов. Отправьте файлы заново.\n"
                 "Код события: BOT_NO_PENDING"
             )
             return
+
+        # Отменяем старый таймер, если вдруг остался
         task = self._pending_tasks.pop(user_id, None)
         if task:
             task.cancel()
+
+        if data == "mode:process":
+            await query.message.edit_text("⏳ Отправляю на обработку…")
+            await self._process_pending_as_batch_chat(query.message.chat.id, user_id)
+            self._log_status(user_id, "mode_selected", {"mode": "process"})
+            return
         if data == "mode:merge":
+            await query.message.edit_text("⏳ Объединяю и отправляю…")
             await self._accept_pending_as_split(query.message, user_id)
             self._log_status(user_id, "mode_selected", {"mode": "merge"})
             return
         if data == "mode:multi":
+            await query.message.edit_text("⏳ Обрабатываю файлы раздельно…")
             await self._process_pending_as_batch_chat(query.message.chat.id, user_id)
             self._log_status(user_id, "mode_selected", {"mode": "multi"})
             return
         await query.message.answer("Неизвестный выбор. Используйте кнопки.")
 
-    async def _auto_process_pending(self, user_id: str) -> None:
-        # Небольшой таймаут: даём пользователю шанс отправить несколько
-        # файлов подряд. Если за это время не дошло до len(files) >= 2,
-        # просто обрабатываем одиночный файл как обычный.
-        await asyncio.sleep(5)
-        if user_id not in self._pending_users:
-            return
-        chat_id = self._pending_chats.get(user_id)
-        if not chat_id:
-            return
-        files = self._collect_pending_files(user_id)
-        if not files:
-            self._pending_users.discard(user_id)
-            self._pending_tasks.pop(user_id, None)
-            self._pending_prompt.pop(user_id, None)
-            return
-        if len(files) == 1:
-            await self.bot.send_message(
-                chat_id,
-                "Получен 1 файл. Обрабатываю его как отдельную накладную.",
-            )
-            await self._process_pending_as_batch_chat(chat_id, user_id)
-            self._pending_tasks.pop(user_id, None)
-            self._pending_prompt.pop(user_id, None)
-            return
-        await self.bot.send_message(
-            chat_id,
-            "Время ожидания истекло. Обрабатываю файлы раздельно.\n"
-            "Код события: BOT_PENDING_TIMEOUT",
-        )
-        await self._process_pending_as_batch_chat(chat_id, user_id)
-        self._pending_tasks.pop(user_id, None)
-        self._pending_prompt.pop(user_id, None)
-
     def _collect_split_files(self, user_id: str) -> list[tuple[str, bytes]]:
-        user_dir = self._split_dir / user_id
-        if not user_dir.exists():
-            return []
-        files: list[tuple[str, bytes]] = []
-        for path in sorted(user_dir.glob("*")):
-            if path.is_file():
-                files.append((path.name, path.read_bytes()))
-        return files
+        return self._storage.collect_split_files(user_id)
 
     def _clear_split_dir(self, user_id: str) -> None:
-        user_dir = self._split_dir / user_id
-        if not user_dir.exists():
-            return
-        for path in user_dir.glob("*"):
-            if path.is_file():
-                try:
-                    path.unlink()
-                except Exception:  # noqa: BLE001
-                    logger.exception("Failed to remove split file")
+        self._storage.clear_split_dir(user_id)
 
     def _log_status(self, user_id: str, event: str, extra: dict | None = None) -> None:
         payload = {

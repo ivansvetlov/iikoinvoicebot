@@ -46,10 +46,10 @@ def short_request_code(request_id: str | None) -> str | None:
 def format_user_response(payload: dict[str, Any]) -> str:
     """Форматирует сообщение для Telegram.
 
-    Держим формат максимально простым:
-    - первая строка: что произошло
-    - дальше: важные детали (если есть)
-    - последняя строка: короткий код заявки
+    Структура:
+    - первая строка: краткий статус;
+    - блок с деталями (сообщение, позиции, iiko, предупреждения);
+    - последняя строка: короткий код заявки.
     """
 
     status = payload.get("status")
@@ -57,7 +57,7 @@ def format_user_response(payload: dict[str, Any]) -> str:
     warnings = parsed.get("warnings") or []
     items = parsed.get("items") or []
 
-    message = payload.get("message")
+    message = (payload.get("message") or "").strip()
     error_code = payload.get("error_code")
     request_id = payload.get("request_id")
     code = short_request_code(request_id)
@@ -66,6 +66,7 @@ def format_user_response(payload: dict[str, Any]) -> str:
 
     lines: list[str] = []
 
+    # Статус
     if status == "queued":
         lines.append("Принято. Идёт обработка — результат пришлю позже.")
     elif status == "ok":
@@ -77,20 +78,21 @@ def format_user_response(payload: dict[str, Any]) -> str:
 
     # Основной текст от backend (если есть)
     if message:
-        # Не дублируем, если первая строка уже очень похожа на message.
-        if message.strip() not in lines:
-            lines.append(message.strip())
+        if message not in lines:
+            lines.append("")
+            lines.append(message)
 
-    # Позиции
+    # Детали успешной обработки
     if status == "ok":
-        lines.append(f"Позиции: {len(items)}")
+        lines.append("")
+        lines.append(f"Распознано позиций: {len(items)}")
 
-    # iiko
-    if status == "ok" and iiko_uploaded:
-        lines.append("iiko: загружено")
+        if iiko_uploaded:
+            lines.append("iiko: загружено.")
 
     # Предупреждения
     if warnings:
+        lines.append("")
         lines.append("Предупреждения: " + "; ".join([str(w) for w in warnings[:2]]))
 
     # Подсказки по error_code (только для ошибок)
@@ -101,20 +103,31 @@ def format_user_response(payload: dict[str, Any]) -> str:
             "bad_docx": "DOCX повреждён. Попробуйте пересохранить файл и отправить снова.",
             "empty_file": "Похоже, файл пустой. Проверьте и отправьте снова.",
             "file_too_large": f"Сожмите файл. Максимум {settings.max_upload_mb} MB.",
-            "not_invoice": "Проверьте, что это накладная/УПД/ТОРГ-12 и видно таблицу позиций.",
+            "not_invoice": (
+                "Проверьте, что это накладная, УПД или ТОРГ‑12, "
+                "и что видно таблицу с позициями (строки и колонки)."
+            ),
             "llm_timeout": "Распознавание отвечает медленно. Попробуйте через минуту.",
             "llm_unavailable": "Распознавание временно недоступно. Попробуйте позже.",
-            "llm_bad_response": "Распознавание вернуло неполный/некорректный ответ. Попробуйте PDF или фото целиком.",
-            "llm_garbage": "Распознавание «зациклилось» (много повторов/нулей). Попробуйте фото целиком или PDF.",
+            "llm_bad_response": (
+                "Распознавание вернуло неполный или некорректный ответ. "
+                "Попробуйте отправить цельный PDF или одно фото накладной."
+            ),
+            "llm_garbage": (
+                "Распознавание «зациклилось» (много повторов или нулей). "
+                "Попробуйте одно ровное фото или PDF с цельной таблицей."
+            ),
             "iiko_auth_missing": "Нажмите /start и введите логин/пароль iiko.",
             "iiko_upload_failed": "Не удалось загрузить в iiko. Попробуйте позже.",
         }
         hint = hints.get(str(error_code))
         if hint and (not message or hint not in message):
+            lines.append("")
             lines.append(hint)
 
-    # Последняя линия: код
+    # Последняя линия: код заявки
     if code:
+        lines.append("")
         lines.append(f"Код заявки: {code}")
 
     return "\n".join(lines).strip()
