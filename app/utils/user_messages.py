@@ -136,3 +136,64 @@ def format_user_response(payload: dict[str, Any]) -> str:
         lines.append(f"Код заявки: {code}")
 
     return "\n".join(lines).strip()
+
+
+def format_invoice_markdown(
+    payload: dict[str, Any],
+    overrides: dict[str, str] | None = None,
+    items_override: list[dict[str, Any]] | None = None,
+) -> str:
+    """Форматирует успешный ответ по накладной в человекочитаемый вид."""
+
+    overrides = overrides or {}
+    parsed = payload.get("parsed") or {}
+    items = items_override or parsed.get("items") or payload.get("items") or []
+
+    supplier = overrides.get("supplier") or parsed.get("vendor_name") or "—"
+    consignee = overrides.get("consignee") or "—"
+    delivery = overrides.get("delivery_address") or "—"
+    date = overrides.get("invoice_date") or parsed.get("invoice_date") or "—"
+    number = overrides.get("invoice_number") or parsed.get("invoice_number") or "—"
+
+    lines: list[str] = [
+        "📄 Распознанная накладная",
+        "",
+        f"📦 Поставщик: {supplier}",
+        f"🏢 Грузополучатель: {consignee}",
+        f"📍 Адрес доставки: {delivery}",
+        f"📅 Дата: {date}",
+        f"📋 Номер накладной: {number}",
+        "",
+        "Товары:",
+    ]
+
+    total_vat = 0.0
+    total_sum = 0.0
+
+    def _to_float(value: Any) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return 0.0
+
+    for index, item in enumerate(items, start=1):
+        name = item.get("name") or "—"
+        qty = item.get("unit_amount") or "—"
+        price = item.get("unit_price") or "—"
+        total = item.get("cost_with_tax") or item.get("total_cost") or "—"
+        vat = item.get("tax_amount") or "—"
+
+        total_sum += _to_float(total)
+        total_vat += _to_float(vat)
+
+        lines.append(f"{index}. {name}")
+        lines.append(f"- Кол-во: {qty}")
+        lines.append(f"- Цена: {price} ₽")
+        lines.append(f"- Сумма с НДС: {total} ₽ (НДС: {vat} ₽)")
+        lines.append("")
+
+    lines.append("──────────")
+    lines.append(f"📊 Сумма НДС: {round(total_vat, 2)} ₽")
+    lines.append(f"💰 ИТОГО с НДС: {round(total_sum, 2)} ₽")
+
+    return "\n".join(lines).strip()

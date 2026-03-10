@@ -19,14 +19,16 @@ import httpx
 from app.config import settings
 from app.services.pipeline import InvoicePipelineService
 from app.task_store import mark_done, mark_error, mark_processing
-from app.utils.user_messages import format_user_response
+from app.utils.user_messages import format_user_response, format_invoice_markdown
 
 
-def _send_telegram_message(chat_id: int, text: str) -> None:
+def _send_telegram_message(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
     if not settings.telegram_bot_token:
         return
     url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     try:
         httpx.post(url, json=payload, timeout=20)
     except Exception:
@@ -34,11 +36,18 @@ def _send_telegram_message(chat_id: int, text: str) -> None:
         return
 
 
-def _edit_telegram_message(chat_id: int, message_id: int, text: str) -> bool:
+def _edit_telegram_message(
+    chat_id: int,
+    message_id: int,
+    text: str,
+    reply_markup: dict | None = None,
+) -> bool:
     if not settings.telegram_bot_token:
         return False
     url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/editMessageText"
     payload = {"chat_id": chat_id, "message_id": message_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     try:
         httpx.post(url, json=payload, timeout=20)
         return True
@@ -130,11 +139,15 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
 
     if chat_id:
         text = _format_response(result_payload)
+        reply_markup = None
+        if result_payload.get("status") == "ok":
+            text = format_invoice_markdown(result_payload)
+            reply_markup = _build_invoice_actions(result_payload.get("request_id"))
         if status_message_id:
-            if not _edit_telegram_message(chat_id, status_message_id, text):
-                _send_telegram_message(chat_id, text)
+            if not _edit_telegram_message(chat_id, status_message_id, text, reply_markup):
+                _send_telegram_message(chat_id, text, reply_markup)
         else:
-            _send_telegram_message(chat_id, text)
+            _send_telegram_message(chat_id, text, reply_markup)
     return result_payload
 
 
@@ -142,3 +155,18 @@ def _format_response(payload: dict[str, Any]) -> str:
     # Используем единый формат для бота и воркера.
     return format_user_response(payload)
 
+
+def _build_invoice_actions(request_id: str | None) -> dict | None:
+    if not request_id:
+        return None
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "✏ Редактировать", "callback_data": f"inv:edit:{request_id}"},
+                {"text": "✅ Отправить в iiko", "callback_data": f"inv:send:{request_id}"},
+            ],
+            [
+                {"text": "✖ Отмена", "callback_data": f"inv:cancel:{request_id}"},
+            ],
+        ]
+    }

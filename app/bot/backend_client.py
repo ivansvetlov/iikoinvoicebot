@@ -21,6 +21,7 @@ async def send_file_to_backend(
     user_id: str | None,
     chat_id: int | None,
     status_message_id: int | None = None,
+    push_to_iiko_override: bool | None = None,
 ) -> dict:
     """Отправляет один файл в backend и возвращает JSON-ответ."""
     logger.info("Sending file to backend: %s", filename)
@@ -28,8 +29,9 @@ async def send_file_to_backend(
     async with httpx.AsyncClient(timeout=300) as client:
         for attempt in range(3):
             try:
+                push_to_iiko = settings.push_to_iiko if push_to_iiko_override is None else push_to_iiko_override
                 data: dict[str, str] = {
-                    "push_to_iiko": "true" if settings.push_to_iiko else "false",
+                    "push_to_iiko": "true" if push_to_iiko else "false",
                 }
                 if user_id:
                     data["user_id"] = user_id
@@ -86,6 +88,7 @@ async def send_batch_to_backend(
     user_id: str | None,
     chat_id: int | None,
     status_message_id: int | None = None,
+    push_to_iiko_override: bool | None = None,
 ) -> dict:
     """Отправляет несколько файлов одной накладной в backend."""
     files = list(files)
@@ -94,8 +97,9 @@ async def send_batch_to_backend(
     async with httpx.AsyncClient(timeout=300) as client:
         for attempt in range(3):
             try:
+                push_to_iiko = settings.push_to_iiko if push_to_iiko_override is None else push_to_iiko_override
                 data: dict[str, str] = {
-                    "push_to_iiko": "true" if settings.push_to_iiko else "false",
+                    "push_to_iiko": "true" if push_to_iiko else "false",
                 }
                 if user_id:
                     data["user_id"] = user_id

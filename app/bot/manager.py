@@ -6,6 +6,8 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Any
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
@@ -29,7 +31,7 @@ from app.services.user_store import (
     set_iiko_credentials,
     set_pdf_mode,
 )
-from app.utils.user_messages import format_user_response
+from app.utils.user_messages import format_user_response, format_invoice_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,7 @@ class TelegramBotManager:
         self._media_group_tasks: dict[str, asyncio.Task] = {}
         self._rate_limits: dict[str, list[datetime]] = {}
         self._recent_hashes: dict[str, dict[str, datetime]] = {}
+        self._edit_state: dict[str, EditState] = {}
         logger.info("Bot manager initialized")
         self._storage.cleanup_old()
 
@@ -185,6 +188,8 @@ class TelegramBotManager:
             return
 
         user_id = str(message.from_user.id)
+        if await self._handle_edit_text(message, user_id):
+            return
         if user_id in self._pending_users:
             text = (message.text or "").strip().lower()
             if text in {"merge", "объединить", "с"}:
@@ -697,6 +702,12 @@ class TelegramBotManager:
         if data.startswith("pdf:"):
             await self._handle_pdf_choice(query, data)
             return
+        if data.startswith("inv:"):
+            await self._handle_invoice_actions(query, data)
+            return
+        if data.startswith("edit:"):
+            await self._handle_edit_actions(query, data)
+            return
 
         # "Добавить ещё" — просто убираем клавиатуру, ждём следующий файл
         if data == "mode:wait":
@@ -737,6 +748,287 @@ class TelegramBotManager:
             self._log_status(user_id, "mode_selected", {"mode": "merge"})
             return
         await query.message.answer("Неизвестный выбор. Используйте кнопки.")
+
+    async def _handle_invoice_actions(self, query: CallbackQuery, data: str) -> None:
+        if not query.from_user:
+            return
+        user_id = str(query.from_user.id)
+        parts = data.split(":", 2)
+        if len(parts) < 3:
+            await query.answer("Некорректная команда")
+            return
+        action, request_id = parts[1], parts[2]
+        await query.answer()
+
+        if action == "cancel":
+            await query.message.edit_text("Отменено.", reply_markup=None)
+            self._edit_state.pop(user_id, None)
+            return
+
+        if action == "edit":
+            payload = self._load_request_payload(request_id)
+            if not payload:
+                await query.message.answer("Не нашёл данные по заявке.")
+                return
+            state = EditState(request_id=request_id, payload=payload)
+            self._edit_state[user_id] = state
+            await self._show_edit_menu(query.message, state)
+            return
+
+        if action == "send":
+            await self._send_to_iiko(query.message, request_id)
+            return
+
+    async def _handle_edit_actions(self, query: CallbackQuery, data: str) -> None:
+        if not query.from_user:
+            return
+        user_id = str(query.from_user.id)
+        state = self._edit_state.get(user_id)
+        if not state:
+            await query.message.answer("Нет активного редактирования.")
+            return
+        await query.answer()
+
+        parts = data.split(":")
+        if len(parts) < 2:
+            return
+        action = parts[1]
+
+        if action == "menu":
+            await self._show_edit_menu(query.message, state)
+            return
+        if action == "info":
+            await self._show_info_fields(query.message, state)
+            return
+        if action == "items":
+            await self._show_items_list(query.message, state)
+            return
+        if action == "done":
+            await self._show_final_response(query.message, state)
+            return
+        if action == "cancel":
+            self._edit_state.pop(user_id, None)
+            await query.message.edit_text("Редактирование отменено.", reply_markup=None)
+            return
+        if action == "field" and len(parts) == 3:
+            field = parts[2]
+            state.mode = "info"
+            state.awaiting = field
+            await query.message.edit_text(
+                f"Введите значение для поля: {INFO_FIELDS.get(field, field)}",
+                reply_markup=self._cancel_keyboard(),
+            )
+            return
+        if action == "item" and len(parts) == 3:
+            index = int(parts[2])
+            state.mode = "item"
+            state.item_index = index
+            await self._show_item_fields(query.message, state)
+            return
+        if action == "itemfield" and len(parts) == 3:
+            field = parts[2]
+            state.mode = "itemfield"
+            state.awaiting = field
+            await query.message.edit_text(
+                f"Введите новое значение для поля: {ITEM_FIELDS.get(field, field)}",
+                reply_markup=self._cancel_keyboard(),
+            )
+            return
+
+    async def _handle_edit_text(self, message: Message, user_id: str) -> bool:
+        state = self._edit_state.get(user_id)
+        if not state or not state.awaiting:
+            return False
+        text = (message.text or "").strip()
+        if not text:
+            return False
+
+        if state.mode == "info":
+            state.overrides[state.awaiting] = text
+            state.awaiting = None
+            await self._show_info_fields(message, state)
+            return True
+        if state.mode == "itemfield" and state.item_index is not None:
+            items = state.items
+            if 0 <= state.item_index < len(items):
+                items[state.item_index][state.awaiting] = text
+            state.awaiting = None
+            await self._show_item_fields(message, state)
+            return True
+        return False
+
+    async def _show_edit_menu(self, message: Message, state: EditState) -> None:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🧾 Редактировать информацию", callback_data="edit:info"),
+                ],
+                [
+                    InlineKeyboardButton(text="📦 Редактировать товары", callback_data="edit:items"),
+                ],
+                [
+                    InlineKeyboardButton(text="✅ Готово", callback_data="edit:done"),
+                    InlineKeyboardButton(text="✖ Отмена", callback_data="edit:cancel"),
+                ],
+            ]
+        )
+        await self._reply(message, "Что редактируем?", reply_markup=keyboard)
+
+    async def _show_info_fields(self, message: Message, state: EditState) -> None:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="Поставщик", callback_data="edit:field:supplier"),
+                    InlineKeyboardButton(text="Грузополучатель", callback_data="edit:field:consignee"),
+                ],
+                [
+                    InlineKeyboardButton(text="Адрес доставки", callback_data="edit:field:delivery_address"),
+                ],
+                [
+                    InlineKeyboardButton(text="Дата", callback_data="edit:field:invoice_date"),
+                    InlineKeyboardButton(text="Номер", callback_data="edit:field:invoice_number"),
+                ],
+                [
+                    InlineKeyboardButton(text="◀ Назад", callback_data="edit:menu"),
+                    InlineKeyboardButton(text="✖ Отмена", callback_data="edit:cancel"),
+                ],
+            ]
+        )
+        await self._reply(message, "Выберите поле для изменения:", reply_markup=keyboard)
+
+    async def _show_items_list(self, message: Message, state: EditState) -> None:
+        buttons: list[list[InlineKeyboardButton]] = []
+        for idx, item in enumerate(state.items[:10], start=1):
+            title = item.get("name") or f"Позиция {idx}"
+            buttons.append([InlineKeyboardButton(text=f"{idx}. {title[:32]}", callback_data=f"edit:item:{idx-1}")])
+        buttons.append(
+            [
+                InlineKeyboardButton(text="◀ Назад", callback_data="edit:menu"),
+                InlineKeyboardButton(text="✖ Отмена", callback_data="edit:cancel"),
+            ]
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await self._reply(message, "Выберите товар для изменения:", reply_markup=keyboard)
+
+    async def _show_item_fields(self, message: Message, state: EditState) -> None:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="Название", callback_data="edit:itemfield:name"),
+                ],
+                [
+                    InlineKeyboardButton(text="Кол-во", callback_data="edit:itemfield:unit_amount"),
+                    InlineKeyboardButton(text="Цена", callback_data="edit:itemfield:unit_price"),
+                ],
+                [
+                    InlineKeyboardButton(text="Сумма с НДС", callback_data="edit:itemfield:cost_with_tax"),
+                    InlineKeyboardButton(text="НДС", callback_data="edit:itemfield:tax_amount"),
+                ],
+                [
+                    InlineKeyboardButton(text="◀ Назад", callback_data="edit:items"),
+                    InlineKeyboardButton(text="✖ Отмена", callback_data="edit:cancel"),
+                ],
+            ]
+        )
+        await self._reply(message, "Выберите поле товара:", reply_markup=keyboard)
+
+    async def _show_final_response(self, message: Message, state: EditState) -> None:
+        text = format_invoice_markdown(
+            state.payload,
+            overrides=state.overrides,
+            items_override=state.items,
+        )
+        await self._reply(message, text, reply_markup=self._invoice_actions(state.request_id))
+
+    async def _reply(
+        self,
+        message: Message,
+        text: str,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> None:
+        try:
+            await message.edit_text(text, reply_markup=reply_markup)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+        await message.answer(text, reply_markup=reply_markup)
+
+    def _invoice_actions(self, request_id: str) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✏ Редактировать", callback_data=f"inv:edit:{request_id}"),
+                    InlineKeyboardButton(text="✅ Отправить в iiko", callback_data=f"inv:send:{request_id}"),
+                ],
+                [
+                    InlineKeyboardButton(text="✖ Отмена", callback_data=f"inv:cancel:{request_id}"),
+                ],
+            ]
+        )
+
+    def _cancel_keyboard(self) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="✖ Отмена", callback_data="edit:cancel")]]
+        )
+
+    async def _send_to_iiko(self, message: Message, request_id: str) -> None:
+        payload_path = Path(__file__).resolve().parents[2] / "data" / "jobs" / request_id / "payload.json"
+        if not payload_path.exists():
+            await message.edit_text("Не нашёл исходные файлы для отправки.", reply_markup=None)
+            return
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        files = payload.get("files")
+        filename = payload.get("filename")
+        file_path = payload.get("file_path")
+        user_id = payload.get("user_id")
+        chat_id = payload.get("chat_id")
+        status_message_id = payload.get("status_message_id")
+
+        try:
+            if files:
+                batch: list[tuple[str, bytes]] = []
+                for name, path in files:
+                    batch.append((name, Path(path).read_bytes()))
+                result = await send_batch_to_backend(
+                    self._backend_url,
+                    batch,
+                    user_id,
+                    chat_id,
+                    status_message_id=status_message_id,
+                    push_to_iiko_override=True,
+                )
+            else:
+                if not filename or not file_path:
+                    await message.edit_text("Файл не найден для отправки.", reply_markup=None)
+                    return
+                result = await send_file_to_backend(
+                    self._backend_url,
+                    filename,
+                    Path(file_path).read_bytes(),
+                    user_id,
+                    chat_id,
+                    status_message_id=status_message_id,
+                    push_to_iiko_override=True,
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to send to iiko")
+            await message.edit_text("Не удалось отправить в iiko.", reply_markup=None)
+            return
+
+        if result.get("status") == "ok" and result.get("iiko_uploaded"):
+            await message.edit_text("✅ Успешно отправлено в iiko.", reply_markup=None)
+            return
+        await message.edit_text("Не удалось отправить в iiko.", reply_markup=None)
+
+    def _load_request_payload(self, request_id: str) -> dict[str, Any] | None:
+        path = Path(__file__).resolve().parents[2] / "logs" / "requests" / f"{request_id}.json"
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
 
     async def _handle_pdf_mode_choice(self, message: Message, user_id: str) -> None:
         """Показывает выбор режима PDF перед обработкой."""
@@ -1011,3 +1303,36 @@ class TelegramBotManager:
         """
 
         return format_user_response(payload)
+
+
+@dataclass
+class EditState:
+    request_id: str
+    payload: dict[str, Any]
+    overrides: dict[str, str] = None
+    items: list[dict[str, Any]] = None
+    mode: str | None = None
+    awaiting: str | None = None
+    item_index: int | None = None
+
+    def __post_init__(self) -> None:
+        self.overrides = self.overrides or {}
+        parsed = self.payload.get("parsed") or {}
+        self.items = self.items or list(parsed.get("items") or self.payload.get("items") or [])
+
+
+INFO_FIELDS = {
+    "supplier": "Поставщик",
+    "consignee": "Грузополучатель",
+    "delivery_address": "Адрес доставки",
+    "invoice_date": "Дата",
+    "invoice_number": "Номер",
+}
+
+ITEM_FIELDS = {
+    "name": "Название",
+    "unit_amount": "Кол-во",
+    "unit_price": "Цена",
+    "cost_with_tax": "Сумма с НДС",
+    "tax_amount": "НДС",
+}
