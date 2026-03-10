@@ -654,15 +654,9 @@ class TelegramBotManager:
         )
         if user_id in self._pending_prompt:
             try:
-                await self.bot.edit_message_text(
-                    text=text,
-                    chat_id=chat_id,
-                    message_id=self._pending_prompt[user_id],
-                    reply_markup=keyboard,
-                )
-                return
+                await self.bot.delete_message(chat_id=chat_id, message_id=self._pending_prompt[user_id])
             except Exception:  # noqa: BLE001
-                logger.debug("Pending prompt not modified for user_id=%s", user_id)
+                logger.debug("Failed to delete pending prompt for user_id=%s", user_id)
         sent = await self.bot.send_message(chat_id, text, reply_markup=keyboard)
         self._pending_prompt[user_id] = sent.message_id
 
@@ -759,13 +753,7 @@ class TelegramBotManager:
         message_id = self._split_prompt.get(user_id)
         if message_id:
             try:
-                await self.bot.edit_message_text(
-                    text=text,
-                    chat_id=message.chat.id,
-                    message_id=message_id,
-                    reply_markup=keyboard,
-                )
-                return
+                await self.bot.delete_message(chat_id=message.chat.id, message_id=message_id)
             except Exception:  # noqa: BLE001
                 logger.debug("Split prompt not modified for user_id=%s", user_id)
         sent = await message.answer(text, reply_markup=keyboard)
