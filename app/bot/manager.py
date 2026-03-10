@@ -78,8 +78,7 @@ class TelegramBotManager:
         try:
             await self.bot.set_my_commands(
                 [
-                    BotCommand(command="start", description="Запуск и авторизация"),
-                    BotCommand(command="mode", description="Режим PDF: fast/accurate"),
+                    BotCommand(command="start", description="Перезапуск и авторизация"),
                 ]
             )
         except Exception:  # noqa: BLE001
@@ -147,9 +146,8 @@ class TelegramBotManager:
             await message.answer(
                 "Режим обработки PDF:\n"
                 f"Сейчас: {current}\n"
-                "fast — быстрее и дешевле, но может пропускать строки.\n"
-                "accurate — точнее, но медленнее и дороже.\n"
-                "Можно использовать кнопки ниже.",
+                "fast — быстрее, для четких файлов.\n"
+                "accurate — точнее, для сложных случаев\n",
                 reply_markup=keyboard,
             )
             return
@@ -313,6 +311,9 @@ class TelegramBotManager:
             return
         await self._store_pending_file(document, filename or "invoice.bin", user_id)
         self._log_status(user_id, "pending_file_added", {"filename": filename})
+        if filename and filename.lower().endswith(".pdf"):
+            await self._handle_pdf_mode_choice(message, user_id)
+            return
         await self._handle_pending_choice(message, user_id)
 
     async def _handle_photo(self, message: Message, photo_list) -> None:
@@ -693,6 +694,10 @@ class TelegramBotManager:
             await self._handle_split_choice(query, data)
             return
 
+        if data.startswith("pdf:"):
+            await self._handle_pdf_choice(query, data)
+            return
+
         # "Добавить ещё" — просто убираем клавиатуру, ждём следующий файл
         if data == "mode:wait":
             await query.message.edit_text("Ок, жду ещё файлы. Отправляйте.")
@@ -732,6 +737,56 @@ class TelegramBotManager:
             self._log_status(user_id, "mode_selected", {"mode": "merge"})
             return
         await query.message.answer("Неизвестный выбор. Используйте кнопки.")
+
+    async def _handle_pdf_mode_choice(self, message: Message, user_id: str) -> None:
+        """Показывает выбор режима PDF перед обработкой."""
+        current = get_pdf_mode(user_id)
+        text = f"Режим PDF: {current}. Выберите, как обрабатывать этот PDF:"
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="⚡ fast", callback_data="pdf:fast")],
+                [InlineKeyboardButton(text="🎯 accurate", callback_data="pdf:accurate")],
+                [InlineKeyboardButton(text="▶️ Продолжить", callback_data="pdf:process")],
+            ]
+        )
+        sent = await message.answer(text, reply_markup=keyboard)
+        self._pending_prompt[user_id] = sent.message_id
+
+    async def _handle_pdf_choice(self, query: CallbackQuery, data: str) -> None:
+        if not query.from_user:
+            return
+        user_id = str(query.from_user.id)
+        await query.answer()
+
+        if user_id not in self._pending_users:
+            await query.message.answer("Нет ожидающих файлов. Отправьте файл заново.")
+            return
+
+        if data == "pdf:fast":
+            set_pdf_mode(user_id, "fast")
+            await query.message.edit_text("Режим PDF установлен: fast.")
+            await self._process_pending_as_batch_chat(
+                query.message.chat.id,
+                user_id,
+                status_message=query.message,
+            )
+            return
+        if data == "pdf:accurate":
+            set_pdf_mode(user_id, "accurate")
+            await query.message.edit_text("Режим PDF установлен: accurate.")
+            await self._process_pending_as_batch_chat(
+                query.message.chat.id,
+                user_id,
+                status_message=query.message,
+            )
+            return
+        if data == "pdf:process":
+            await self._process_pending_as_batch_chat(
+                query.message.chat.id,
+                user_id,
+                status_message=query.message,
+            )
+            return
 
     async def _handle_split_choice(self, query: CallbackQuery, data: str) -> None:
         """Обрабатывает кнопки split-режима."""
