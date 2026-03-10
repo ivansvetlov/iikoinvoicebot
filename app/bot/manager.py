@@ -135,15 +135,22 @@ class TelegramBotManager:
         text = (message.text or "").strip().lower()
         parts = text.split()
 
-        # Только /mode — показать текущий режим и подсказки.
+        # Только /mode — показать текущий режим и кнопки выбора.
         if len(parts) == 1:
             current = get_pdf_mode(user_id)
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="⚡ fast", callback_data="mode_fast")],
+                    [InlineKeyboardButton(text="🎯 accurate", callback_data="mode_accurate")],
+                ]
+            )
             await message.answer(
                 "Режим обработки PDF:\n"
                 f"Сейчас: {current}\n"
                 "fast — быстрее и дешевле, но может пропускать строки.\n"
                 "accurate — точнее, но медленнее и дороже.\n"
-                "Можно использовать: /mode fast или /mode accurate."
+                "Можно использовать кнопки ниже.",
+                reply_markup=keyboard,
             )
             return
 
