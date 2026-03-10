@@ -15,6 +15,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
     Message,
+    BotCommand,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
@@ -69,7 +70,20 @@ class TelegramBotManager:
         """Запускает polling-цикл бота."""
         logger.info("Starting bot polling")
         logger.info("✅ Bot ready, polling started")
+        await self._set_visible_commands()
         await self.dp.start_polling(self.bot)
+
+    async def _set_visible_commands(self) -> None:
+        """Оставляем в списке команд только /start и /mode."""
+        try:
+            await self.bot.set_my_commands(
+                [
+                    BotCommand(command="start", description="Запуск и авторизация"),
+                    BotCommand(command="mode", description="Режим PDF: fast/accurate"),
+                ]
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to set bot commands")
 
     def _register_handlers(self) -> None:
         """Регистрирует обработчики сообщений."""
