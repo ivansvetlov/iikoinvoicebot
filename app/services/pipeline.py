@@ -31,6 +31,7 @@ REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
 USERS_DIR = REQUESTS_DIR / "users"
 USERS_DIR.mkdir(parents=True, exist_ok=True)
 LLM_COSTS_LOG = Path(__file__).resolve().parents[2] / "logs" / "llm_costs.csv"
+LLM_COSTS_SUMMARY = Path(__file__).resolve().parents[2] / "logs" / "llm_costs_summary.json"
 MAX_TEXT_HINT_CHARS = 12000
 PDF_IMAGE_RESOLUTION = 200
 PDF_SPLIT_HEIGHT_THRESHOLD = 1600
@@ -323,8 +324,45 @@ class InvoicePipelineService:
                 if need_header:
                     handle.write(header + "\n")
                 handle.write(",".join(row) + "\n")
+
+            self._update_cost_summary(cost)
         except Exception:  # noqa: BLE001
             logger.exception("Failed to append LLM cost log", extra={"request_id": request_id})
+
+    def _update_cost_summary(self, cost: dict[str, Any]) -> None:
+        """Обновляет небольшой summary-файл с итогами (без пересчёта всего CSV)."""
+
+        try:
+            LLM_COSTS_SUMMARY.parent.mkdir(parents=True, exist_ok=True)
+            summary: dict[str, Any] = {}
+            if LLM_COSTS_SUMMARY.exists():
+                try:
+                    summary = json.loads(LLM_COSTS_SUMMARY.read_text(encoding="utf-8"))
+                except Exception:
+                    summary = {}
+
+            total_usd = float(summary.get("total_usd") or 0.0)
+            rows = int(summary.get("rows") or 0)
+            added = float(cost.get("total_cost_usd") or 0.0)
+            total_usd += added
+            rows += 1
+
+            rate = self._get_usd_rub_rate()
+            total_rub = round(total_usd * rate, 2) if rate else None
+
+            payload = {
+                "total_usd": round(total_usd, 6),
+                "total_rub": total_rub,
+                "rate": round(rate, 4) if rate else None,
+                "rows": rows,
+                "updated_at": datetime.now().isoformat(timespec="seconds"),
+            }
+
+            tmp_path = LLM_COSTS_SUMMARY.with_suffix(".tmp")
+            tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp_path.replace(LLM_COSTS_SUMMARY)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to update LLM cost summary")
 
     def _get_usd_rub_rate(self) -> float:
         cached = USD_RUB_RATE_CACHE.get("rate")
