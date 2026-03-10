@@ -100,7 +100,8 @@ def format_user_response(payload: dict[str, Any]) -> str:
         lines.append("Предупреждения: " + "; ".join([str(w) for w in warnings[:2]]))
 
     # Подсказки по error_code (только для ошибок)
-    if status == "error" and error_code:
+    # Если backend уже прислал текст ошибки, не дублируем подсказку.
+    if status == "error" and error_code and not message:
         hints = {
             "unsupported_format": "Поддерживаемые форматы: фото (JPG/PNG), PDF, DOCX.",
             "bad_pdf": "PDF повреждён. Попробуйте пересохранить файл и отправить снова.",
@@ -125,7 +126,7 @@ def format_user_response(payload: dict[str, Any]) -> str:
             "iiko_upload_failed": "Не удалось загрузить в iiko. Попробуйте позже.",
         }
         hint = hints.get(str(error_code))
-        if hint and (not message or hint not in message):
+        if hint:
             lines.append("")
             lines.append(hint)
 
