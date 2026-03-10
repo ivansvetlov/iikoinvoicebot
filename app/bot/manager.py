@@ -515,7 +515,12 @@ class TelegramBotManager:
     async def _process_pending_as_batch(self, message: Message, user_id: str) -> None:
         await self._process_pending_as_batch_chat(message.chat.id, user_id)
 
-    async def _process_pending_as_batch_chat(self, chat_id: int, user_id: str) -> None:
+    async def _process_pending_as_batch_chat(
+        self,
+        chat_id: int,
+        user_id: str,
+        status_message: Message | None = None,
+    ) -> None:
         files = self._collect_pending_files(user_id)
         if not files:
             await self.bot.send_message(chat_id, "Нет ожидающих файлов.")
@@ -530,7 +535,14 @@ class TelegramBotManager:
 
         if len(files) == 1:
             name, content = files[0]
-            status_msg = await self.bot.send_message(chat_id, "Файл получен. Отправляю на сервер…")
+            status_msg = status_message
+            if status_msg:
+                try:
+                    await status_msg.edit_text("Файл получен. Отправляю на сервер…")
+                except Exception:  # noqa: BLE001
+                    status_msg = None
+            if status_msg is None:
+                status_msg = await self.bot.send_message(chat_id, "Файл получен. Отправляю на сервер…")
             try:
                 await status_msg.edit_text("Файл на сервере. Идет обработка…")
                 self._log_status(user_id, "backend_sending", {"filename": name})
@@ -719,8 +731,11 @@ class TelegramBotManager:
             task.cancel()
 
         if data == "mode:process":
-            await query.message.edit_text("⏳ Отправляю на обработку…")
-            await self._process_pending_as_batch_chat(query.message.chat.id, user_id)
+            await self._process_pending_as_batch_chat(
+                query.message.chat.id,
+                user_id,
+                status_message=query.message,
+            )
             self._log_status(user_id, "mode_selected", {"mode": "process"})
             return
         if data == "mode:merge":

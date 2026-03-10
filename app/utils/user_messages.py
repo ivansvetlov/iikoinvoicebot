@@ -68,7 +68,11 @@ def format_user_response(payload: dict[str, Any]) -> str:
 
     # Статус
     if status == "queued":
-        lines.append("Принято. Идёт обработка — результат пришлю позже.")
+        if message:
+            lines.append(message)
+            message = ""
+        else:
+            lines.append("Принято. Идёт обработка — результат пришлю позже.")
     elif status == "ok":
         lines.append("Готово.")
     elif status == "error":
