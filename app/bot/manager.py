@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
@@ -32,6 +32,9 @@ from app.services.user_store import (
     set_pdf_mode,
 )
 from app.utils.user_messages import format_user_response, format_invoice_markdown
+
+if TYPE_CHECKING:
+    from app.bot.manager import EditState
 
 logger = logging.getLogger(__name__)
 
@@ -857,7 +860,7 @@ class TelegramBotManager:
             return True
         return False
 
-    async def _show_edit_menu(self, message: Message, state: EditState) -> None:
+    async def _show_edit_menu(self, message: Message, state: "EditState") -> None:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -874,7 +877,7 @@ class TelegramBotManager:
         )
         await self._reply(message, "Что редактируем?", reply_markup=keyboard)
 
-    async def _show_info_fields(self, message: Message, state: EditState) -> None:
+    async def _show_info_fields(self, message: Message, state: "EditState") -> None:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -896,7 +899,7 @@ class TelegramBotManager:
         )
         await self._reply(message, "Выберите поле для изменения:", reply_markup=keyboard)
 
-    async def _show_items_list(self, message: Message, state: EditState) -> None:
+    async def _show_items_list(self, message: Message, state: "EditState") -> None:
         buttons: list[list[InlineKeyboardButton]] = []
         for idx, item in enumerate(state.items[:10], start=1):
             title = item.get("name") or f"Позиция {idx}"
@@ -910,7 +913,7 @@ class TelegramBotManager:
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await self._reply(message, "Выберите товар для изменения:", reply_markup=keyboard)
 
-    async def _show_item_fields(self, message: Message, state: EditState) -> None:
+    async def _show_item_fields(self, message: Message, state: "EditState") -> None:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -932,7 +935,7 @@ class TelegramBotManager:
         )
         await self._reply(message, "Выберите поле товара:", reply_markup=keyboard)
 
-    async def _show_final_response(self, message: Message, state: EditState) -> None:
+    async def _show_final_response(self, message: Message, state: "EditState") -> None:
         text = format_invoice_markdown(
             state.payload,
             overrides=state.overrides,
