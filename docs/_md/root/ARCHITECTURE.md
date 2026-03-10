@@ -28,7 +28,7 @@
 - `app/schemas.py`: Pydantic‑схемы `InvoiceItem`, `InvoiceParseResult`, `ProcessResponse` и т.п.
 
 ### Бот и задачи
-- `app/bot/manager.py`: `TelegramBotManager` (aiogram), команды `/start`, `/mode*`, `/split`, `/multi`, `/done`, `/cancel`, приём документов/фото, сбор батчей, отправка в backend.
+- `app/bot/manager.py`: `TelegramBotManager` (aiogram), команды `/start`, `/mode*`, `/split`, `/done`, `/cancel`, приём документов/фото, сбор батчей, отправка в backend.
 - `app/tasks.py`: `process_invoice_task(payload_path)` — целевая функция для RQ, вызывает `InvoicePipelineService`, обновляет БД и шлёт сообщения пользователю.
 
 ### Скрипты разработки и утилиты
@@ -50,7 +50,7 @@
 - Polling: запуск `bot.py` → `TelegramBotManager.run()`.
 - Webhook: Telegram бьёт в `/telegram/webhook`, backend делегирует апдейты тому же `TelegramBotManager`.
 - Бот:
-  - Ведёт авторизацию iiko и настройки пользователя (`pdf_mode`, split/multi).
+  - Ведёт авторизацию iiko и настройки пользователя (`pdf_mode`, split).
   - При получении файла(ов) отправляет их на backend `/process` или `/process-batch` с `push_to_iiko`, `user_id`, `pdf_mode`, `chat_id`.
 
 ### Поток воркера / конвейера

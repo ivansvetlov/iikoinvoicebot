@@ -2,7 +2,7 @@
 
 ## Этап 1 — Минимальные изменения, высокая стабильность
 - [x] Feature flags: добавить конфиг-флаги в `.env` и загрузку в `app/config.py`
-- [x] Feature flags: использовать флаги в `pipeline.py` (LLM fallback, split/multi логика)
+- [x] Feature flags: использовать флаги в `pipeline.py` (LLM fallback, split логика)
 - [x] Mailbox-лог: расширить `logs/requests/users/*.jsonl` событиями статусов
 - [x] TTL-cleanup: очистка `data/pending` и `data/split` по времени
 - [x] Лимиты: базовые ограничения размера/частоты файлов на пользователя

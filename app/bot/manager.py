@@ -56,6 +56,7 @@ class TelegramBotManager:
         self._pending_tasks: dict[str, asyncio.Task] = {}
         self._pending_chats: dict[str, int] = {}
         self._pending_prompt: dict[str, int] = {}
+        self._split_prompt: dict[str, int] = {}
         self._media_groups: dict[str, dict] = {}
         self._media_group_tasks: dict[str, asyncio.Task] = {}
         self._rate_limits: dict[str, list[datetime]] = {}
@@ -78,7 +79,6 @@ class TelegramBotManager:
         self.dp.message.register(self.set_mode_accurate, Command("modeaccurate"))
 
         self.dp.message.register(self.start_split, Command("split"))
-        self.dp.message.register(self.choose_batch, Command("multi"))
         self.dp.message.register(self.finish_split, Command("done"))
         self.dp.message.register(self.cancel_split, Command("cancel"))
 
@@ -170,10 +170,6 @@ class TelegramBotManager:
                 await self._accept_pending_as_split(message, user_id)
                 self._log_status(user_id, "mode_selected", {"mode": "merge"})
                 return
-            if text in {"multi", "раздельно", "много", "m"}:
-                await self._process_pending_as_batch(message, user_id)
-                self._log_status(user_id, "mode_selected", {"mode": "multi"})
-                return
 
         state = self._auth_state.get(user_id)
         if not state:
@@ -240,16 +236,6 @@ class TelegramBotManager:
         )
         self._log_status(user_id, "split_started")
 
-    async def choose_batch(self, message: Message) -> None:
-        """Обрабатывает ожидающие файлы как отдельные накладные."""
-        if not message.from_user:
-            return
-        user_id = str(message.from_user.id)
-        if user_id not in self._pending_users:
-            await message.answer("Нет ожидающих файлов. Отправьте файлы и выберите режим.")
-            return
-        await self._process_pending_as_batch(message, user_id)
-
     async def finish_split(self, message: Message) -> None:
         """Завершает режим сплит и отправляет все части на обработку."""
         if not message.from_user:
@@ -258,44 +244,8 @@ class TelegramBotManager:
         if user_id not in self._split_users:
             await message.answer("Режим объединения не включен. Введите /split для начала.")
             return
-        self._log_status(user_id, "split_finish_requested")
-
-        # При нажатии /done убираем клавиатуру split-режима,
-        # чтобы не оставлять "висячие" кнопки.
         await message.answer("Завершаю режим объединения.", reply_markup=None)
-
-        files = self._collect_split_files(user_id)
-        if not files:
-            await message.answer(
-                "Нет файлов для обработки. Отправьте части и снова /done."
-            )
-            return
-        status_msg = await message.answer(f"Собрано файлов: {len(files)}. Отправляю на сервер…")
-        try:
-            await status_msg.edit_text("Идет обработка объединенной накладной…")
-            self._log_status(user_id, "backend_batch_sending", {"count": len(files)})
-            result = await send_batch_to_backend(
-                self._backend_url,
-                files,
-                user_id,
-                message.chat.id,
-                status_message_id=status_msg.message_id,
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("Backend batch request failed")
-            await status_msg.edit_text("Ошибка при обработке файлов.")
-            await message.answer(
-                "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.\n"
-                "Код события: BOT_BACKEND_UNAVAILABLE"
-            )
-            self._log_status(user_id, "backend_batch_error")
-            return
-        finally:
-            self._clear_split_dir(user_id)
-            self._split_users.discard(user_id)
-
-        await status_msg.edit_text(self._format_response(result))
-        self._log_status(user_id, "backend_batch_done", {"request_id": result.get("request_id")})
+        await self._finalize_split(message.chat.id, user_id, status_message=None)
 
     async def cancel_split(self, message: Message) -> None:
         """Отменяет режим сплит и очищает буфер."""
@@ -304,6 +254,7 @@ class TelegramBotManager:
         user_id = str(message.from_user.id)
         self._clear_split_dir(user_id)
         self._split_users.discard(user_id)
+        self._split_prompt.pop(user_id, None)
         await message.answer(
             "Режим объединения отменен. Буфер очищен.",
             reply_markup=None,
@@ -327,7 +278,7 @@ class TelegramBotManager:
             return
         if user_id in self._split_users:
             await self._store_split_file(document, filename or "invoice.bin", user_id)
-            await message.answer("Файл добавлен в сплит. Отправьте /done, когда все части будут готовы.")
+            await self._update_split_prompt(message, user_id)
             self._log_status(user_id, "split_file_added", {"filename": filename})
             return
         if message.media_group_id:
@@ -378,13 +329,7 @@ class TelegramBotManager:
             data = await self.bot.download_file(file.file_path)
             content = data.read()
             await self._store_split_bytes("invoice_photo.jpg", content, user_id)
-
-            count = len(self._collect_split_files(user_id))
-            await message.answer(
-                "Фото добавлено в режим объединения. "
-                f"Сейчас собрано: {count}. "
-                "Когда все части будут отправлены — нажмите /done. Для отмены — /cancel."
-            )
+            await self._update_split_prompt(message, user_id)
 
             self._log_status(user_id, "split_photo_added")
             return
@@ -615,7 +560,7 @@ class TelegramBotManager:
             await self._send_single_file_keyboard(message, user_id)
             return
 
-        # 2+ файлов — "Объединить" / "Раздельно"
+        # 2+ файлов — "Объединить" / "Ещё файл"
         await self._send_mode_keyboard(message)
 
     async def _add_media_group_file(self, message: Message, user_id: str | None, filename: str, content: bytes) -> None:
@@ -682,7 +627,7 @@ class TelegramBotManager:
         self._pending_prompt[user_id] = sent.message_id
 
     async def _send_mode_keyboard(self, message: Message) -> None:
-        """2+ файлов — показываем 'Объединить' / 'Раздельно' / 'Ещё файл'."""
+        """2+ файлов — показываем 'Объединить' / 'Ещё файл'."""
         files = self._collect_pending_files(
             str(message.from_user.id) if message.from_user else ""
         )
@@ -690,7 +635,6 @@ class TelegramBotManager:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="🔗 Объединить", callback_data="mode:merge")],
-                [InlineKeyboardButton(text="📑 Раздельно", callback_data="mode:multi")],
                 [InlineKeyboardButton(text="📎 Добавить ещё", callback_data="mode:wait")],
             ]
         )
@@ -716,6 +660,10 @@ class TelegramBotManager:
         user_id = str(query.from_user.id)
         data = (query.data or "").strip().lower()
         await query.answer()
+
+        if data.startswith("split:"):
+            await self._handle_split_choice(query, data)
+            return
 
         # "Добавить ещё" — просто убираем клавиатуру, ждём следующий файл
         if data == "mode:wait":
@@ -752,12 +700,124 @@ class TelegramBotManager:
             await self._accept_pending_as_split(query.message, user_id)
             self._log_status(user_id, "mode_selected", {"mode": "merge"})
             return
-        if data == "mode:multi":
-            await query.message.edit_text("⏳ Обрабатываю файлы раздельно…")
-            await self._process_pending_as_batch_chat(query.message.chat.id, user_id)
-            self._log_status(user_id, "mode_selected", {"mode": "multi"})
-            return
         await query.message.answer("Неизвестный выбор. Используйте кнопки.")
+
+    async def _handle_split_choice(self, query: CallbackQuery, data: str) -> None:
+        """Обрабатывает кнопки split-режима."""
+        if not query.from_user:
+            return
+        user_id = str(query.from_user.id)
+
+        if user_id not in self._split_users:
+            await query.message.edit_text("Режим объединения не включен. Введите /split.")
+            return
+
+        if data == "split:wait":
+            await query.message.edit_text("Ок, жду ещё файлы. Отправляйте.")
+            return
+
+        if data == "split:cancel":
+            self._clear_split_dir(user_id)
+            self._split_users.discard(user_id)
+            self._split_prompt.pop(user_id, None)
+            await query.message.edit_text("Режим объединения отменен. Буфер очищен.")
+            self._log_status(user_id, "split_cancelled")
+            return
+
+        if data == "split:done":
+            await self._finalize_split(
+                query.message.chat.id,
+                user_id,
+                status_message=query.message,
+            )
+            return
+
+        await query.message.answer("Неизвестный выбор. Используйте кнопки.")
+
+    async def _update_split_prompt(self, message: Message, user_id: str) -> None:
+        """Обновляет единое сообщение split-режима с кнопками."""
+        count = len(self._collect_split_files(user_id))
+        text = f"Добавлено файлов: {count}. Что дальше?"
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Завершить", callback_data="split:done")],
+                [InlineKeyboardButton(text="➕ Добавить ещё", callback_data="split:wait")],
+                [InlineKeyboardButton(text="✖ Отменить", callback_data="split:cancel")],
+            ]
+        )
+        message_id = self._split_prompt.get(user_id)
+        if message_id:
+            try:
+                await self.bot.edit_message_text(
+                    text=text,
+                    chat_id=message.chat.id,
+                    message_id=message_id,
+                    reply_markup=keyboard,
+                )
+                return
+            except Exception:  # noqa: BLE001
+                logger.debug("Split prompt not modified for user_id=%s", user_id)
+        sent = await message.answer(text, reply_markup=keyboard)
+        self._split_prompt[user_id] = sent.message_id
+
+    async def _finalize_split(
+        self,
+        chat_id: int,
+        user_id: str,
+        status_message: Message | None = None,
+    ) -> None:
+        """Отправляет split-части на backend и редактирует статусное сообщение."""
+        files = self._collect_split_files(user_id)
+        if not files:
+            if status_message:
+                await status_message.edit_text(
+                    "Нет файлов для обработки. Отправьте части и снова /done."
+                )
+            else:
+                await self.bot.send_message(
+                    chat_id,
+                    "Нет файлов для обработки. Отправьте части и снова /done.",
+                )
+            return
+
+        self._log_status(user_id, "split_finish_requested")
+        status_msg = status_message
+        if status_msg:
+            try:
+                await status_msg.edit_text("⏳ Отправляю на сервер…")
+            except Exception:  # noqa: BLE001
+                status_msg = None
+        if status_msg is None:
+            status_msg = await self.bot.send_message(
+                chat_id, f"Собрано файлов: {len(files)}. Отправляю на сервер…"
+            )
+
+        try:
+            self._log_status(user_id, "backend_batch_sending", {"count": len(files)})
+            result = await send_batch_to_backend(
+                self._backend_url,
+                files,
+                user_id,
+                chat_id,
+                status_message_id=status_msg.message_id,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Backend batch request failed")
+            await status_msg.edit_text("Ошибка при обработке файлов.")
+            await self.bot.send_message(
+                chat_id,
+                "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.\n"
+                "Код события: BOT_BACKEND_UNAVAILABLE",
+            )
+            self._log_status(user_id, "backend_batch_error")
+            return
+        finally:
+            self._clear_split_dir(user_id)
+            self._split_users.discard(user_id)
+            self._split_prompt.pop(user_id, None)
+
+        await status_msg.edit_text(self._format_response(result))
+        self._log_status(user_id, "backend_batch_done", {"request_id": result.get("request_id")})
 
     def _collect_split_files(self, user_id: str) -> list[tuple[str, bytes]]:
         return self._storage.collect_split_files(user_id)
