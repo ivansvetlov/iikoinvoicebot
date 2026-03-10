@@ -590,6 +590,16 @@ class TelegramBotManager:
         chat_id = entry.get("chat_id")
         if not files or chat_id is None:
             return
+
+        # Если включен split-режим, то и для альбомов даём выбор объединения.
+        if settings.enable_split_mode and user_id:
+            for name, content in files:
+                self._storage.store_pending_bytes(user_id=user_id, filename=name, content=content)
+            self._pending_users.add(user_id)
+            self._pending_chats[user_id] = chat_id
+            await self._send_mode_keyboard_to_chat(chat_id, user_id)
+            return
+
         status_msg = await self.bot.send_message(
             chat_id,
             f"Получено файлов в одном сообщении: {len(files)}. Обрабатываю объединением…",
@@ -630,9 +640,11 @@ class TelegramBotManager:
 
     async def _send_mode_keyboard(self, message: Message) -> None:
         """2+ файлов — показываем 'Объединить' / 'Ещё файл'."""
-        files = self._collect_pending_files(
-            str(message.from_user.id) if message.from_user else ""
-        )
+        user_id = str(message.from_user.id) if message.from_user else ""
+        await self._send_mode_keyboard_to_chat(message.chat.id, user_id)
+
+    async def _send_mode_keyboard_to_chat(self, chat_id: int, user_id: str) -> None:
+        files = self._collect_pending_files(user_id)
         text = f"Получено файлов: {len(files)}. Выберите режим:"
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -640,21 +652,19 @@ class TelegramBotManager:
                 [InlineKeyboardButton(text="📎 Добавить ещё", callback_data="mode:wait")],
             ]
         )
-        user_id = str(message.from_user.id) if message.from_user else None
-        if user_id and user_id in self._pending_prompt:
+        if user_id in self._pending_prompt:
             try:
                 await self.bot.edit_message_text(
                     text=text,
-                    chat_id=message.chat.id,
+                    chat_id=chat_id,
                     message_id=self._pending_prompt[user_id],
                     reply_markup=keyboard,
                 )
                 return
             except Exception:  # noqa: BLE001
                 logger.debug("Pending prompt not modified for user_id=%s", user_id)
-        sent = await message.answer(text, reply_markup=keyboard)
-        if user_id:
-            self._pending_prompt[user_id] = sent.message_id
+        sent = await self.bot.send_message(chat_id, text, reply_markup=keyboard)
+        self._pending_prompt[user_id] = sent.message_id
 
     async def on_mode_choice(self, query: CallbackQuery) -> None:
         if not query.from_user:
