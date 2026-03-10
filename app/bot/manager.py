@@ -652,13 +652,14 @@ class TelegramBotManager:
                 [InlineKeyboardButton(text="📎 Добавить ещё", callback_data="mode:wait")],
             ]
         )
-        if user_id in self._pending_prompt:
-            try:
-                await self.bot.delete_message(chat_id=chat_id, message_id=self._pending_prompt[user_id])
-            except Exception:  # noqa: BLE001
-                logger.debug("Failed to delete pending prompt for user_id=%s", user_id)
+        old_id = self._pending_prompt.get(user_id)
         sent = await self.bot.send_message(chat_id, text, reply_markup=keyboard)
         self._pending_prompt[user_id] = sent.message_id
+        if old_id:
+            try:
+                await self.bot.delete_message(chat_id=chat_id, message_id=old_id)
+            except Exception:  # noqa: BLE001
+                logger.debug("Failed to delete pending prompt for user_id=%s", user_id)
 
     async def on_mode_choice(self, query: CallbackQuery) -> None:
         if not query.from_user:
@@ -750,14 +751,14 @@ class TelegramBotManager:
         """Обновляет единое сообщение split-режима с кнопками."""
         count = len(self._collect_split_files(user_id))
         text, keyboard = self._build_split_prompt(count)
-        message_id = self._split_prompt.get(user_id)
-        if message_id:
-            try:
-                await self.bot.delete_message(chat_id=message.chat.id, message_id=message_id)
-            except Exception:  # noqa: BLE001
-                logger.debug("Split prompt not modified for user_id=%s", user_id)
+        old_id = self._split_prompt.get(user_id)
         sent = await message.answer(text, reply_markup=keyboard)
         self._split_prompt[user_id] = sent.message_id
+        if old_id:
+            try:
+                await self.bot.delete_message(chat_id=message.chat.id, message_id=old_id)
+            except Exception:  # noqa: BLE001
+                logger.debug("Failed to delete split prompt for user_id=%s", user_id)
 
     async def _finalize_split(
         self,
