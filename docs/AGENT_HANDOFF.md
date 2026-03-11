@@ -207,6 +207,12 @@
 - Quick check:
   - `powershell -ExecutionPolicy Bypass -File scripts\search_iiko_server_docs.ps1 -Pattern "iikoserver"`
 
-
-
-
+## 17) Branch transition: Stage3 guardrails closed (2026-03-11)
+- Decision:
+  - `feature/todo-stage3-guardrails-ux` is considered complete by branch scope (guardrails + OCR quality + docs/tools sync).
+  - Remaining broader TODO items (template parsers, hybrid parser, cost aggregates) stay in backlog for the next stage.
+- Next work branch:
+  - `feature/stage6-iiko-import-readiness` (focus: iiko field mapping, units normalization, import path).
+- Quick check:
+  - `git branch -vv`
+  - `git status -sb`
