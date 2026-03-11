@@ -5,12 +5,25 @@
 - Backend извлекает текст (PDF/DOCX/TXT) и пытается выделить товарные позиции.
 - Позиции отправляются в iiko через Playwright (UI-автоматизация).
 
+## UX и команды (кратко)
+- В списке команд Telegram отображается только `/start` (остальные команды рабочие, но скрыты).
+- Один файл: бот показывает inline‑кнопки `Обработать` / `Добавить ещё`.
+- 2+ файла: бот предлагает `Объединить` / `Добавить ещё`.
+- PDF: показывается выбор режима `fast/accurate/продолжить`.
+- Подробности и тест‑матрица: `docs/BOT_COMMAND_MATRIX.md`.
+- Коды событий бота (`BOT_*`): `docs/BOT_EVENT_CODES.md`.
+- Каталог текстов сообщений: `docs/BOT_MESSAGE_CATALOG.md`.
+
 ## Правила для агентов
 - Основные правила и стандарты: `AGENTS.md` (в корне проекта).
 - Проверенные команды запуска/диагностики: `DEBUG.md`.
 
 ## Архитектура
 - Краткий обзор модулей и потоков: `docs/_md/root/ARCHITECTURE.md`
+
+## Наблюдаемость
+- API метрики: `GET /metrics/summary?window_minutes=60`
+- Логи/алерты/метрики: `logs/backend.log`, `logs/worker.log`, `logs/bot.log`, `logs/errors.log`, `logs/alerts.jsonl`, `logs/metrics.jsonl`
 
 ## Структура
 
@@ -32,7 +45,7 @@
 Служебные папки в корне:
 - `app/` — код backend-а, пайплайна и интеграций (подробности в `app/README.md`).
 - `scripts/` — дев-скрипты (`diagnose_request.py`, `cleanup_dev_artifacts.py` и т.п.).
-- `docs/` — документация для разработчика/агента (`AGENT_HANDOFF.md`, `DEV_SETUP.md`, `BOT_COMMAND_MATRIX.md`).
+- `docs/` — документация для разработчика/агента (`AGENT_HANDOFF.md`, `DEV_SETUP.md`, `BOT_COMMAND_MATRIX.md`, `BOT_EVENT_CODES.md`, `BOT_MESSAGE_CATALOG.md`).
 - `data/` — рабочие данные (БД, job-директории); не коммитится.
 - `logs/` — runtime-логи; не коммитятся.
 - `tmp/` — временные диагностические файлы; можно очищать.
@@ -66,6 +79,7 @@ playwright install chromium
 2. Заполните:
 - `TELEGRAM_BOT_TOKEN`
 - `OPENAI_API_KEY`
+- `OPENAI_MODEL_IMAGE` (default `gpt-4o` for images)
 - `IIKO_LOGIN_URL`, `IIKO_USERNAME`, `IIKO_PASSWORD`
 - при необходимости селекторы `IIKO_SELECTORS_*` под вашу iiko-страницу.
 

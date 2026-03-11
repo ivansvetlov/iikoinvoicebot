@@ -12,7 +12,12 @@ class Settings(BaseSettings):
     _env_path = Path(__file__).resolve().parent.parent / ".env"
     # NB: используем utf-8-sig, чтобы безопасно читать .env даже если он был сохранён с BOM.
     # Это устраняет класс проблем, когда первый ключ превращается в "\ufeffKEY".
-    model_config = SettingsConfigDict(env_file=_env_path, env_file_encoding="utf-8-sig", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=_env_path,
+        env_file_encoding="utf-8-sig",
+        extra="ignore",
+        env_ignore_empty=True,
+    )
 
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     backend_url: HttpUrl = Field(default="http://127.0.0.1:8000", alias="BACKEND_URL")
@@ -25,12 +30,23 @@ class Settings(BaseSettings):
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    openai_model_image: str = Field(default="gpt-4o", alias="OPENAI_MODEL_IMAGE")
+    openai_model_image_fallback: str = Field(default="", alias="OPENAI_MODEL_IMAGE_FALLBACK")
 
     enable_pdf_image_fallback: bool = Field(default=True, alias="ENABLE_PDF_IMAGE_FALLBACK")
+    enable_image_ocr_hint: bool = Field(default=True, alias="ENABLE_IMAGE_OCR_HINT")
+    tesseract_cmd: str = Field(default="", alias="TESSERACT_CMD")
     enable_split_mode: bool = Field(default=True, alias="ENABLE_SPLIT_MODE")
     max_upload_mb: int = Field(default=15, alias="MAX_UPLOAD_MB")
     max_files_per_minute: int = Field(default=10, alias="MAX_FILES_PER_MINUTE")
     max_files_per_batch: int = Field(default=10, alias="MAX_FILES_PER_BATCH")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    log_max_mb: int = Field(default=10, alias="LOG_MAX_MB")
+    log_backup_count: int = Field(default=14, alias="LOG_BACKUP_COUNT")
+    alerts_enabled: bool = Field(default=True, alias="ALERTS_ENABLED")
+    alerts_cooldown_sec: int = Field(default=300, alias="ALERTS_COOLDOWN_SEC")
+    alerts_telegram_chat_id: str = Field(default="", alias="ALERTS_TELEGRAM_CHAT_ID")
+    metrics_enabled: bool = Field(default=True, alias="METRICS_ENABLED")
 
     use_webhook: bool = Field(default=False, alias="USE_WEBHOOK")
     webhook_url: str = Field(default="", alias="WEBHOOK_URL")

@@ -9,6 +9,8 @@
   - проверяет `logs/llm_costs.csv`, хвост логов бота/backend,
   - пишет отчёт в `tmp/diagnose_<request_id>.json`.
 - `dump_task_results.py` — выгрузка `result_json` задач в читаемый JSON.
+- `metrics_report.py` — агрегаты по `logs/metrics.jsonl` (ошибки/время обработки).
+- `export_user_messages.py` — генерация каталога текстов сообщений в `docs/BOT_MESSAGE_CATALOG.md`.
 - `git.ps1` — враппер над git, использующий встроенный git из GitHub Desktop.
 - `set_mode.ps1` — переключение режима polling/webhook (правит `.env`).
 

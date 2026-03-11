@@ -81,7 +81,7 @@
 ## 7) Git-процесс (как не бояться откатов)
 - `main` — стабильная ветка.
 - Тег стабильной точки: `stable-2026-03-09`.
-- Текущая работа по сообщениям/коротким кодам: ветка `feature/ui-messages`.
+- Текущая работа: ветка `feature/stage4-reliability-observability`.
 
 ## 8) Известные проблемы/заметки
 - **Media group альбом**: если backend сохраняет файлы по одинаковому имени, возможна перезапись. `/split` сохраняет уникальные имена и надёжнее.
@@ -105,3 +105,64 @@
 1) Прочитать этот файл.
 2) Открыть `pipeline.py`, найти настройки LLM (max_output_tokens/maxItems) и детектор мусора.
 3) При любой проблеме — взять код заявки и запустить `scripts/diagnose_request.py`.
+
+## 10) Recent changes (2026-03-11)
+- Improved image preprocessing for recognition: auto-crop white document area, autocontrast, upscale, unsharp mask.
+  Files: `app/services/pipeline.py`.
+- Default image model set to `gpt-4o` via `OPENAI_MODEL_IMAGE` to improve OCR-heavy accuracy.
+- Increased cropped image upscale cap and sharpening; JPEG quality raised for better numeric legibility.
+- Settings now ignore empty environment variables (`env_ignore_empty=True`) so `.env` values are not overridden by blank envs.
+- If image parse looks like garbage or empty after preprocessing, the pipeline retries once with the raw image.
+- Added stronger prompt guardrails to avoid placeholder/empty rows.
+- Prompt now explicitly forbids semantic substitution of item names.
+- Added garbage detection for many empty rows.
+- Added optional OCR hint for images (pytesseract + system Tesseract). Flag: `ENABLE_IMAGE_OCR_HINT`.
+- Added header-number leak detector (1..15 column index row) with prompt retry.
+- If OCR text includes a header line with column numbers (1..15), it is passed as an alignment hint.
+- Added repeated numeric column detector (e.g., same price/total across rows) with prompt retry.
+- Updated `docs/BOT_COMMAND_MATRIX.md` with current UX behavior (single/multi/split/PDF).
+- TODO: marked split-album aggregation as done.
+- Synced docs: updated `AGENTS.md`, `docs/DEV_SETUP.md`, `docs/_md/root/ARCHITECTURE.md`, `TESTCASES.md` to match current UX and run config usage.
+
+## 11) Recognition focus: iiko target fields (2026-03-11)
+- LLM schema now targets explicit item fields: `name`, `quantity`, `mass`, `unit_price`, `amount_without_tax`, `tax_rate`, `tax_amount`, `amount_with_tax`.
+- Mapping: `quantity -> unit_amount`, `mass -> supply_quantity`, `amount_without_tax -> cost_without_tax`, `amount_with_tax -> cost_with_tax/total_cost`.
+- Basic derivations added: compute missing `amount_with_tax`/`tax_amount`/`tax_rate` when possible.
+- User-facing invoice formatting shows mass, sum без НДС, НДС %, НДС сумма, сумма с НДС.
+- Image preprocessing now attempts OCR-based header detection to crop above the table header with safe padding. If OCR is unavailable, it falls back to line-based grid detection (horizontal/vertical runs).
+- Cropped images allow a larger upscale cap (`IMAGE_MAX_DIM_CROPPED`) to improve readability of small tables.
+- Added `TESSERACT_CMD` config and auto-detection of common Windows install paths for OCR.
+- Image model overrides: `OPENAI_MODEL_IMAGE` and optional `OPENAI_MODEL_IMAGE_FALLBACK` for stronger retries on OCR-heavy images.
+
+## 12) Event codes centralization (2026-03-11)
+- Файлы:
+  - добавлен `app/bot/event_codes.py` (единый реестр `BOT_*` + helper форматирования);
+  - добавлен `docs/BOT_EVENT_CODES.md` (каноническое описание кодов и статусов active/archive);
+  - обновлены `app/bot/manager.py`, `DEBUG.md`, `docs/_md/root/README.md`, `docs/_md/root/TODO.md`.
+- Поведение:
+  - пользовательские сообщения с `Код события: BOT_*` формируются через единый helper (`append_event_code`);
+  - активные коды (`BOT_BACKEND_UNAVAILABLE`, `BOT_RATE_LIMIT`, `BOT_NO_PENDING`) собраны в одном месте;
+  - `BOT_PENDING_TIMEOUT` зафиксирован как архивный (не эмитится с перехода на явный pending UX).
+- Быстрая проверка:
+  - `python -m compileall app\bot\event_codes.py app\bot\manager.py`
+  - открыть `docs/BOT_EVENT_CODES.md` и сверить коды с `app/bot/event_codes.py`.
+
+## 13) Stage 4 completed: reliability + observability (2026-03-11)
+- Файлы:
+  - добавлен `app/observability.py` (единое логирование, алерты, метрики);
+  - добавлены `scripts/metrics_report.py`, `scripts/export_user_messages.py`;
+  - добавлен `docs/BOT_MESSAGE_CATALOG.md`;
+  - обновлены `app/api.py`, `app/tasks.py`, `bot.py`, `worker.py`, `app/config.py`, `.env.example`;
+  - обновлены `DEBUG.md`, `docs/DEV_SETUP.md`, `docs/_md/root/ARCHITECTURE.md`, `docs/_md/root/README.md`, `docs/_md/root/TODO.md`;
+  - удалена мёртвая папка `app/logs/`.
+- Поведение:
+  - backend/worker/bot пишут логи через единый observability-слой в `logs/*.log` + общий `logs/errors.log`;
+  - включены алерты в `logs/alerts.jsonl` (c cooldown и optional Telegram через `ALERTS_TELEGRAM_CHAT_ID`);
+  - включен мониторинг времени/ошибок в `logs/metrics.jsonl`, доступен `/metrics/summary` и `scripts/metrics_report.py`;
+  - все чекбоксы Этапа 4 отмечены как выполненные в `docs/_md/root/TODO.md`;
+  - тексты пользовательских сообщений вынесены в отдельный каталог `docs/BOT_MESSAGE_CATALOG.md` (обновляется скриптом).
+- Быстрая проверка:
+  - `python -m compileall app\observability.py app\api.py app\tasks.py bot.py worker.py scripts\metrics_report.py scripts\export_user_messages.py`
+  - `curl "http://127.0.0.1:8000/metrics/summary?window_minutes=60"`
+  - `python scripts\metrics_report.py --minutes 60`
+  - `python scripts\export_user_messages.py`

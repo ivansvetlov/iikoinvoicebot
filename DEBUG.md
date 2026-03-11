@@ -20,6 +20,12 @@
 curl http://127.0.0.1:8000/health
 ```
 
+- `/metrics/summary` отвечает агрегатами метрик:
+
+```bash
+curl "http://127.0.0.1:8000/metrics/summary?window_minutes=60"
+```
+
 ### Остановка
 
 - В терминале с uvicorn: `Ctrl+C`.
@@ -42,7 +48,7 @@ curl http://127.0.0.1:8000/health
 
 Проверено:
 - воркер подключается к Redis по `settings.redis_url`;
-- в консоли видно `*** Listening on default...`.
+- в логе есть строка `Worker ready, listening on queue ...`.
 
 Проверка через rqinfo:
 
@@ -127,10 +133,22 @@ worker: OK (workers: ...)
 
 - `logs/bot.log` — события бота, статусы отправки/ошибок.
 - `logs/backend.log` — запросы к API, ошибки пайплайна.
-- `logs/worker*.log` — работа воркера, исключения в задачах.
+- `logs/worker.log` — работа воркера, исключения в задачах.
+- `logs/errors.log` — общий error-канал (backend/worker/bot).
+- `logs/alerts.jsonl` — алерты с cooldown (и, при настройке, дубли в Telegram).
+- `logs/metrics.jsonl` — мониторинг ошибок и времени обработки (append-only).
 - `logs/llm_costs.csv` — стоимость LLM по заявкам (заполняется после
   успешного вызова LLM, даже если документ не признан накладной).
 - `logs/llm_costs_summary.json` — накопительные итоги по стоимости (USD/RUB).
+
+Ротация:
+- `*.log` файлы ротируются по `LOG_MAX_MB` и архивируются в `*.gz`.
+- число архивов задаётся `LOG_BACKUP_COUNT`.
+
+Быстрая сводка метрик:
+```bash
+.venv\Scripts\python.exe scripts\metrics_report.py --minutes 60
+```
 
 ---
 
@@ -143,7 +161,7 @@ worker: OK (workers: ...)
 .venv\Scripts\python.exe scripts\diagnose_request.py 000736_800
 ```
 
-- Для чисто ботовых ошибок используются коды событий (`BOT_BACKEND_UNAVAILABLE`,
-  `BOT_PENDING_TIMEOUT`, `BOT_RATE_LIMIT`, `BOT_NO_PENDING`), которые
-  печатаются в последних строках сообщений. По ним ищем строки в
-  `logs/bot.log`.
+- Для ботовых ошибок используются коды событий (`BOT_*`), которые
+  печатаются в последних строках сообщений. Актуальный справочник:
+  `docs/BOT_EVENT_CODES.md` (включая архивный `BOT_PENDING_TIMEOUT`).
+  По коду ищем строки в `logs/bot.log`.

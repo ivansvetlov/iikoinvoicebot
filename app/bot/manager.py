@@ -23,6 +23,12 @@ from aiogram.types import (
 )
 
 from app.bot.backend_client import send_batch_to_backend, send_file_to_backend
+from app.bot.event_codes import (
+    BOT_BACKEND_UNAVAILABLE,
+    BOT_NO_PENDING,
+    BOT_RATE_LIMIT,
+    append_event_code,
+)
 from app.bot.file_storage import PendingSplitStorage
 from app.config import settings
 from app.services.user_store import (
@@ -295,9 +301,11 @@ class TelegramBotManager:
             return
         if not self._check_rate_limit(user_id):
             await message.answer(
-                "Сейчас слишком много файлов. Я продолжу обработку через минуту. "
-                "Если нужно срочно — отправьте позже.\n"
-                "Код события: BOT_RATE_LIMIT"
+                append_event_code(
+                    "Сейчас слишком много файлов. Я продолжу обработку через минуту. "
+                    "Если нужно срочно — отправьте позже.",
+                    BOT_RATE_LIMIT,
+                )
             )
             self._log_status(user_id, "rate_limited")
             return
@@ -342,9 +350,11 @@ class TelegramBotManager:
                 return
         if not self._check_rate_limit(user_id):
             await message.answer(
-                "Сейчас слишком много файлов. Я продолжу обработку через минуту. "
-                "Если нужно срочно — отправьте позже.\n"
-                "Код события: BOT_RATE_LIMIT"
+                append_event_code(
+                    "Сейчас слишком много файлов. Я продолжу обработку через минуту. "
+                    "Если нужно срочно — отправьте позже.",
+                    BOT_RATE_LIMIT,
+                )
             )
             self._log_status(user_id, "rate_limited")
             return
@@ -540,9 +550,11 @@ class TelegramBotManager:
                 await status_msg.edit_text("Ошибка при обработке файла.")
                 await self.bot.send_message(
                     chat_id,
-                    "Не удалось отправить файл на обработку. "
-                    "Проверьте соединение и попробуйте снова.\n"
-                    "Код события: BOT_BACKEND_UNAVAILABLE",
+                    append_event_code(
+                        "Не удалось отправить файл на обработку. "
+                        "Проверьте соединение и попробуйте снова.",
+                        BOT_BACKEND_UNAVAILABLE,
+                    ),
                 )
                 self._log_status(user_id, "backend_error", {"filename": name})
                 return
@@ -564,9 +576,11 @@ class TelegramBotManager:
                 logger.exception("Backend request failed")
                 await self.bot.send_message(
                     chat_id,
-                    "Не удалось отправить файл на обработку. "
-                    "Проверьте соединение и попробуйте снова.\n"
-                    "Код события: BOT_BACKEND_UNAVAILABLE",
+                    append_event_code(
+                        "Не удалось отправить файл на обработку. "
+                        "Проверьте соединение и попробуйте снова.",
+                        BOT_BACKEND_UNAVAILABLE,
+                    ),
                 )
                 self._log_status(user_id, "backend_error", {"filename": name, "index": index})
 
@@ -648,8 +662,10 @@ class TelegramBotManager:
             await status_msg.edit_text("Ошибка при обработке файлов.")
             await self.bot.send_message(
                 chat_id,
-                "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.\n"
-                "Код события: BOT_BACKEND_UNAVAILABLE",
+                append_event_code(
+                    "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.",
+                    BOT_BACKEND_UNAVAILABLE,
+                ),
             )
             self._log_status(user_id or "unknown", "media_group_batch_error")
             return
@@ -719,8 +735,10 @@ class TelegramBotManager:
 
         if user_id not in self._pending_users:
             await query.message.answer(
-                "Нет ожидающих файлов. Отправьте файлы заново.\n"
-                "Код события: BOT_NO_PENDING"
+                append_event_code(
+                    "Нет ожидающих файлов. Отправьте файлы заново.",
+                    BOT_NO_PENDING,
+                )
             )
             return
 
@@ -1189,8 +1207,10 @@ class TelegramBotManager:
             await status_msg.edit_text("Ошибка при обработке файлов.")
             await self.bot.send_message(
                 chat_id,
-                "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.\n"
-                "Код события: BOT_BACKEND_UNAVAILABLE",
+                append_event_code(
+                    "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.",
+                    BOT_BACKEND_UNAVAILABLE,
+                ),
             )
             self._log_status(user_id, "backend_batch_error")
             return

@@ -11,15 +11,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import httpx
 
 from app.config import settings
+from app.observability import append_metric
 from app.services.pipeline import InvoicePipelineService
 from app.task_store import mark_done, mark_error, mark_processing
 from app.utils.user_messages import format_user_response, format_invoice_markdown
+
+logger = logging.getLogger(__name__)
 
 
 def _send_telegram_message(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
@@ -67,6 +72,7 @@ def _to_payload(result: Any) -> dict[str, Any]:
 
 def process_invoice_task(payload_path: str) -> dict[str, Any]:
     """Worker entrypoint: обрабатывает одну задачу и уведомляет пользователя."""
+    started = perf_counter()
     payload = json.loads(Path(payload_path).read_text(encoding="utf-8"))
     filename = payload.get("filename")
     file_path = payload.get("file_path")
@@ -77,6 +83,7 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
     push_to_iiko = payload.get("push_to_iiko", True)
     pdf_mode = payload.get("pdf_mode")
     request_id = payload.get("request_id")
+    logger.info("Worker task started", extra={"request_id": request_id})
     if request_id:
         mark_processing(request_id)
 
@@ -99,6 +106,13 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
                     _send_telegram_message(chat_id, text)
             else:
                 _send_telegram_message(chat_id, text)
+        append_metric(
+            "worker.task.finished",
+            request_id=request_id,
+            status=result.get("status"),
+            error_code="missing_payload",
+            duration_ms=round((perf_counter() - started) * 1000, 2),
+        )
         return result
 
     content = Path(file_path).read_bytes()
@@ -117,6 +131,10 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
     try:
         result = asyncio.run(_run())
     except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Worker task crashed",
+            extra={"request_id": request_id, "event_code": "WORKER_TASK_EXCEPTION"},
+        )
         # Не отправляем пользователю технические детали; они остаются в task_store/backend.log.
         result = {
             "status": "error",
@@ -148,6 +166,21 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
                 _send_telegram_message(chat_id, text, reply_markup)
         else:
             _send_telegram_message(chat_id, text, reply_markup)
+    status = result_payload.get("status")
+    error_code = result_payload.get("error_code")
+    duration_ms = round((perf_counter() - started) * 1000, 2)
+    logger.info(
+        "Worker task finished",
+        extra={"request_id": request_id, "status": status, "duration_ms": duration_ms},
+    )
+    append_metric(
+        "worker.task.finished",
+        request_id=request_id,
+        status=status,
+        error_code=error_code,
+        duration_ms=duration_ms,
+        has_chat=bool(chat_id),
+    )
     return result_payload
 
 

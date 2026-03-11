@@ -4,8 +4,8 @@ import asyncio
 import json
 import logging
 import sys
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from time import perf_counter
 from uuid import uuid4
 
 import httpx
@@ -15,6 +15,7 @@ from aiogram.types import Update
 from app.config import settings
 from app.queue import get_queue
 from app.db import init_db
+from app.observability import append_metric, configure_logging, summarize_metrics
 from app.schemas import InvoiceParseResult, ProcessResponse
 from app.task_store import create_task
 from app.tasks import process_invoice_task
@@ -23,18 +24,7 @@ from app.services.pipeline import InvoicePipelineService
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / "backend.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"),
-    ],
-)
+configure_logging("backend")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Invoice Ingestion Backend", version="0.1.0")
@@ -46,9 +36,16 @@ WEBHOOK_PATH = "/telegram/webhook"
 def _error_response(message: str, exc: Exception | None = None, *, error_code: str = "api_error") -> ProcessResponse:
     request_id = uuid4().hex
     if exc is not None:
-        logger.exception("Unhandled error", extra={"request_id": request_id})
+        logger.exception(
+            "Unhandled error",
+            extra={"request_id": request_id, "event_code": "API_UNHANDLED_ERROR"},
+        )
     else:
-        logger.error("Error response: %s", message, extra={"request_id": request_id})
+        logger.error(
+            "Error response: %s",
+            message,
+            extra={"request_id": request_id, "event_code": error_code},
+        )
     empty = InvoiceParseResult(source_type="unknown", raw_text="", items=[], warnings=[])
     return ProcessResponse(
         request_id=request_id,
@@ -61,10 +58,20 @@ def _error_response(message: str, exc: Exception | None = None, *, error_code: s
     )
 
 
+def _duration_ms(start_ts: float) -> float:
+    return round((perf_counter() - start_ts) * 1000, 2)
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     """Проверка доступности сервиса."""
     return {"status": "ok"}
+
+
+@app.get("/metrics/summary")
+async def metrics_summary(window_minutes: int = 60) -> dict:
+    """Краткий мониторинг ошибок и времени обработки."""
+    return summarize_metrics(window_minutes)
 
 
 @app.on_event("startup")
@@ -117,19 +124,36 @@ async def process_invoice(
     status_message_id: str | None = Form(default=None),
 ) -> ProcessResponse:
     """Принимает файл, извлекает позиции и при необходимости отправляет в iiko."""
+    started = perf_counter()
     logger.info("Received /process request: file=%s, user_id=%s", file.filename, user_id)
     try:
         if file.size and file.size > settings.max_upload_mb * 1024 * 1024:
-            return _error_response(
+            response = _error_response(
                 f"Файл слишком большой. Максимум {settings.max_upload_mb} MB.",
                 error_code="file_too_large",
             )
+            append_metric(
+                "api.process.validation_error",
+                status=response.status,
+                error_code=response.error_code,
+                user_id=user_id,
+                duration_ms=_duration_ms(started),
+            )
+            return response
         content = await file.read()
         if not content:
-            return _error_response(
+            response = _error_response(
                 "Пустой файл. Проверьте и отправьте снова.",
                 error_code="empty_file",
             )
+            append_metric(
+                "api.process.validation_error",
+                status=response.status,
+                error_code=response.error_code,
+                user_id=user_id,
+                duration_ms=_duration_ms(started),
+            )
+            return response
         logger.info("Received file", extra={"file_name": file.filename})
         request_id = pipeline._build_request_id(user_id)  # noqa: SLF001
         job_dir = Path(__file__).resolve().parent.parent / "data" / "jobs" / request_id
@@ -159,15 +183,32 @@ async def process_invoice(
         )
         get_queue().enqueue(process_invoice_task, str(payload_path))
         empty = InvoiceParseResult(source_type="unknown", raw_text="", items=[], warnings=[])
-        return ProcessResponse(
+        response = ProcessResponse(
             request_id=request_id,
             status="queued",
             parsed=empty,
             iiko_uploaded=False,
             message="Файл принят в очередь. Результат пришлем позже.",
         )
+        append_metric(
+            "api.process.queued",
+            status=response.status,
+            request_id=request_id,
+            user_id=user_id,
+            push_to_iiko=push_to_iiko,
+            duration_ms=_duration_ms(started),
+        )
+        return response
     except Exception as exc:  # noqa: BLE001
-        return _error_response("Ошибка обработки файла на сервере.", exc)
+        response = _error_response("Ошибка обработки файла на сервере.", exc)
+        append_metric(
+            "api.process.exception",
+            status=response.status,
+            error_code=response.error_code,
+            user_id=user_id,
+            duration_ms=_duration_ms(started),
+        )
+        return response
 
 
 @app.post("/process-batch", response_model=ProcessResponse)
@@ -180,25 +221,50 @@ async def process_batch(
     status_message_id: str | None = Form(default=None),
 ) -> ProcessResponse:
     """Принимает несколько файлов одной накладной, объединяет позиции и отправляет в iiko."""
+    started = perf_counter()
     try:
         if len(files) > settings.max_files_per_batch:
-            return _error_response(
+            response = _error_response(
                 f"Слишком много файлов в одном запросе. Максимум {settings.max_files_per_batch}.",
                 error_code="too_many_files",
             )
+            append_metric(
+                "api.process_batch.validation_error",
+                status=response.status,
+                error_code=response.error_code,
+                user_id=user_id,
+                duration_ms=_duration_ms(started),
+            )
+            return response
         batch: list[tuple[str, bytes]] = []
         for item in files:
             if item.size and item.size > settings.max_upload_mb * 1024 * 1024:
-                return _error_response(
+                response = _error_response(
                     f"Файл слишком большой. Максимум {settings.max_upload_mb} MB.",
                     error_code="file_too_large",
                 )
+                append_metric(
+                    "api.process_batch.validation_error",
+                    status=response.status,
+                    error_code=response.error_code,
+                    user_id=user_id,
+                    duration_ms=_duration_ms(started),
+                )
+                return response
             content = await item.read()
             if not content:
-                return _error_response(
+                response = _error_response(
                     "Пустой файл. Проверьте и отправьте снова.",
                     error_code="empty_file",
                 )
+                append_metric(
+                    "api.process_batch.validation_error",
+                    status=response.status,
+                    error_code=response.error_code,
+                    user_id=user_id,
+                    duration_ms=_duration_ms(started),
+                )
+                return response
             batch.append((item.filename or "unknown", content))
         logger.info("Received batch files", extra={"count": len(batch)})
         request_id = pipeline._build_request_id(user_id)  # noqa: SLF001
@@ -232,12 +298,30 @@ async def process_batch(
         )
         get_queue().enqueue(process_invoice_task, str(payload_path))
         empty = InvoiceParseResult(source_type="unknown", raw_text="", items=[], warnings=[])
-        return ProcessResponse(
+        response = ProcessResponse(
             request_id=request_id,
             status="queued",
             parsed=empty,
             iiko_uploaded=False,
             message="Файлы приняты в очередь. Результат пришлем позже.",
         )
+        append_metric(
+            "api.process_batch.queued",
+            status=response.status,
+            request_id=request_id,
+            user_id=user_id,
+            push_to_iiko=push_to_iiko,
+            files_count=len(batch),
+            duration_ms=_duration_ms(started),
+        )
+        return response
     except Exception as exc:  # noqa: BLE001
-        return _error_response("Ошибка обработки файлов на сервере.", exc)
+        response = _error_response("Ошибка обработки файлов на сервере.", exc)
+        append_metric(
+            "api.process_batch.exception",
+            status=response.status,
+            error_code=response.error_code,
+            user_id=user_id,
+            duration_ms=_duration_ms(started),
+        )
+        return response

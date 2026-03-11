@@ -1,17 +1,14 @@
 ﻿"""Entrypoint Telegram-бота для приема накладных."""
 
 import asyncio
-import logging
 import sys
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from app.bot.manager import TelegramBotManager
 from app.config import settings
+from app.observability import configure_logging, ensure_log_dir
 
-LOG_DIR = Path(__file__).resolve().parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / "bot.log"
+LOG_DIR = ensure_log_dir()
 LOCK_FILE = LOG_DIR / "bot.lock"
 
 
@@ -58,14 +55,7 @@ def _acquire_lock() -> "open file":
 async def main() -> None:
     """Запускает Telegram-бота через менеджер."""
     lock = _acquire_lock()
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"),
-        ],
-    )
+    configure_logging("bot")
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
     manager = TelegramBotManager(settings.telegram_bot_token, str(settings.backend_url))

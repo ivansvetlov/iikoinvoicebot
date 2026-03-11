@@ -13,6 +13,7 @@
 
 ### Конфигурация и инфраструктура
 - `app/config.py`: `Settings` на базе Pydantic, чтение `.env`, все ключевые ENV (Telegram, Redis, DB, OpenAI, iiko, лимиты).
+- `app/observability.py`: единая настройка логирования (`configure_logging`), алерты (`alerts.jsonl`, optional Telegram), метрики (`metrics.jsonl`).
 - `app/db.py`: SQLAlchemy `engine`, `SessionLocal`, `init_db()`.
 - `app/models.py`: модели (в частности `TaskRecord` для задач).
 - `app/task_store.py`: CRUD по задачам (create/processing/done/error).
@@ -29,7 +30,15 @@
 
 ### Бот и задачи
 - `app/bot/manager.py`: `TelegramBotManager` (aiogram), команды `/start`, `/mode*`, `/split`, `/done`, `/cancel`, приём документов/фото, сбор батчей, отправка в backend.
+- `app/bot/event_codes.py`: единый реестр пользовательских кодов событий `BOT_*` и helper формата `Код события: ...`.
 - `app/tasks.py`: `process_invoice_task(payload_path)` — целевая функция для RQ, вызывает `InvoicePipelineService`, обновляет БД и шлёт сообщения пользователю.
+
+### Состояния и UX‑потоки бота
+- Pending (не split): файлы копятся, затем одно “живое” сообщение с кнопками `Обработать` (1 файл) или `Объединить` (2+ файлов) + `Добавить ещё`.
+- Media group (альбом): агрегируется и ведёт себя как pending (одно сообщение, старое удаляется/заменяется).
+- Split‑режим: отдельный буфер частей, кнопки `Отменить` / `Завершить` / `Добавить ещё`, без подсказок вида `/done` в тексте.
+- PDF: при получении показываются inline‑кнопки выбора режима `fast/accurate/продолжить`.
+- `/start` очищает pending/split буферы пользователя.
 
 ### Скрипты разработки и утилиты
 - `scripts/dev_run_all.py`: запуск backend + worker + bot одним скриптом, убийство дубликатов бота на Windows.
@@ -41,6 +50,7 @@
 ### HTTP backend‑поток
 - Старт через uvicorn / `scripts/dev_run_all.py` / ASGI (`main:app`).
 - На старте: конфигурирует вебхук (опционально) и инициализирует БД.
+- `/metrics/summary`: агрегирует метрики ошибок/длительностей за окно времени.
 - `/process` и `/process-batch`:
   - Проверяют файлы и лимиты, сохраняют входные данные в `data/jobs/<request_id>/`.
   - Создают запись задачи в БД и ставят `process_invoice_task` в очередь RQ.
