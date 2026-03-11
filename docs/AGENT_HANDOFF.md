@@ -195,6 +195,17 @@
   - send one invoice image/pdf through bot and verify final message contains VAT/mass fields and request code;
   - verify no regressions in `/process` and worker task completion logs.
 
+## 16) Repo hygiene sync (2026-03-11)
+- Files:
+  - added `scripts/cache_iiko_server_docs.ps1`;
+  - added `scripts/search_iiko_server_docs.ps1`;
+  - updated `docs/AGENT_HANDOFF.md`.
+- Behavior:
+  - local iiko docs scripts are now present in this branch (no doc/code drift);
+  - both scripts resolve relative paths from repo root (`iiko_server_docs/...`) and work regardless of current shell directory;
+  - for current active branch always trust `git status -sb` instead of static text in this file.
+- Quick check:
+  - `powershell -ExecutionPolicy Bypass -File scripts\search_iiko_server_docs.ps1 -Pattern "iikoserver"`
 
 
 

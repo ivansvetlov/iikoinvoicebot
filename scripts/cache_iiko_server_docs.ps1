@@ -1,11 +1,21 @@
 param(
-    [string]$SourcesFile = "docs/iiko_server_docs/SOURCES.txt",
-    [string]$OutputDir = "docs/iiko_server_docs",
+    [string]$SourcesFile = "iiko_server_docs/SOURCES.txt",
+    [string]$OutputDir = "iiko_server_docs",
     [int]$TimeoutSec = 60
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+
+function Resolve-RepoPath {
+    param([string]$PathValue)
+    if ([System.IO.Path]::IsPathRooted($PathValue)) {
+        return $PathValue
+    }
+    return (Join-Path $repoRoot $PathValue)
+}
 
 function Get-SafeFileName {
     param([string]$Url)
@@ -44,13 +54,16 @@ function Resolve-FetchUrl {
     return $Url
 }
 
-if (-not (Test-Path $SourcesFile)) {
-    throw "Sources file not found: $SourcesFile"
+$resolvedSourcesFile = Resolve-RepoPath -PathValue $SourcesFile
+$resolvedOutputDir = Resolve-RepoPath -PathValue $OutputDir
+
+if (-not (Test-Path $resolvedSourcesFile)) {
+    throw "Sources file not found: $resolvedSourcesFile"
 }
 
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+New-Item -ItemType Directory -Force -Path $resolvedOutputDir | Out-Null
 
-$urls = Get-Content -Path $SourcesFile -Encoding UTF8 |
+$urls = Get-Content -Path $resolvedSourcesFile -Encoding UTF8 |
     ForEach-Object { $_.Trim() } |
     Where-Object { $_ -and -not $_.StartsWith("#") }
 
@@ -67,7 +80,7 @@ foreach ($url in $urls) {
     $fetchUrl = Resolve-FetchUrl -Url $url
 
     $fileName = Get-SafeFileName -Url $fetchUrl
-    $outPath = Join-Path $OutputDir $fileName
+    $outPath = Join-Path $resolvedOutputDir $fileName
 
     try {
         $resp = Invoke-WebRequest -Uri $fetchUrl -UseBasicParsing -TimeoutSec $TimeoutSec
@@ -82,6 +95,6 @@ foreach ($url in $urls) {
     }
 }
 
-$indexPath = Join-Path $OutputDir "INDEX.md"
+$indexPath = Join-Path $resolvedOutputDir "INDEX.md"
 Set-Content -Path $indexPath -Value ($indexLines -join [Environment]::NewLine) -Encoding UTF8
 Write-Output "Done. Index: $indexPath"
