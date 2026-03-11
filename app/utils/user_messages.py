@@ -3,11 +3,6 @@
 Идея простая:
 - Внутренний request_id может быть длинным (нужен для уникальности и логов).
 - Пользователю показываем короткий «код заявки», который проще продиктовать/скопировать.
-
-Короткий код делаем детерминированно из request_id:
-обычно это `HHMMSS_mmm` (время + миллисекунды).
-
-Важно: это *не* идентификатор безопасности, а просто удобный «чек» для поддержки.
 """
 
 from __future__ import annotations
@@ -15,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 from app.config import settings
-
 
 
 def short_request_code(request_id: str | None) -> str | None:
@@ -179,21 +173,32 @@ def format_invoice_markdown(
     for index, item in enumerate(items, start=1):
         name = item.get("name") or "—"
         qty = item.get("unit_amount") or "—"
+        mass = item.get("supply_quantity") or "—"
         price = item.get("unit_price") or "—"
-        total = item.get("cost_with_tax") or item.get("total_cost") or "—"
+        sum_no_tax = item.get("cost_without_tax") or "—"
+        vat_rate = item.get("tax_rate") or "—"
         vat = item.get("tax_amount") or "—"
+        total = item.get("cost_with_tax") or item.get("total_cost") or "—"
 
         total_sum += _to_float(total)
         total_vat += _to_float(vat)
 
         lines.append(f"{index}. {name}")
         lines.append(f"- Кол-во: {qty}")
+        lines.append(f"- Масса: {mass}")
         lines.append(f"- Цена: {price} ₽")
-        lines.append(f"- Сумма с НДС: {total} ₽ (НДС: {vat} ₽)")
+        lines.append(f"- Сумма без НДС: {sum_no_tax} ₽")
+        lines.append(f"- НДС: {vat_rate}% / {vat} ₽")
+        lines.append(f"- Сумма с НДС: {total} ₽")
         lines.append("")
 
     lines.append("──────────")
     lines.append(f"📊 Сумма НДС: {round(total_vat, 2)} ₽")
     lines.append(f"💰 ИТОГО с НДС: {round(total_sum, 2)} ₽")
+
+    code = short_request_code(payload.get("request_id"))
+    if code:
+        lines.append("")
+        lines.append(f"Код заявки: {code}")
 
     return "\n".join(lines).strip()

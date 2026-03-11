@@ -180,6 +180,21 @@
   - `powershell -ExecutionPolicy Bypass -File scripts\cache_iiko_server_docs.ps1`
   - `powershell -ExecutionPolicy Bypass -File scripts\search_iiko_server_docs.ps1 -Pattern "iikoserver"`
 
+## 15) Stage 3 block: guardrails and OCR quality (2026-03-11)
+- Files:
+  - updated `app/services/pipeline.py` (stronger OCR/LLM guardrails, image preprocessing, schema alignment);
+  - updated `app/utils/user_messages.py` (richer invoice output fields and request code in final message);
+  - updated `requirements.txt` (added `pytesseract`);
+  - updated `docs/BOT_COMMAND_MATRIX.md` (current UX behavior notes).
+- Behavior:
+  - pipeline now detects typical garbage LLM outputs more aggressively (repeats/zeros/header leakage/repeated numeric columns);
+  - image flow includes OCR hints and retries/fallbacks to improve extraction stability on table invoices;
+  - user-facing invoice message includes mass, VAT details and short request code.
+- Quick check:
+  - `python -m compileall app\services\pipeline.py app\utils\user_messages.py`
+  - send one invoice image/pdf through bot and verify final message contains VAT/mass fields and request code;
+  - verify no regressions in `/process` and worker task completion logs.
+
 
 
 

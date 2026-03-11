@@ -5,8 +5,9 @@ import base64
 import json
 import logging
 import re
+import os
 from io import BytesIO
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 from datetime import datetime
@@ -14,7 +15,7 @@ from uuid import uuid4
 
 import httpx
 import pdfplumber
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 
 from app.config import settings
 from app.errors import UserFacingError
@@ -35,6 +36,28 @@ LLM_COSTS_SUMMARY = Path(__file__).resolve().parents[2] / "logs" / "llm_costs_su
 MAX_TEXT_HINT_CHARS = 12000
 PDF_IMAGE_RESOLUTION = 200
 PDF_SPLIT_HEIGHT_THRESHOLD = 1600
+IMAGE_CROP_BRIGHTNESS = 220
+IMAGE_MIN_DIM = 1400
+IMAGE_MAX_DIM = 2600
+IMAGE_OCR_MAX_CHARS = 6000
+IMAGE_OCR_MIN_CHARS = 30
+IMAGE_HEADER_PAD_TOP_PCT = 0.02
+IMAGE_HEADER_PAD_SIDE_PCT = 0.02
+IMAGE_HEADER_MIN_WIDTH_PCT = 0.45
+IMAGE_HEADER_MIN_HEIGHT_PCT = 0.25
+IMAGE_MAX_DIM_CROPPED = 4200
+IMAGE_LINE_SCAN_SCALE = 0.5
+IMAGE_LINE_DARK_THRESHOLD = 180
+IMAGE_LINE_ROW_RUN_THRESHOLD = 0.6
+IMAGE_LINE_ROW_RUN_WEAK_THRESHOLD = 0.3
+IMAGE_LINE_ROW_RUN_CLUSTER_PCT = 0.05
+IMAGE_LINE_ROW_DARK_THRESHOLD = 0.08
+IMAGE_LINE_ROW_ANCHOR_RUN_MIN = 0.2
+IMAGE_LINE_ROW_ANCHOR_DARK_MIN = 0.2
+IMAGE_LINE_ROW_ANCHOR_OFFSET_PCT = 0.25
+IMAGE_LINE_COL_RUN_THRESHOLD = 0.35
+IMAGE_LINE_COL_DARK_THRESHOLD = 0.02
+IMAGE_LINE_EDGE_IGNORE_PCT = 0.02
 
 # LLM safety guards
 LLM_MAX_OUTPUT_TOKENS = 1000
@@ -43,10 +66,32 @@ LLM_GARBAGE_REPEAT_THRESHOLD = 8
 LLM_GARBAGE_ZERO_ROW_THRESHOLD = 8
 
 USD_RUB_RATE_CACHE: dict[str, Any] = {"rate": None, "ts": None}
+HEADER_NUMBER_HINT = (
+    "The table header may include column index numbers like 1..15. "
+    "These are NOT item values. Ignore them and read values from rows below."
+)
+REPEAT_VALUE_HINT = (
+    "Do not copy numeric values from one row to others. "
+    "Each row can have different quantity, unit price, and line total. "
+    "If values vary across rows, keep the variation."
+)
+QUANTITY_HINT = (
+    "Do not assume quantity is 1 by default. "
+    "Use the quantity/amount column (e.g., 'кол-во', 'количество', 'масса') if present. "
+    "If a line total equals unit price for many rows, re-check the quantity column."
+)
+CONSISTENCY_HINT = (
+    "Ensure arithmetic consistency: amount_without_tax should be approximately unit_price * quantity "
+    "(within rounding). If it doesn't match, re-check which column is quantity and which is price."
+)
 
 
 class InvoicePipelineService:
     """Оркестрация извлечения текста, парсинга и отправки в iiko."""
+
+    _ocr_checked = False
+    _ocr_available = False
+    _pytesseract = None
 
     def __init__(self) -> None:
         """Инициализирует клиент iiko для последующей загрузки."""
@@ -75,12 +120,16 @@ class InvoicePipelineService:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "description": {"type": "string"},
+                                "name": {"type": "string"},
                                 "quantity": {"type": "number"},
+                                "mass": {"type": "number"},
                                 "unit_price": {"type": "number"},
-                                "line_total": {"type": "number"},
+                                "amount_without_tax": {"type": "number"},
+                                "tax_rate": {"type": "number"},
+                                "tax_amount": {"type": "number"},
+                                "amount_with_tax": {"type": "number"},
                             },
-                            "required": ["description", "quantity", "unit_price", "line_total"],
+                            "required": ["name"],
                         },
                     },
                 },
@@ -95,11 +144,34 @@ class InvoicePipelineService:
             ext = Path(filename).suffix.lower().lstrip(".")
             mime = "image/jpeg" if ext in {"jpg", "jpeg"} else f"image/{ext}"
             image_url = f"data:{mime};base64,{base64.b64encode(content).decode('ascii')}"
+            text_hint = (extracted_text or "").strip()
+            if len(text_hint) > IMAGE_OCR_MAX_CHARS:
+                text_hint = text_hint[:IMAGE_OCR_MAX_CHARS]
+            header_line = self._find_header_number_line(text_hint)
             return [
                 {
                     "role": "user",
                     "content": [
                         {"type": "input_text", "text": prompt},
+                        *(
+                            [
+                                {
+                                    "type": "input_text",
+                                    "text": (
+                                        "Header indices line (column numbers): "
+                                        + header_line
+                                        + ". Use for alignment only; do not output as data."
+                                    ),
+                                }
+                            ]
+                            if header_line
+                            else []
+                        ),
+                        *(
+                            [{"type": "input_text", "text": "OCR text (may be noisy):\n" + text_hint}]
+                            if text_hint
+                            else []
+                        ),
                         {"type": "input_image", "image_url": image_url},
                     ],
                 }
@@ -156,6 +228,515 @@ class InvoicePipelineService:
                 return item
         return None
 
+    def _auto_crop_document(self, image: Image.Image) -> Image.Image:
+        gray = ImageOps.grayscale(image)
+        sample = gray.copy()
+        sample.thumbnail((512, 512), Image.BILINEAR)
+        width, height = sample.size
+
+        pixels = sample.load()
+        min_x, min_y = width, height
+        max_x, max_y = -1, -1
+        bright_pixels = 0
+        total_pixels = width * height
+        threshold = IMAGE_CROP_BRIGHTNESS
+
+        for y in range(height):
+            for x in range(width):
+                if pixels[x, y] >= threshold:
+                    bright_pixels += 1
+                    if x < min_x:
+                        min_x = x
+                    if y < min_y:
+                        min_y = y
+                    if x > max_x:
+                        max_x = x
+                    if y > max_y:
+                        max_y = y
+
+        if bright_pixels < total_pixels * 0.06 or max_x < 0 or max_y < 0:
+            return image
+
+        scale_x = image.width / width
+        scale_y = image.height / height
+        margin_x = int(image.width * 0.02)
+        margin_y = int(image.height * 0.02)
+
+        left = max(int(min_x * scale_x) - margin_x, 0)
+        top = max(int(min_y * scale_y) - margin_y, 0)
+        right = min(int((max_x + 1) * scale_x) + margin_x, image.width)
+        bottom = min(int((max_y + 1) * scale_y) + margin_y, image.height)
+
+        if right - left < image.width * 0.35 or bottom - top < image.height * 0.35:
+            return image
+        if right - left > image.width * 0.98 and bottom - top > image.height * 0.98:
+            return image
+
+        return image.crop((left, top, right, bottom))
+
+    def _prepare_image(self, image: Image.Image) -> Image.Image:
+        image = image.convert("RGB")
+        image = self._auto_crop_document(image)
+        image = ImageOps.autocontrast(image)
+        before_crop = image.size
+        image = self._crop_to_table_header(image)
+        was_cropped = image.size != before_crop
+
+        width, height = image.size
+        max_dim = max(width, height)
+        min_dim = min(width, height)
+        max_dim_limit = IMAGE_MAX_DIM_CROPPED if was_cropped else IMAGE_MAX_DIM
+        if min_dim < IMAGE_MIN_DIM and max_dim < max_dim_limit:
+            scale = IMAGE_MIN_DIM / min_dim
+            new_size = (int(width * scale), int(height * scale))
+            if max(new_size) <= max_dim_limit:
+                image = image.resize(new_size, Image.LANCZOS)
+
+        image = image.filter(ImageFilter.UnsharpMask(radius=1.6, percent=180, threshold=2))
+        return image
+
+    def _normalize_header_token(self, token: str) -> str:
+        token = token.strip().lower()
+        token = re.sub(r"[^\w%]+", "", token)
+        return token
+
+    def _is_header_tokens(self, tokens: list[str]) -> bool:
+        if not tokens:
+            return False
+        normalized = [self._normalize_header_token(t) for t in tokens if t]
+        normalized = [t for t in normalized if t]
+        if not normalized:
+            return False
+
+        primary_markers = ("наимен", "товар")
+        secondary_markers = ("кол", "колич", "ед", "изм", "цена", "сумм", "стоим", "ндс", "ставк", "руб", "коп")
+
+        has_primary = any(any(t.startswith(m) for m in primary_markers) for t in normalized)
+        secondary_hits = sum(1 for t in normalized if any(t.startswith(m) for m in secondary_markers))
+
+        if has_primary and secondary_hits >= 1:
+            return True
+        if secondary_hits >= 3:
+            return True
+        return False
+
+    def _crop_to_table_header(self, image: Image.Image) -> Image.Image:
+        if not getattr(settings, "enable_image_ocr_hint", True):
+            return self._crop_to_table_lines(image)
+        pytesseract = self._get_pytesseract()
+        if not pytesseract:
+            return self._crop_to_table_lines(image)
+        try:
+            data = pytesseract.image_to_data(
+                image,
+                lang="rus+eng",
+                config="--psm 6",
+                output_type=pytesseract.Output.DICT,
+            )
+        except Exception:
+            return image
+
+        texts = data.get("text") or []
+        if not texts:
+            return image
+
+        line_map: dict[tuple[int, int, int], dict[str, Any]] = {}
+        for idx, text in enumerate(texts):
+            if text is None:
+                continue
+            token = str(text).strip()
+            if not token:
+                continue
+            try:
+                conf = float(data.get("conf", [])[idx])
+            except Exception:
+                conf = -1
+            if conf < 0:
+                continue
+            key = (
+                int(data.get("block_num", [])[idx]),
+                int(data.get("par_num", [])[idx]),
+                int(data.get("line_num", [])[idx]),
+            )
+            left = int(data.get("left", [])[idx])
+            top = int(data.get("top", [])[idx])
+            width = int(data.get("width", [])[idx])
+            height = int(data.get("height", [])[idx])
+            right = left + width
+            bottom = top + height
+
+            entry = line_map.get(key)
+            if not entry:
+                entry = {
+                    "tokens": [],
+                    "left": left,
+                    "top": top,
+                    "right": right,
+                    "bottom": bottom,
+                }
+                line_map[key] = entry
+            entry["tokens"].append(token)
+            entry["left"] = min(entry["left"], left)
+            entry["top"] = min(entry["top"], top)
+            entry["right"] = max(entry["right"], right)
+            entry["bottom"] = max(entry["bottom"], bottom)
+
+        candidates = [entry for entry in line_map.values() if self._is_header_tokens(entry["tokens"])]
+        if not candidates:
+            return self._crop_to_table_lines(image)
+
+        candidates.sort(key=lambda entry: entry["top"])
+        header = candidates[0]
+
+        pad_top = int(image.height * IMAGE_HEADER_PAD_TOP_PCT)
+        pad_side = int(image.width * IMAGE_HEADER_PAD_SIDE_PCT)
+
+        left = max(header["left"] - pad_side, 0)
+        right = min(header["right"] + pad_side, image.width)
+        top = max(header["top"] - pad_top, 0)
+        bottom = image.height
+
+        if right - left < image.width * IMAGE_HEADER_MIN_WIDTH_PCT:
+            return image
+        if bottom - top < image.height * IMAGE_HEADER_MIN_HEIGHT_PCT:
+            return image
+
+        return image.crop((left, top, right, bottom))
+
+    def _crop_to_table_lines(self, image: Image.Image) -> Image.Image:
+        gray = ImageOps.grayscale(image)
+        scale = IMAGE_LINE_SCAN_SCALE
+        if scale <= 0 or scale >= 1:
+            scale = 0.5
+        small = gray.resize((int(gray.width * scale), int(gray.height * scale)), Image.BILINEAR)
+        width, height = small.size
+        if width < 100 or height < 100:
+            return image
+
+        pixels = small.load()
+        threshold = IMAGE_LINE_DARK_THRESHOLD
+
+        col_runs: list[float] = []
+        for x in range(width):
+            max_run = 0
+            run = 0
+            for y in range(height):
+                if pixels[x, y] < threshold:
+                    run += 1
+                    if run > max_run:
+                        max_run = run
+                else:
+                    run = 0
+            col_runs.append(max_run / height)
+
+        edge_ignore = int(width * IMAGE_LINE_EDGE_IGNORE_PCT)
+        left = None
+        right = None
+        for x in range(edge_ignore, width - edge_ignore):
+            if col_runs[x] >= IMAGE_LINE_COL_RUN_THRESHOLD:
+                left = x
+                break
+        for x in range(width - edge_ignore - 1, edge_ignore - 1, -1):
+            if col_runs[x] >= IMAGE_LINE_COL_RUN_THRESHOLD:
+                right = x
+                break
+
+        def _width_ratio(l: int | None, r: int | None) -> float:
+            if l is None or r is None or r <= l:
+                return 0.0
+            return (r - l) / max(1, width)
+
+        if _width_ratio(left, right) < IMAGE_HEADER_MIN_WIDTH_PCT:
+            col_dark: list[float] = []
+            for x in range(width):
+                dark = 0
+                for y in range(height):
+                    if pixels[x, y] < threshold:
+                        dark += 1
+                col_dark.append(dark / height)
+
+            left = None
+            right = None
+            for x in range(edge_ignore, width - edge_ignore):
+                if col_dark[x] >= IMAGE_LINE_COL_DARK_THRESHOLD:
+                    left = x
+                    break
+            for x in range(width - edge_ignore - 1, edge_ignore - 1, -1):
+                if col_dark[x] >= IMAGE_LINE_COL_DARK_THRESHOLD:
+                    right = x
+                    break
+
+        if left is None or right is None or right <= left:
+            return image
+
+        region_left = max(left, 0)
+        region_right = min(right, width - 1)
+        region_width = max(1, region_right - region_left + 1)
+
+        row_dark: list[float] = []
+        for y in range(height):
+            dark = 0
+            for x in range(region_left, region_right + 1):
+                if pixels[x, y] < threshold:
+                    dark += 1
+            row_dark.append(dark / region_width)
+
+
+        row_runs: list[float] = []
+        for y in range(height):
+            max_run = 0
+            run = 0
+            for x in range(region_left, region_right + 1):
+                if pixels[x, y] < threshold:
+                    run += 1
+                    if run > max_run:
+                        max_run = run
+                else:
+                    run = 0
+            row_runs.append(max_run / region_width)
+
+        anchor_idx = next(
+            (
+                i
+                for i, ratio in enumerate(row_runs)
+                if ratio >= IMAGE_LINE_ROW_ANCHOR_RUN_MIN and row_dark[i] >= IMAGE_LINE_ROW_ANCHOR_DARK_MIN
+            ),
+            None,
+        )
+
+        if anchor_idx is not None:
+            offset = int(height * IMAGE_LINE_ROW_ANCHOR_OFFSET_PCT)
+            top_row = max(0, anchor_idx - offset)
+        else:
+            row_hits = [i for i, ratio in enumerate(row_dark) if ratio >= IMAGE_LINE_ROW_DARK_THRESHOLD]
+            if not row_hits:
+                return image
+            cluster_window = max(1, int(height * IMAGE_LINE_ROW_RUN_CLUSTER_PCT))
+            top_row = None
+            for idx in row_hits:
+                if any(other != idx and other <= idx + cluster_window for other in row_hits):
+                    top_row = idx
+                    break
+            if top_row is None:
+                top_row = row_hits[0]
+
+        pad_top = int(image.height * IMAGE_HEADER_PAD_TOP_PCT)
+        pad_side = int(image.width * IMAGE_HEADER_PAD_SIDE_PCT)
+
+        left_px = max(int(left / scale) - pad_side, 0)
+        right_px = min(int((right + 1) / scale) + pad_side, image.width)
+        top_px = max(int(top_row / scale) - pad_top, 0)
+        bottom_px = image.height
+
+        if right_px - left_px < image.width * IMAGE_HEADER_MIN_WIDTH_PCT:
+            return image
+        if bottom_px - top_px < image.height * IMAGE_HEADER_MIN_HEIGHT_PCT:
+            return image
+
+        return image.crop((left_px, top_px, right_px, bottom_px))
+
+    def _get_pytesseract(self):
+        cls = type(self)
+        if cls._ocr_checked:
+            return cls._pytesseract if cls._ocr_available else None
+        try:
+            import pytesseract  # type: ignore
+            tesseract_cmd = settings.tesseract_cmd or os.environ.get("TESSERACT_CMD", "")
+            if not tesseract_cmd:
+                default_paths = [
+                    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                ]
+                for candidate in default_paths:
+                    if Path(candidate).is_file():
+                        tesseract_cmd = candidate
+                        break
+            if tesseract_cmd:
+                pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+            pytesseract.get_tesseract_version()
+        except Exception:
+            cls._ocr_checked = True
+            cls._ocr_available = False
+            cls._pytesseract = None
+            return None
+        cls._ocr_checked = True
+        cls._ocr_available = True
+        cls._pytesseract = pytesseract
+        return pytesseract
+
+    def _extract_ocr_text(self, image: Image.Image) -> str:
+        if not getattr(settings, "enable_image_ocr_hint", True):
+            return ""
+        pytesseract = self._get_pytesseract()
+        if not pytesseract:
+            return ""
+        configs = [
+            "--oem 1 --psm 6 -c preserve_interword_spaces=1",
+            "--oem 1 --psm 4 -c preserve_interword_spaces=1",
+            "--oem 1 --psm 11 -c preserve_interword_spaces=1",
+        ]
+
+        def score(text: str) -> int:
+            digits = len(re.findall(r"\d", text))
+            letters = len(re.findall(r"[A-Za-zА-Яа-я]", text))
+            return digits * 2 + letters
+
+        best_text = ""
+        best_score = -1
+        for config in configs:
+            for lang in ("rus+eng", "eng"):
+                try:
+                    text = pytesseract.image_to_string(image, lang=lang, config=config)
+                except Exception:
+                    continue
+                text = (text or "").strip()
+                if not text:
+                    continue
+                current_score = score(text)
+                if current_score > best_score:
+                    best_score = current_score
+                    best_text = text
+
+        return best_text
+
+    def _prepare_image_payload(self, filename: str, content: bytes) -> tuple[str, bytes, str]:
+        raw_image = Image.open(BytesIO(content))
+        prepared = self._prepare_image(raw_image.copy())
+        ocr_text = self._extract_ocr_text(prepared)
+        if len(ocr_text) < IMAGE_OCR_MIN_CHARS:
+            raw_text = self._extract_ocr_text(raw_image)
+            if len(raw_text) > len(ocr_text):
+                ocr_text = raw_text
+        buffer = BytesIO()
+        prepared.save(buffer, format="JPEG", quality=95)
+        new_name = f"{Path(filename).stem}_prep.jpg"
+        return new_name, buffer.getvalue(), ocr_text
+
+    def _build_prompt(self, base: str, text_hint: str) -> str:
+        return (
+            base
+            + " Preserve item names exactly as written in the document. "
+            + "Do not replace them with more plausible items or categories. "
+            + "If text is unclear, keep the best transcription instead of guessing."
+        )
+
+    def _find_header_number_line(self, text: str) -> str | None:
+        if not text:
+            return None
+        for line in text.splitlines():
+            tokens = re.findall(r"\b\d{1,2}\b", line)
+            if len(tokens) < 5:
+                continue
+            ints = [int(t) for t in tokens]
+            if any(value < 1 or value > 20 for value in ints):
+                continue
+            uniq = sorted(set(ints))
+            if len(uniq) < 5:
+                continue
+            if uniq == list(range(min(uniq), max(uniq) + 1)):
+                return line.strip()
+        return None
+
+    def _looks_like_column_numbers(self, values: list[Decimal | float | int | None]) -> bool:
+        ints: list[int] = []
+        for value in values:
+            if value is None:
+                continue
+            try:
+                fval = float(value)
+            except Exception:
+                continue
+            if fval.is_integer():
+                ival = int(fval)
+                if 1 <= ival <= 20:
+                    ints.append(ival)
+        if len(ints) < 5:
+            return False
+        uniq = sorted(set(ints))
+        if len(uniq) < 5 or max(uniq) > 20:
+            return False
+        # Sequential header row 1..N or close to it.
+        if uniq == list(range(min(uniq), max(uniq) + 1)):
+            return True
+        return False
+
+    def _detect_header_number_leak(self, items: list[InvoiceItem]) -> bool:
+        if not items:
+            return False
+        prices = [item.unit_price for item in items]
+        totals = [item.total_cost for item in items]
+        return self._looks_like_column_numbers(prices) or self._looks_like_column_numbers(totals)
+
+    def _dominant_value_ratio(self, values: list[Decimal | float | int | None]) -> tuple[str | None, float]:
+        normalized: list[str] = []
+        for value in values:
+            if value is None:
+                continue
+            try:
+                normalized.append(str(Decimal(str(value))))
+            except Exception:
+                continue
+        if len(normalized) < 3:
+            return None, 0.0
+        counts: dict[str, int] = {}
+        for value in normalized:
+            counts[value] = counts.get(value, 0) + 1
+        dominant_value, dominant_count = max(counts.items(), key=lambda item: item[1])
+        return dominant_value, dominant_count / len(normalized)
+
+    def _detect_repeated_numeric_columns(self, items: list[InvoiceItem]) -> bool:
+        if len(items) < 4:
+            return False
+        price_val, price_ratio = self._dominant_value_ratio([item.unit_price for item in items])
+        totals = [
+            item.cost_with_tax
+            if item.cost_with_tax is not None
+            else (item.total_cost if item.total_cost is not None else item.cost_without_tax)
+            for item in items
+        ]
+        total_val, total_ratio = self._dominant_value_ratio(totals)
+        qty_val, qty_ratio = self._dominant_value_ratio([item.unit_amount for item in items])
+        if price_ratio >= 0.8 and total_ratio >= 0.8 and price_val == total_val:
+            return True
+        if price_ratio >= 0.85 and qty_ratio >= 0.85:
+            return True
+        return False
+
+    def _detect_quantity_ignored(self, items: list[InvoiceItem]) -> bool:
+        if len(items) < 3:
+            return False
+        matches = 0
+        for item in items:
+            qty = item.unit_amount
+            price = item.unit_price
+            total = item.cost_without_tax if item.cost_without_tax is not None else item.total_cost
+            try:
+                if qty is not None and float(qty) == 1.0 and price is not None and total is not None:
+                    if float(price) == float(total):
+                        matches += 1
+            except Exception:
+                continue
+        return matches / len(items) >= 0.7
+
+    def _detect_price_qty_mismatch(self, items: list[InvoiceItem]) -> bool:
+        total = 0
+        mismatches = 0
+        for item in items:
+            if item.unit_price is None or item.unit_amount is None or item.cost_without_tax is None:
+                continue
+            try:
+                expected = float(item.unit_price) * float(item.unit_amount)
+                actual = float(item.cost_without_tax)
+            except Exception:
+                continue
+            total += 1
+            if expected == 0:
+                continue
+            diff = abs(expected - actual)
+            if diff > max(1.0, expected * 0.2):
+                mismatches += 1
+        return total >= 3 and (mismatches / total) >= 0.6
+
     def _parse_function_call(self, data: dict[str, Any]) -> dict[str, Any] | None:
         item = self._find_function_call_item(data)
         if not item:
@@ -170,8 +751,21 @@ class InvoicePipelineService:
             return args
         return None
 
+    def _select_model(self, source_type: str, override: str | None = None) -> str:
+        if override:
+            return override
+        if source_type == "image" and settings.openai_model_image:
+            return settings.openai_model_image
+        return settings.openai_model
+
     async def _call_llm(
-        self, prompt: str, source_type: str, filename: str, content: bytes, extracted_text: str
+        self,
+        prompt: str,
+        source_type: str,
+        filename: str,
+        content: bytes,
+        extracted_text: str,
+        model_override: str | None = None,
     ) -> dict[str, Any]:
         if not settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is not configured")
@@ -185,8 +779,9 @@ class InvoicePipelineService:
         else:
             input_payload = self._build_input(prompt, source_type, filename, content, extracted_text)
 
+        model = self._select_model(source_type, model_override)
         payload = {
-            "model": settings.openai_model,
+            "model": model,
             "input": input_payload,
             "tools": [{"type": "function", **self._build_function_schema()}],
             "tool_choice": {"type": "function", "name": "parse_invoice"},
@@ -215,7 +810,7 @@ class InvoicePipelineService:
                 usage,
                 extra={"request_id": "llm"},
             )
-            cost = self._estimate_cost(usage)
+            cost = self._estimate_cost(usage, model)
             if cost:
                 logger.info("LLM cost estimate: %s", cost, extra={"request_id": "llm"})
                 data["_cost"] = cost
@@ -256,10 +851,9 @@ class InvoicePipelineService:
             parsed["_cost"] = data["_cost"]
         return parsed
 
-    def _estimate_cost(self, usage: dict[str, Any]) -> dict[str, Any] | None:
+    def _estimate_cost(self, usage: dict[str, Any], model: str) -> dict[str, Any] | None:
         if not usage:
             return None
-        model = settings.openai_model
         pricing = self._pricing.get(model)
         if not pricing:
             return None
@@ -281,6 +875,26 @@ class InvoicePipelineService:
         user_part = user_id or "anon"
         user_part = "".join(ch if ch.isdigit() else "_" for ch in user_part) or "anon"
         return f"{timestamp}_{user_part}"
+
+    async def _run_llm_pass(
+        self,
+        prompt: str,
+        source_type: str,
+        filename: str,
+        content: bytes,
+        text_hint: str,
+        user_id: str | None,
+        request_id: str,
+        model_override: str | None = None,
+    ) -> tuple[dict[str, Any], list[InvoiceItem], list[str]]:
+        llm_data = await self._call_llm(prompt, source_type, filename, content, text_hint, model_override=model_override)
+
+        if llm_data.get("_cost"):
+            self._append_cost_log(user_id, request_id, llm_data["_cost"])
+
+        items = self._build_items_from_llm(llm_data)
+        garbage_reasons = self._detect_garbage_items(items, llm_data)
+        return llm_data, items, garbage_reasons
 
     def _append_cost_log(self, user_id: str | None, request_id: str, cost: dict[str, Any]) -> None:
         """Быстро дописывает строку в `logs/llm_costs.csv`.
@@ -407,34 +1021,66 @@ class InvoicePipelineService:
         return file_id
 
     def _build_items_from_llm(self, data: dict[str, Any]) -> list[InvoiceItem]:
+        def _to_decimal(value: Any) -> Decimal | None:
+            if value is None:
+                return None
+            try:
+                return Decimal(str(value))
+            except Exception:  # noqa: BLE001
+                return None
+
+        def _round_money(value: Decimal | None) -> Decimal | None:
+            if value is None:
+                return None
+            try:
+                return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            except Exception:  # noqa: BLE001
+                return value
+
         items: list[InvoiceItem] = []
         for item in data.get("items", []):
-            description = item.get("description") or ""
-            quantity = item.get("quantity")
-            unit_price = item.get("unit_price")
-            line_total = item.get("line_total")
-            try:
-                quantity_dec = Decimal(str(quantity)) if quantity is not None else None
-            except Exception:  # noqa: BLE001
-                quantity_dec = None
-            try:
-                unit_price_dec = Decimal(str(unit_price)) if unit_price is not None else None
-            except Exception:  # noqa: BLE001
-                unit_price_dec = None
-            try:
-                line_total_dec = Decimal(str(line_total)) if line_total is not None else None
-            except Exception:  # noqa: BLE001
-                line_total_dec = None
+            description = item.get("name") or item.get("description") or ""
+            quantity_dec = _to_decimal(item.get("quantity"))
+            mass_dec = _to_decimal(item.get("mass"))
+            unit_price_dec = _to_decimal(item.get("unit_price"))
+            amount_without_tax = _to_decimal(item.get("amount_without_tax"))
+            tax_rate = _to_decimal(item.get("tax_rate"))
+            tax_amount = _to_decimal(item.get("tax_amount"))
+            amount_with_tax = _to_decimal(item.get("amount_with_tax"))
+
+            if amount_with_tax is None and amount_without_tax is not None and tax_amount is not None:
+                amount_with_tax = amount_without_tax + tax_amount
+            if tax_amount is None and amount_with_tax is not None and amount_without_tax is not None:
+                tax_amount = amount_with_tax - amount_without_tax
+            if tax_rate is None and amount_without_tax is not None and tax_amount is not None:
+                try:
+                    if amount_without_tax != 0:
+                        tax_rate = (tax_amount / amount_without_tax) * Decimal("100")
+                except Exception:  # noqa: BLE001
+                    tax_rate = None
+            if amount_without_tax is None and amount_with_tax is not None and tax_rate is not None:
+                try:
+                    denom = Decimal("1") + (tax_rate / Decimal("100"))
+                    if denom != 0:
+                        amount_without_tax = amount_with_tax / denom
+                except Exception:  # noqa: BLE001
+                    amount_without_tax = None
+
+            amount_without_tax = _round_money(amount_without_tax)
+            tax_amount = _round_money(tax_amount)
+            amount_with_tax = _round_money(amount_with_tax)
 
             items.append(
                 InvoiceItem(
                     name=description,
                     unit_amount=quantity_dec,
-                    supply_quantity=quantity_dec,
+                    supply_quantity=mass_dec,
                     unit_price=unit_price_dec,
-                    cost_without_tax=line_total_dec,
-                    cost_with_tax=line_total_dec,
-                    total_cost=line_total_dec,
+                    cost_without_tax=amount_without_tax,
+                    tax_rate=tax_rate,
+                    tax_amount=tax_amount,
+                    cost_with_tax=amount_with_tax,
+                    total_cost=amount_with_tax,
                 )
             )
         return items
@@ -486,12 +1132,25 @@ class InvoicePipelineService:
             except Exception:
                 return False
 
+        def is_blank_name(name: str | None) -> bool:
+            if not name:
+                return True
+            stripped = name.strip()
+            return stripped in {"-", "—", "–"}
+
         zero_rows = 0
+        blank_rows = 0
         for item in items:
             if is_zero(item.unit_amount) and is_zero(item.unit_price) and is_zero(item.total_cost):
                 zero_rows += 1
+            if is_blank_name(item.name) and is_zero(item.unit_amount) and is_zero(item.unit_price) and is_zero(
+                item.total_cost
+            ):
+                blank_rows += 1
         if zero_rows >= LLM_GARBAGE_ZERO_ROW_THRESHOLD:
             reasons.append(f"много нулевых строк ({zero_rows})")
+        if blank_rows >= max(3, len(items) // 2):
+            reasons.append(f"много пустых строк ({blank_rows})")
 
         # 3) Стоп-слова, характерные для заголовков/итогов, а не позиций.
         stop_tokens = (
@@ -522,7 +1181,11 @@ class InvoicePipelineService:
             "Return ONLY the parse_invoice function call. "
             "Extract ONLY line items visible in this image. "
             "Do not include items not shown in the image. "
-            "If a field is missing for a row, return null for that field."
+            "Do not invent rows or placeholders. "
+            "Do not return rows with empty description. "
+            "Preserve item names exactly as written; do not replace them with more plausible items. "
+            "If a field is missing for a row, return null for that field. "
+            + HEADER_NUMBER_HINT
         )
         items: list[InvoiceItem] = []
         with pdfplumber.open(BytesIO(content)) as pdf:
@@ -536,8 +1199,9 @@ class InvoicePipelineService:
                     page_images = [top, bottom]
 
                 for part_index, img in enumerate(page_images, start=1):
+                    img = self._prepare_image(img)
                     buffer = BytesIO()
-                    img.save(buffer, format="JPEG", quality=85)
+                    img.save(buffer, format="JPEG", quality=90)
                     img_bytes = buffer.getvalue()
                     part_name = f"{Path(filename).stem}_p{page_index}_s{part_index}.jpg"
                     data = await self._call_llm(prompt, "image", part_name, img_bytes, "")
@@ -565,16 +1229,34 @@ class InvoicePipelineService:
         try:
             source_type, raw_text = FileTextExtractor.extract(filename, content)
 
-            prompt = (
+            base_prompt = (
                 "You are extracting line items from an invoice. "
                 "Return ONLY the parse_invoice function call. "
                 "Extract ALL line items from the entire document (do not skip any rows). "
                 "The table may start in the middle of a page and continue across pages. "
                 "Include every row that has a description and any numeric columns "
-                "(quantity, unit price, or line total). "
+                "(quantity, mass, unit price, or totals). "
                 "Do not stop early. Do not summarize. Do not merge rows. "
+                "Do not invent rows or placeholders. "
+                "Do not return rows with empty description. "
                 "If a field is missing for a row, return null for that field. "
                 "If there are multiple tables, include all line items from all of them. "
+                "For each row, return only these fields: name, quantity, mass (if present), unit_price, "
+                "amount_without_tax, tax_rate, tax_amount, amount_with_tax. "
+                "Map Russian headers: 'кол-во/количество' -> quantity, 'масса/вес' -> mass, "
+                "'цена' -> unit_price, 'сумма без НДС/без учета НДС' -> amount_without_tax, "
+                "'НДС %/ставка НДС' -> tax_rate, 'сумма НДС/НДС сумма' -> tax_amount, "
+                "'сумма с НДС/с НДС/итого' -> amount_with_tax. "
+                "If the header shows column numbers 1..15 (TORG-12 layout), align by headers: "
+                "price near columns 11, amount_without_tax near 12, tax_rate near 13, tax_amount near 14, "
+                "amount_with_tax near 15, quantity (net) near 10. Do not mix these columns. "
+                "If there are multiple 'quantity' columns, use the one immediately to the left of the price column "
+                "(usually 'Количество (масса нетто)' in TORG-12), not the packaging/count columns on the left. "
+                "If quantity and mass are in the same column, use the unit to decide: "
+                "weight units (кг, г, л, мл) -> mass; count units (шт, упак, короб, ящик) -> quantity. "
+                "If ambiguous or unit is missing, prefer quantity and leave mass null. "
+                "If VAT is only provided as a document-level total/rate, do NOT invent per-line VAT amounts; "
+                "leave tax_amount null. You may set tax_rate for each line only if it is explicitly visible. "
                 "Also detect document_type: one of 'UPD', 'TORG-12', 'TTN', 'INVOICE', 'OTHER'. "
                 "Set has_invoice_keyword=true ONLY if the document visibly contains words like "
                 "'накладная', 'УПД', 'ТОРГ-12', or 'товарно-транспортная накладная'. "
@@ -582,17 +1264,120 @@ class InvoicePipelineService:
                 "has_invoice_keyword=false, and return items as an empty array."
             )
 
-            llm_data = await self._call_llm(prompt, source_type, filename, content, raw_text)
+            original_filename = filename
+            original_content = content
+            used_prepared = False
+            text_hint = raw_text
 
-            # Сохраняем стоимость LLM сразу после успешного ответа, независимо от того,
-            # распознали мы накладную или вернули пользователю ошибку (not_invoice и пр.).
-            if llm_data.get("_cost"):
-                self._append_cost_log(user_id, request_id, llm_data["_cost"])
+            if source_type == "image":
+                filename, content, ocr_text = self._prepare_image_payload(filename, content)
+                used_prepared = True
+                if ocr_text:
+                    raw_text = ocr_text[:MAX_TEXT_HINT_CHARS]
+                    text_hint = raw_text
 
-            items = self._build_items_from_llm(llm_data)
+            prompt = self._build_prompt(base_prompt, text_hint)
+
+            llm_data, items, garbage_reasons = await self._run_llm_pass(
+                prompt, source_type, filename, content, text_hint, user_id, request_id
+            )
+            active_filename = filename
+            active_content = content
+            active_model = None
+
+            if source_type == "image" and used_prepared and (garbage_reasons or not items):
+                raw_data, raw_items, raw_garbage = await self._run_llm_pass(
+                    prompt, source_type, original_filename, original_content, text_hint, user_id, request_id
+                )
+                if raw_items and not raw_garbage:
+                    llm_data, items, garbage_reasons = raw_data, raw_items, raw_garbage
+                    active_filename = original_filename
+                    active_content = original_content
+
+            if items and self._detect_header_number_leak(items):
+                header_prompt = prompt + " " + HEADER_NUMBER_HINT
+                retry_data, retry_items, retry_garbage = await self._run_llm_pass(
+                    header_prompt,
+                    source_type,
+                    active_filename,
+                    active_content,
+                    text_hint,
+                    user_id,
+                    request_id,
+                    model_override=active_model,
+                )
+                if retry_items and not retry_garbage and not self._detect_header_number_leak(retry_items):
+                    llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
+
+            if items and self._detect_repeated_numeric_columns(items):
+                repeat_prompt = prompt + " " + REPEAT_VALUE_HINT
+                retry_data, retry_items, retry_garbage = await self._run_llm_pass(
+                    repeat_prompt,
+                    source_type,
+                    active_filename,
+                    active_content,
+                    text_hint,
+                    user_id,
+                    request_id,
+                    model_override=active_model,
+                )
+                if retry_items and not retry_garbage and not self._detect_repeated_numeric_columns(retry_items):
+                    llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
+
+            if items and self._detect_quantity_ignored(items):
+                qty_prompt = prompt + " " + QUANTITY_HINT
+                retry_data, retry_items, retry_garbage = await self._run_llm_pass(
+                    qty_prompt,
+                    source_type,
+                    active_filename,
+                    active_content,
+                    text_hint,
+                    user_id,
+                    request_id,
+                    model_override=active_model,
+                )
+                if retry_items and not retry_garbage and not self._detect_quantity_ignored(retry_items):
+                    llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
+
+            if items and self._detect_price_qty_mismatch(items):
+                consistency_prompt = prompt + " " + CONSISTENCY_HINT
+                retry_data, retry_items, retry_garbage = await self._run_llm_pass(
+                    consistency_prompt,
+                    source_type,
+                    active_filename,
+                    active_content,
+                    text_hint,
+                    user_id,
+                    request_id,
+                    model_override=active_model,
+                )
+                if retry_items and not retry_garbage and not self._detect_price_qty_mismatch(retry_items):
+                    llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
+
+            if (
+                source_type == "image"
+                and settings.openai_model_image_fallback
+                and (
+                    self._detect_repeated_numeric_columns(items)
+                    or self._detect_quantity_ignored(items)
+                    or self._detect_price_qty_mismatch(items)
+                )
+            ):
+                fallback_model = settings.openai_model_image_fallback
+                fallback_data, fallback_items, fallback_garbage = await self._run_llm_pass(
+                    prompt,
+                    source_type,
+                    active_filename,
+                    active_content,
+                    text_hint,
+                    user_id,
+                    request_id,
+                    model_override=fallback_model,
+                )
+                if fallback_items and not fallback_garbage:
+                    llm_data, items, garbage_reasons = fallback_data, fallback_items, fallback_garbage
+
             warnings: list[str] = []
-
-            garbage_reasons = self._detect_garbage_items(items, llm_data)
             if garbage_reasons:
                 raise UserFacingError(
                     "Не удалось корректно распознать таблицу позиций.",
