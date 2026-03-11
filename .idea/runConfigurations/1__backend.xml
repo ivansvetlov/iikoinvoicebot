@@ -16,7 +16,7 @@
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="RUN_TOOL" value="" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/.venv/Scripts/uvicorn.exe" />
-    <option name="PARAMETERS" value="app.api:app --host 127.0.0.1 --port 8000" />
+    <option name="PARAMETERS" value="app.entrypoints.main:app --host 127.0.0.1 --port 8000" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="true" />
     <option name="MODULE_MODE" value="false" />

@@ -63,8 +63,7 @@ TEXT_EXTENSIONS = {
 }
 
 ALWAYS_CHECK_FILENAMES = {
-    "Dockerfile",
-    "docker-compose.yml",
+    "README.md",
     "requirements.txt",
     ".editorconfig",
     ".gitignore",

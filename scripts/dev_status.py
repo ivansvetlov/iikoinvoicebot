@@ -1,13 +1,4 @@
-r"""Проверка состояния dev-окружения: backend, worker, Redis.
-
-Запуск:
-    .venv\Scripts\python.exe scripts\dev_status.py
-
-Скрипт ничего не запускает и не останавливает, только показывает статус.
-
-Важно: скрипт можно запускать из любой директории — он сам добавляет корень
-репозитория в `sys.path`.
-"""
+r"""Check local dev status for backend and worker."""
 
 from __future__ import annotations
 
@@ -34,7 +25,7 @@ def check_backend() -> bool:
             return True
         print(f"backend: ERROR status={resp.status_code}")
         return False
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"backend: UNAVAILABLE ({exc.__class__.__name__}: {exc})")
         return False
 
@@ -42,36 +33,24 @@ def check_backend() -> bool:
 def check_worker() -> bool:
     try:
         redis = Redis.from_url(settings.redis_url)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"worker: CANNOT CONNECT REDIS ({exc.__class__.__name__}: {exc})")
         return False
 
     try:
-        # RQ: Connection(...) контекстный менеджер deprecated.
-        # Используем явный параметр connection.
         workers = Worker.all(connection=redis)
-        if not workers:
-            print("worker: NO ACTIVE WORKERS")
-            return False
-        names = ", ".join(w.name for w in workers)
-        print(f"worker: OK (workers: {names})")
-        return True
     except TypeError:
-        # На случай несовпадения API в другой версии rq.
-        try:
-            workers = Worker.all()
-            if not workers:
-                print("worker: NO ACTIVE WORKERS")
-                return False
-            names = ", ".join(w.name for w in workers)
-            print(f"worker: OK (workers: {names})")
-            return True
-        except Exception as exc:  # noqa: BLE001
-            print(f"worker: ERROR ({exc.__class__.__name__}: {exc})")
-            return False
-    except Exception as exc:  # noqa: BLE001
+        workers = Worker.all()
+    except Exception as exc:
         print(f"worker: ERROR ({exc.__class__.__name__}: {exc})")
         return False
+
+    if not workers:
+        print("worker: NO ACTIVE WORKERS")
+        return False
+    names = ", ".join(w.name for w in workers)
+    print(f"worker: OK (workers: {names})")
+    return True
 
 
 def main() -> None:
@@ -80,15 +59,14 @@ def main() -> None:
     ok_worker = check_worker()
 
     if not ok_backend:
-        print("\nСовет: запустите backend (uvicorn app.api:app --host 127.0.0.1 --port 8000)")
+        print("\nСовет: запустите backend (uvicorn app.entrypoints.main:app --host 127.0.0.1 --port 8000)")
     if not ok_worker:
-        print("Совет: запустите worker (python worker.py)")
-
+        print("Совет: запустите worker (python -m app.entrypoints.worker)")
     if ok_backend and ok_worker:
-        print("\nВсё выглядит запущенным. Если бот не отвечает — проверьте run-конфигурацию bot.py в PyCharm.")
+        print("\nВсё выглядит запущенным. Если бот не отвечает — проверьте run-конфигурацию app.entrypoints.bot.")
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:

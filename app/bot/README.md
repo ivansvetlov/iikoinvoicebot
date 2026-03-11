@@ -10,4 +10,4 @@
   - форматирует ответы пользователю (через `app.utils.user_messages`).
 - `event_codes.py` — единый реестр пользовательских кодов событий (`BOT_*`) и helper для формата `Код события: ...`.
 
-Запуск бота осуществляется из корневого `bot.py`, который создаёт экземпляр `TelegramBotManager`.
+Запуск бота осуществляется из `app/entrypoints/bot.py` (или `python -m app.entrypoints.bot`), который создаёт экземпляр `TelegramBotManager`.

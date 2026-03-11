@@ -16,11 +16,13 @@ services:
       - pg_data:/var/lib/postgresql/data
 
   backend:
-    build: .
-    command: uvicorn app.api:app --host 0.0.0.0 --port 8000
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: uvicorn app.entrypoints.main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
     env_file:
-      - .env
+      - ../.env
     depends_on:
       - redis
       - postgres
@@ -28,21 +30,25 @@ services:
       - "8000:8000"
 
   worker:
-    build: .
-    command: python worker.py
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: python -m app.entrypoints.worker
     restart: unless-stopped
     env_file:
-      - .env
+      - ../.env
     depends_on:
       - redis
       - postgres
 
   bot:
-    build: .
-    command: python bot.py
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: python -m app.entrypoints.bot
     restart: unless-stopped
     env_file:
-      - .env
+      - ../.env
     depends_on:
       - backend
 

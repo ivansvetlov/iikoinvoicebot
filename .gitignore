@@ -24,8 +24,8 @@ Thumbs.db
 
 # --- Project secrets ---
 .env
-id_ed25519
-id_ed25519.pub
+github_ssh_private_ed25519
+github_ssh_public_ed25519.pub
 
 # --- Runtime data & logs ---
 logs/
@@ -48,3 +48,8 @@ cursor.plan.md
 tmp_*.txt
 tmp_*.html
 tmp_*.js
+
+# --- Local external repos / doc caches ---
+qwen-code/
+qwen-code2/
+iiko_server_docs/

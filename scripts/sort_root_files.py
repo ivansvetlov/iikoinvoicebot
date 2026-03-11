@@ -33,22 +33,15 @@ class MoveAction:
 # Files that are commonly expected to live in the repo root.
 # This list is conservative on purpose.
 KEEP_FILES = {
-    # Python entrypoints / modules in root
-    "main.py",
-    "bot.py",
-    "worker.py",
-    "invoice_llm_client.py",
-    # Docker / deploy / config
-    "Dockerfile",
-    "docker-compose.yml",
-    "nginx_bot.conf",
+    # Python modules in root
+    # (root entrypoints removed; runtime code is under app/entrypoints)
+    # Core files
     "requirements.txt",
     # Environment
     ".env",
-    ".env.example",
     # SSH keys (do not move automatically)
-    "id_ed25519",
-    "id_ed25519.pub",
+    "github_ssh_private_ed25519",
+    "github_ssh_public_ed25519.pub",
 }
 
 # Docs that are often expected in root (GitHub, IDE, etc.).

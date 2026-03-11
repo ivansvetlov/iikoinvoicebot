@@ -1,21 +1,7 @@
-r"""Запуск backend, worker и бота одной командой (для локальной разработки).
+r"""Start backend, worker and bot for local development.
 
-Запуск:
+Usage:
     .venv\Scripts\python.exe scripts\dev_run_all.py
-
-Скрипт:
-- запускает backend (uvicorn app.api:app --host 127.0.0.1 --port 8000);
-- ждёт, пока /health начнёт отвечать;
-- запускает worker (worker.py);
-- запускает bot (bot.py);
-- если на любом шаге ошибка — останавливает уже запущенные процессы и
-  печатает понятное сообщение.
-
-Доп. защита:
-- перед запуском bot.py пытается найти и остановить **другие** процессы bot.py
-  этого проекта, чтобы не ловить TelegramConflictError.
-
-Это НЕ прод-оркестратор, а удобный помощник для локальной отладки.
 """
 
 from __future__ import annotations
@@ -29,9 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
-
-# Важно: не добавляем сторонних зависимостей ради dev-скрипта. Всё делаем через
-# стандартные средства Windows (PowerShell/TaskKill) + Python stdlib.
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
@@ -50,7 +33,6 @@ class ProcGroup:
                 continue
             try:
                 if proc.poll() is None:
-                    # Аккуратно посылаем сигнал завершения
                     proc.terminate()
                     try:
                         proc.wait(timeout=5)
@@ -64,41 +46,21 @@ def _get_health(url: str) -> bool:
     try:
         resp = httpx.get(url, timeout=2)
         return resp.status_code == 200
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
 def _kill_duplicate_bot_processes() -> None:
-    """Останавливает другие процессы bot.py (в том же venv/проекте).
-
-    Почему это нужно:
-    - Telegram polling допускает только один процесс на один токен.
-    - Если запустить 2 экземпляра `bot.py`, получаем `TelegramConflictError`.
-
-    Нюанс Windows:
-    - CommandLine процесса часто содержит только `bot.py` (без cwd/абсолютного пути).
-      Поэтому фильтр вида "PROJECT_ROOT in CommandLine" ненадёжен.
-
-    Поэтому считаем процесс «нашим», если:
-    - в CommandLine есть `bot.py`
-    - и ExecutablePath совпадает с текущим интерпретатором (sys.executable)
-      или лежит внутри PROJECT_ROOT (обычно это `.venv\\Scripts\\python.exe`).
-
-    Дополнительно учитываем `pythonw.exe`.
-
-    Реализация через PowerShell (Get-CimInstance), чтобы не добавлять зависимости.
-    """
-
+    """Stop other bot polling processes from the same project interpreter."""
     ps = (
         "Get-CimInstance Win32_Process | "
         "Where-Object { $_.Name -in @('python.exe','pythonw.exe') } | "
         "Select-Object ProcessId,CommandLine,ExecutablePath,Name | "
         "ConvertTo-Json -Compress"
     )
-
     try:
         raw = subprocess.check_output(["powershell", "-NoProfile", "-Command", ps], text=True)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"[dev_run_all] duplicate-bot check failed: {exc.__class__.__name__}: {exc}")
         return
 
@@ -108,12 +70,11 @@ def _kill_duplicate_bot_processes() -> None:
 
     try:
         data = json.loads(raw)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"[dev_run_all] duplicate-bot check failed: invalid JSON ({exc.__class__.__name__})")
         return
 
     processes = [data] if isinstance(data, dict) else data
-
     project_root_low = str(PROJECT_ROOT).lower()
     sys_exe_low = (sys.executable or "").lower()
 
@@ -130,58 +91,39 @@ def _kill_duplicate_bot_processes() -> None:
             continue
 
         cmd_low = cmdline.lower()
-        if "bot.py" not in cmd_low:
+        is_bot_script = "bot.py" in cmd_low
+        is_bot_module = "app.entrypoints.bot" in cmd_low
+        if not (is_bot_script or is_bot_module):
             continue
 
         exe_low = exe_path.lower()
-
-        # 1) Самый надёжный критерий: тот же python.exe (обычно тот же venv)
         is_same_interpreter = bool(sys_exe_low) and exe_low == sys_exe_low
-
-        # 2) Второй критерий: python.exe лежит внутри папки проекта
-        # (типично: ...\PythonProject\.venv\Scripts\python.exe)
         is_project_venv = exe_low.startswith(project_root_low)
-
         if not (is_same_interpreter or is_project_venv):
             continue
-
         to_kill.append(pid)
 
     if not to_kill:
         return
 
-    print(f"[dev_run_all] found {len(to_kill)} existing bot.py processes, stopping: {to_kill}")
+    print(f"[dev_run_all] found {len(to_kill)} existing bot processes, stopping: {to_kill}")
     for pid in to_kill:
-        # Сначала пробуем мягко
         subprocess.run(["taskkill", "/PID", str(pid), "/T"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1)
     for pid in to_kill:
-        # Если не остановился — форсим
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def start_backend(group: ProcGroup) -> None:
     url = "http://127.0.0.1:8000/health"
-
-    # Если backend уже поднят (например, запущен вручную) — используем его.
     if _get_health(url):
         print(f"[dev_run_all] backend already up ({url}), skipping start")
         return
 
-    cmd = [
-        PYTHON,
-        "-m",
-        "uvicorn",
-        "app.api:app",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8000",
-    ]
+    cmd = [PYTHON, "-m", "uvicorn", "app.entrypoints.main:app", "--host", "127.0.0.1", "--port", "8000"]
     print("[dev_run_all] starting backend:", " ".join(cmd))
     group.backend = subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
 
-    # ждём, пока /health станет доступен
     for attempt in range(10):
         time.sleep(1)
         if _get_health(url):
@@ -192,7 +134,7 @@ def start_backend(group: ProcGroup) -> None:
 
 
 def start_worker(group: ProcGroup) -> None:
-    cmd = [PYTHON, "worker.py"]
+    cmd = [PYTHON, "-m", "app.entrypoints.worker"]
     print("[dev_run_all] starting worker:", " ".join(cmd))
     group.worker = subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
     time.sleep(1)
@@ -200,7 +142,7 @@ def start_worker(group: ProcGroup) -> None:
 
 def start_bot(group: ProcGroup) -> None:
     _kill_duplicate_bot_processes()
-    cmd = [PYTHON, "bot.py"]
+    cmd = [PYTHON, "-m", "app.entrypoints.bot"]
     print("[dev_run_all] starting bot:", " ".join(cmd))
     group.bot = subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
     time.sleep(1)
@@ -220,20 +162,18 @@ def main() -> None:
             print(f"  worker  PID={group.worker.pid}")
         if group.bot:
             print(f"  bot     PID={group.bot.pid}")
+        print("\nPress Ctrl+C to stop all processes.")
 
-        print("\nНажмите Ctrl+C, чтобы остановить все процессы.")
-
-        # Ожидаем, пока не прервут Ctrl+C
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n[dev_run_all] interrupted by user, terminating...")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"[dev_run_all] ERROR: {exc!r}")
     finally:
         group.terminate_all()
         print("[dev_run_all] all processes terminated")
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     main()
