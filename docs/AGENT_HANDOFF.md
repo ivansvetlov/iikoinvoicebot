@@ -81,7 +81,7 @@
 ## 7) Git-РїСЂРѕС†РµСЃСЃ (РєР°Рє РЅРµ Р±РѕСЏС‚СЊСЃСЏ РѕС‚РєР°С‚РѕРІ)
 - `main` вЂ” СЃС‚Р°Р±РёР»СЊРЅР°СЏ РІРµС‚РєР°.
 - РўРµРі СЃС‚Р°Р±РёР»СЊРЅРѕР№ С‚РѕС‡РєРё: `stable-2026-03-09`.
-- РўРµРєСѓС‰Р°СЏ СЂР°Р±РѕС‚Р°: РІРµС‚РєР° `feature/stage4-reliability-observability`.
+- Активная разработка: `feature/*`; актуальную ветку всегда проверяйте командой `git status -sb`.
 
 ## 8) РР·РІРµСЃС‚РЅС‹Рµ РїСЂРѕР±Р»РµРјС‹/Р·Р°РјРµС‚РєРё
 - **Media group Р°Р»СЊР±РѕРј**: РµСЃР»Рё backend СЃРѕС…СЂР°РЅСЏРµС‚ С„Р°Р№Р»С‹ РїРѕ РѕРґРёРЅР°РєРѕРІРѕРјСѓ РёРјРµРЅРё, РІРѕР·РјРѕР¶РЅР° РїРµСЂРµР·Р°РїРёСЃСЊ. `/split` СЃРѕС…СЂР°РЅСЏРµС‚ СѓРЅРёРєР°Р»СЊРЅС‹Рµ РёРјРµРЅР° Рё РЅР°РґС‘Р¶РЅРµРµ.
@@ -206,6 +206,7 @@
   - for current active branch always trust `git status -sb` instead of static text in this file.
 - Quick check:
   - `powershell -ExecutionPolicy Bypass -File scripts\search_iiko_server_docs.ps1 -Pattern "iikoserver"`
+
 
 
 
