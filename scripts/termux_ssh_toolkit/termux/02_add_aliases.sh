@@ -319,14 +319,14 @@ wssh() {
 }
 
 wenter() {
-  _wssh_base -tt "\$WINDEV_ALIAS" "cmd /k \"cd /d \$WINDEV_PROJECT_WIN\""
+  _wssh_base -tt "\$WINDEV_ALIAS" "powershell -NoLogo -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-Location -LiteralPath '\$WINDEV_PROJECT_WIN'\""
 }
 
 wgo() {
   if [ -n "\${WINDEV_TERMUX_REPO:-}" ] && [ -d "\$WINDEV_TERMUX_REPO" ]; then
     cd "\$WINDEV_TERMUX_REPO" || return 1
   fi
-  _wssh_base -tt "\$WINDEV_ALIAS" "cmd /k \"cd /d %USERPROFILE%\""
+  _wssh_base -tt "\$WINDEV_ALIAS" "powershell -NoLogo -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-Location -LiteralPath \\\$env:USERPROFILE\""
 }
 
 wcmd() {

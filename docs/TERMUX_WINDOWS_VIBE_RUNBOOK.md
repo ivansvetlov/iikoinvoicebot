@@ -90,9 +90,12 @@ If you need to land directly in the Windows project folder, use:
 wenter
 ```
 
+`wenter` opens interactive PowerShell with project folder as current location.
+
 What it does:
 - local: `cd $WINDEV_TERMUX_REPO` (if exists)
-- remote: opens SSH session and enters `%USERPROFILE%` (`C:\Users\MiBookPro`)
+- remote: opens interactive PowerShell and enters `%USERPROFILE%` (`C:\Users\MiBookPro`)
+- colorized command input comes from `PSReadLine` in this PowerShell session
 
 ## 5) Stable Vibe Usage from Phone
 
