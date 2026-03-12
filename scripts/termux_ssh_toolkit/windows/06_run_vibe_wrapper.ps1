@@ -2,7 +2,7 @@ param(
     [string]$ProjectPath = "C:\Users\MiBookPro\PycharmProjects\PythonProject",
     [string]$UvBinPath = "C:\Users\MiBookPro\.local\bin",
     [string]$Task = "",
-    [ValidateSet("start", "reconnect", "mcp_cmd", "stop", "doctor")]
+    [ValidateSet("start", "reconnect", "mcp_cmd", "ask", "stop", "doctor")]
     [string]$Mode = "start",
     [switch]$SkipBootstrap,
     [switch]$ForceCleanup,
@@ -271,6 +271,23 @@ Bootstrap project context first:
    `termux_bridge_run_command` and return actual output.
 4) Then continue with the user task.
 "@
+}
+
+if ($Mode -eq "ask") {
+    if ([string]::IsNullOrWhiteSpace($Task)) {
+        $Task = "Read project context files and give short status: done/in progress/next/risks."
+    }
+
+    $bootstrap = Get-BootstrapPrompt
+    $askPrompt = @"
+$bootstrap
+
+User task:
+$Task
+"@
+
+    & $vibeExe @agentArgs -p $askPrompt --max-turns 8 --output text
+    exit $LASTEXITCODE
 }
 
 if ([string]::IsNullOrWhiteSpace($Task) -and $SkipBootstrap) {
