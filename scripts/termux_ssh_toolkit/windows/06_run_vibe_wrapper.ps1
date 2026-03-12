@@ -5,7 +5,8 @@ param(
     [ValidateSet("start", "reconnect", "mcp_cmd", "stop", "doctor")]
     [string]$Mode = "start",
     [switch]$SkipBootstrap,
-    [switch]$ForceCleanup
+    [switch]$ForceCleanup,
+    [switch]$EnableMcp
 )
 
 Set-StrictMode -Version Latest
@@ -57,7 +58,11 @@ function Set-McpBridgeEnv {
     $env:VIBE_MCP_SERVERS = (ConvertTo-Json -InputObject $mcpServers -Compress -Depth 8)
 }
 
-Set-McpBridgeEnv
+if ($Mode -eq "mcp_cmd" -or $EnableMcp) {
+    Set-McpBridgeEnv
+} else {
+    Remove-Item Env:VIBE_MCP_SERVERS -ErrorAction SilentlyContinue
+}
 
 function Get-VibeProcessInfo {
     $rows = @()
@@ -95,10 +100,15 @@ function Get-VibeProcessInfo {
             $owner = ""
         }
 
-        $isCurrentUser = $true
+        $sessionId = [int]$p.SessionId
+        $isCurrentUser = $false
         if ($owner) {
             $ownerUser = ($owner -split "\\")[-1]
             $isCurrentUser = $ownerUser -ieq $env:USERNAME
+        } elseif ($sessionId -ne 0) {
+            # If owner lookup is unavailable but process is not in Services session,
+            # treat it as current interactive user scope.
+            $isCurrentUser = $true
         }
 
         $cmdLine = ""
@@ -109,6 +119,7 @@ function Get-VibeProcessInfo {
         $rows += [PSCustomObject]@{
             Pid           = [int]$p.ProcessId
             Name          = [string]$p.Name
+            SessionId     = [int]$sessionId
             Owner         = [string]$owner
             IsCurrentUser = [bool]$isCurrentUser
             CommandLine   = [string]$cmdLine
@@ -127,7 +138,7 @@ function Show-VibeProcesses([object[]]$Items) {
     Write-Host "[info] vibe-related processes:"
     foreach ($item in $Items) {
         $owner = if ([string]::IsNullOrWhiteSpace($item.Owner)) { "<unknown>" } else { $item.Owner }
-        Write-Host (" - pid={0} name={1} owner={2}" -f $item.Pid, $item.Name, $owner)
+        Write-Host (" - pid={0} name={1} session={2} owner={3}" -f $item.Pid, $item.Name, $item.SessionId, $owner)
     }
 }
 
