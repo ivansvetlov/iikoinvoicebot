@@ -2,9 +2,10 @@ param(
     [string]$ProjectPath = "C:\Users\MiBookPro\PycharmProjects\PythonProject",
     [string]$UvBinPath = "C:\Users\MiBookPro\.local\bin",
     [string]$Task = "",
-    [ValidateSet("start", "reconnect", "mcp_cmd")]
+    [ValidateSet("start", "reconnect", "mcp_cmd", "stop", "doctor")]
     [string]$Mode = "start",
-    [switch]$SkipBootstrap
+    [switch]$SkipBootstrap,
+    [switch]$ForceCleanup
 )
 
 Set-StrictMode -Version Latest
@@ -57,6 +58,159 @@ function Set-McpBridgeEnv {
 }
 
 Set-McpBridgeEnv
+
+function Get-VibeProcessInfo {
+    $rows = @()
+    $raw = @()
+
+    foreach ($name in @("vibe.exe", "vibe-acp.exe")) {
+        $raw += Get-CimInstance Win32_Process -Filter "Name = '$name'" -ErrorAction SilentlyContinue
+    }
+
+    $py = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue
+    foreach ($p in $py) {
+        if ($p.CommandLine -and $p.CommandLine -match "termux_bridge_mcp\.py") {
+            $raw += $p
+        }
+    }
+
+    $seen = @{}
+    foreach ($p in $raw) {
+        if ($seen.ContainsKey($p.ProcessId)) {
+            continue
+        }
+        $seen[$p.ProcessId] = $true
+
+        $owner = ""
+        try {
+            $ownerInfo = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop
+            if ($ownerInfo.User) {
+                if ($ownerInfo.Domain) {
+                    $owner = "$($ownerInfo.Domain)\$($ownerInfo.User)"
+                } else {
+                    $owner = "$($ownerInfo.User)"
+                }
+            }
+        } catch {
+            $owner = ""
+        }
+
+        $isCurrentUser = $true
+        if ($owner) {
+            $ownerUser = ($owner -split "\\")[-1]
+            $isCurrentUser = $ownerUser -ieq $env:USERNAME
+        }
+
+        $cmdLine = ""
+        if ($p.CommandLine) {
+            $cmdLine = "$($p.CommandLine)"
+        }
+
+        $rows += [PSCustomObject]@{
+            Pid           = [int]$p.ProcessId
+            Name          = [string]$p.Name
+            Owner         = [string]$owner
+            IsCurrentUser = [bool]$isCurrentUser
+            CommandLine   = [string]$cmdLine
+        }
+    }
+
+    return @($rows | Sort-Object Pid)
+}
+
+function Show-VibeProcesses([object[]]$Items) {
+    if (-not $Items -or $Items.Count -eq 0) {
+        Write-Host "[ok] no vibe-related processes found."
+        return
+    }
+
+    Write-Host "[info] vibe-related processes:"
+    foreach ($item in $Items) {
+        $owner = if ([string]::IsNullOrWhiteSpace($item.Owner)) { "<unknown>" } else { $item.Owner }
+        Write-Host (" - pid={0} name={1} owner={2}" -f $item.Pid, $item.Name, $owner)
+    }
+}
+
+function Stop-VibeProcesses([switch]$CurrentUserOnly) {
+    $items = Get-VibeProcessInfo
+    if ($CurrentUserOnly) {
+        $items = @($items | Where-Object { $_.IsCurrentUser })
+    }
+
+    if (-not $items -or $items.Count -eq 0) {
+        Write-Host "[ok] no matching vibe processes to stop."
+        return 0
+    }
+
+    $failed = 0
+    foreach ($item in $items) {
+        try {
+            Stop-Process -Id $item.Pid -Force -ErrorAction Stop
+            Write-Host ("[stopped] pid={0} name={1}" -f $item.Pid, $item.Name)
+        } catch {
+            $failed++
+            Write-Host ("[warn] failed to stop pid={0} name={1}: {2}" -f $item.Pid, $item.Name, $_.Exception.Message)
+        }
+    }
+
+    if ($failed -gt 0) {
+        Write-Host "[hint] Some processes were not stoppable from this session."
+        Write-Host "[hint] Run elevated PowerShell and execute: Get-Process vibe,vibe-acp -ErrorAction SilentlyContinue | Stop-Process -Force"
+        return 1
+    }
+
+    return 0
+}
+
+function Show-LockFiles {
+    $vibeDir = Join-Path $ProjectPath ".vibe"
+    if (-not (Test-Path -LiteralPath $vibeDir)) {
+        Write-Host "[info] .vibe directory not found."
+        return
+    }
+
+    $locks = Get-ChildItem -LiteralPath $vibeDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*.lock" }
+    if (-not $locks -or $locks.Count -eq 0) {
+        Write-Host "[ok] no lock files under .vibe"
+        return
+    }
+
+    Write-Host "[info] lock files under .vibe:"
+    foreach ($lf in $locks) {
+        Write-Host (" - {0}" -f $lf.FullName)
+    }
+}
+
+if ($Mode -eq "doctor") {
+    Write-Host "[doctor] checking vibe process state..."
+    $all = Get-VibeProcessInfo
+    Show-VibeProcesses -Items $all
+    Show-LockFiles
+    exit 0
+}
+
+if ($Mode -eq "stop") {
+    $stopCode = Stop-VibeProcesses -CurrentUserOnly
+    exit $stopCode
+}
+
+if ($ForceCleanup) {
+    $stopCode = Stop-VibeProcesses -CurrentUserOnly
+    if ($stopCode -ne 0) {
+        exit $stopCode
+    }
+}
+
+if (-not $ForceCleanup) {
+    $active = @(Get-VibeProcessInfo | Where-Object { $_.IsCurrentUser -and ($_.Name -in @("vibe.exe", "vibe-acp.exe")) })
+    if ($active.Count -gt 0) {
+        Write-Host "[blocked] vibe is already running for this user."
+        Show-VibeProcesses -Items $active
+        Write-Host "[next] run: wvibe stop"
+        Write-Host "[next] or force cleanup: wvibe --force"
+        exit 10
+    }
+}
 
 if ($Mode -eq "reconnect") {
     & $vibeExe -c @agentArgs
@@ -127,4 +281,3 @@ $Task
 
 & $vibeExe @agentArgs $wrappedPrompt
 exit $LASTEXITCODE
-

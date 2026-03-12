@@ -394,26 +394,58 @@ wvibe() {
   local mode="start"
   local mcp_cmd=0
   local skip_bootstrap=0
+  local force_cleanup=0
 
-  if [ \$# -gt 0 ]; then
+  while [ \$# -gt 0 ]; do
     case "\$1" in
       reconnect|rc)
         mode="reconnect"
         shift
         ;;
+      stop|kill)
+        mode="stop"
+        shift
+        ;;
+      doctor|diag|ps)
+        mode="doctor"
+        shift
+        ;;
       mcp)
         mcp_cmd=1
         shift
+        break
         ;;
       --no-bootstrap)
         skip_bootstrap=1
         shift
         ;;
+      --force)
+        force_cleanup=1
+        shift
+        ;;
+      *)
+        break
+        ;;
     esac
+  done
+
+  local force_arg=""
+  if [ "\$force_cleanup" -eq 1 ]; then
+    force_arg="-ForceCleanup"
+  fi
+
+  if [ "\$mode" = "stop" ]; then
+    _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode stop"
+    return
+  fi
+
+  if [ "\$mode" = "doctor" ]; then
+    _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode doctor"
+    return
   fi
 
   if [ "\$mode" = "reconnect" ]; then
-    _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode reconnect"
+    _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode reconnect \$force_arg"
     return
   fi
 
@@ -424,9 +456,9 @@ wvibe() {
 
   if [ \$# -eq 0 ]; then
     if [ "\$skip_bootstrap" -eq 1 ]; then
-      _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -SkipBootstrap"
+      _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -SkipBootstrap \$force_arg"
     else
-      _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start"
+      _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start \$force_arg"
     fi
     return
   fi
@@ -440,11 +472,11 @@ wvibe() {
   local task_b64
   task_b64="$(printf '%s' "\$task" | base64 | tr -d '\r\n')"
   if [ "\$mcp_cmd" -eq 1 ]; then
-    wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode mcp_cmd -Task \\\$task"
+    wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode mcp_cmd \$force_arg -Task \\\$task"
   elif [ "\$skip_bootstrap" -eq 1 ]; then
-    _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -SkipBootstrap -Task \\\$task"
+    _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -SkipBootstrap \$force_arg -Task \\\$task"
   else
-    _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -Task \\\$task"
+    _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start \$force_arg -Task \\\$task"
   fi
 }
 
