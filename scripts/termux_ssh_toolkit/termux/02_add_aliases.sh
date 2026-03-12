@@ -431,28 +431,30 @@ wvibe() {
     esac
   done
 
-  local force_arg=""
+  local wrapper_ps1="\$WINDEV_PROJECT_WIN\\scripts\\termux_ssh_toolkit\\windows\\06_run_vibe_wrapper.ps1"
+  local common_args=(-NoLogo -NoProfile -ExecutionPolicy Bypass -File "\$wrapper_ps1" -ProjectPath "\$WINDEV_PROJECT_WIN" -UvBinPath "\$WINDEV_UV_BIN")
+  local force_args=()
   if [ "\$force_cleanup" -eq 1 ]; then
-    force_arg="-ForceCleanup"
+    force_args=(-ForceCleanup)
   fi
 
   if [ "\$mode" = "stop" ]; then
-    _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode stop"
+    _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode stop "\${force_args[@]}"
     return
   fi
 
   if [ "\$mode" = "doctor" ]; then
-    _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode doctor"
+    _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode doctor "\${force_args[@]}"
     return
   fi
 
   if [ "\$mode" = "ask" ] && [ \$# -eq 0 ]; then
-    _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode ask \$force_arg"
+    _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode ask "\${force_args[@]}"
     return
   fi
 
   if [ "\$mode" = "reconnect" ]; then
-    _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode reconnect \$force_arg"
+    _wssh_base -tt "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode reconnect "\${force_args[@]}"
     return
   fi
 
@@ -462,11 +464,11 @@ wvibe() {
   fi
 
   if [ \$# -eq 0 ]; then
+    local start_args=(-Mode start)
     if [ "\$skip_bootstrap" -eq 1 ]; then
-      _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -SkipBootstrap \$force_arg"
-    else
-      _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start \$force_arg"
+      start_args+=(-SkipBootstrap)
     fi
+    _wssh_base -tt "\$WINDEV_ALIAS" powershell "\${common_args[@]}" "\${start_args[@]}" "\${force_args[@]}"
     return
   fi
 
@@ -479,13 +481,15 @@ wvibe() {
   local task_b64
   task_b64="\$(printf '%s' "\$task" | base64 | tr -d '\r\n')"
   if [ "\$mcp_cmd" -eq 1 ]; then
-    wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode mcp_cmd \$force_arg -TaskBase64 '\$task_b64'"
+    _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode mcp_cmd "\${force_args[@]}" -TaskBase64 "\$task_b64"
   elif [ "\$mode" = "ask" ]; then
-    wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode ask \$force_arg -TaskBase64 '\$task_b64'"
-  elif [ "\$skip_bootstrap" -eq 1 ]; then
-    _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -SkipBootstrap \$force_arg -TaskBase64 '\$task_b64'"
+    _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode ask "\${force_args[@]}" -TaskBase64 "\$task_b64"
   else
-    _wps_tty "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start \$force_arg -TaskBase64 '\$task_b64'"
+    local start_args=(-Mode start)
+    if [ "\$skip_bootstrap" -eq 1 ]; then
+      start_args+=(-SkipBootstrap)
+    fi
+    _wssh_base -tt "\$WINDEV_ALIAS" powershell "\${common_args[@]}" "\${start_args[@]}" "\${force_args[@]}" -TaskBase64 "\$task_b64"
   fi
 }
 
