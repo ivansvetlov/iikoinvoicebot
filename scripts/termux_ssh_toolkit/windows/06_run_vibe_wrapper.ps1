@@ -2,6 +2,7 @@ param(
     [string]$ProjectPath = "C:\Users\MiBookPro\PycharmProjects\PythonProject",
     [string]$UvBinPath = "C:\Users\MiBookPro\.local\bin",
     [string]$Task = "",
+    [string]$TaskBase64 = "",
     [ValidateSet("start", "reconnect", "mcp_cmd", "ask", "stop", "doctor")]
     [string]$Mode = "start",
     [switch]$SkipBootstrap,
@@ -25,6 +26,14 @@ $env:Path = "$UvBinPath;$env:Path"
 Set-Location -LiteralPath $ProjectPath
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
+
+if ([string]::IsNullOrWhiteSpace($Task) -and -not [string]::IsNullOrWhiteSpace($TaskBase64)) {
+    try {
+        $Task = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($TaskBase64))
+    } catch {
+        throw "TaskBase64 is not valid Base64 UTF-8 text."
+    }
+}
 
 $agentName = "phone-wrapper"
 $agentFile = Join-Path $ProjectPath ".vibe\agents\phone-wrapper.toml"
