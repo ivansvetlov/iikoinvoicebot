@@ -54,7 +54,7 @@ function Set-McpBridgeEnv {
         }
     )
 
-    $env:VIBE_MCP_SERVERS = ($mcpServers | ConvertTo-Json -Compress -Depth 8)
+    $env:VIBE_MCP_SERVERS = (ConvertTo-Json -InputObject $mcpServers -Compress -Depth 8)
 }
 
 Set-McpBridgeEnv
