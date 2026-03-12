@@ -470,7 +470,7 @@ wvibe() {
 
   local task="\$*"
   local task_b64
-  task_b64="\$(printf '%s' \"\$task\" | base64 | tr -d '\r\n')"
+  task_b64="\$(printf '%s' "\$task" | base64 | tr -d '\r\n')"
   if [ "\$mcp_cmd" -eq 1 ]; then
     wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode mcp_cmd \$force_arg -Task \\\$task"
   elif [ "\$skip_bootstrap" -eq 1 ]; then
