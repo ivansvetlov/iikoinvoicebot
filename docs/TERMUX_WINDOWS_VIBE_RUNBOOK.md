@@ -84,9 +84,15 @@ One-command resume from fresh Termux session:
 wgo
 ```
 
+If you need to land directly in the Windows project folder, use:
+
+```bash
+wenter
+```
+
 What it does:
 - local: `cd $WINDEV_TERMUX_REPO` (if exists)
-- remote: opens SSH session and enters Windows project directory
+- remote: opens SSH session and enters `%USERPROFILE%` (`C:\Users\MiBookPro`)
 
 ## 5) Stable Vibe Usage from Phone
 

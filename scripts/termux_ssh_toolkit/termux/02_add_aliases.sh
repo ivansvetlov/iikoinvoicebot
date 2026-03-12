@@ -326,7 +326,7 @@ wgo() {
   if [ -n "\${WINDEV_TERMUX_REPO:-}" ] && [ -d "\$WINDEV_TERMUX_REPO" ]; then
     cd "\$WINDEV_TERMUX_REPO" || return 1
   fi
-  wenter
+  _wssh_base -tt "\$WINDEV_ALIAS" "cmd /k \"cd /d %USERPROFILE%\""
 }
 
 wcmd() {
