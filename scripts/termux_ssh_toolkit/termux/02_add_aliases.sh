@@ -223,10 +223,14 @@ whelp() {
     Продолжить последнюю сессию после обрыва.
   wvibe --no-bootstrap
     Старт без автопрогрева.
+  wvibe mcp "<команда>"
+    Выполнить точную команду через MCP bridge и вернуть stdout/stderr/exit_code.
   wvibe "<задача>"
     Старт с автопрогревом + сразу задача.
   wreconnect
     Короткая команда, то же самое что wvibe reconnect.
+  wmcp "<команда>"
+    Короткая команда, то же самое что wvibe mcp "<команда>".
   waider
     Запустить aider в проекте (если установлен).
 
@@ -382,12 +386,17 @@ wdiag() {
 
 wvibe() {
   local mode="start"
+  local mcp_cmd=0
   local skip_bootstrap=0
 
   if [ \$# -gt 0 ]; then
     case "\$1" in
       reconnect|rc)
         mode="reconnect"
+        shift
+        ;;
+      mcp)
+        mcp_cmd=1
         shift
         ;;
       --no-bootstrap)
@@ -400,6 +409,11 @@ wvibe() {
   if [ "\$mode" = "reconnect" ]; then
     wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode reconnect"
     return
+  fi
+
+  if [ "\$mcp_cmd" -eq 1 ] && [ \$# -eq 0 ]; then
+    echo "Usage: wvibe mcp \"<exact command>\""
+    return 1
   fi
 
   if [ \$# -eq 0 ]; then
@@ -419,7 +433,9 @@ wvibe() {
   local task="\$*"
   local task_b64
   task_b64="$(printf '%s' "\$task" | base64 | tr -d '\r\n')"
-  if [ "\$skip_bootstrap" -eq 1 ]; then
+  if [ "\$mcp_cmd" -eq 1 ]; then
+    wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode mcp_cmd -Task \\\$task"
+  elif [ "\$skip_bootstrap" -eq 1 ]; then
     wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -SkipBootstrap -Task \\\$task"
   else
     wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -Task \\\$task"
@@ -428,6 +444,10 @@ wvibe() {
 
 wreconnect() {
   wvibe reconnect
+}
+
+wmcp() {
+  wvibe mcp "\$@"
 }
 
 waider() {

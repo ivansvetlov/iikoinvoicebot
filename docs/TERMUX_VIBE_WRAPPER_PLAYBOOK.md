@@ -6,6 +6,7 @@
 
 Скопируй в новый репозиторий:
 - `scripts/termux_ssh_toolkit/`
+- `scripts/termux_ssh_toolkit/mcp/termux_bridge_mcp.py`
 - `.vibe/agents/phone-wrapper.toml`
 - `VIBE.md`
 
@@ -13,6 +14,7 @@
 - one-shot установки toolkit на телефоне;
 - стабильной SSH-работы;
 - wrapper-режима `wvibe` с проектными правилами.
+- выполнения точных команд через MCP bridge.
 
 ## Минимальные требования
 
@@ -74,6 +76,8 @@ whelp
   - `wvibe`
   - `wvibe reconnect` (после обрыва продолжает последнюю сессию)
   - `wreconnect` (короткий алиас)
+  - `wvibe mcp "<команда>"` (выполнить команду через MCP и вернуть результат)
+  - `wmcp "<команда>"` (короткий алиас)
   - `wvibe "проверь ветку, запусти тесты, дай отчет"`
 
 ## Кодировка (fix для кракозябр)
