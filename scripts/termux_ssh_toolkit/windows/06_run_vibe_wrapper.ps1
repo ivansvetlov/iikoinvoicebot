@@ -23,6 +23,8 @@ if (-not (Test-Path -LiteralPath $vibeExe)) {
 
 $env:Path = "$UvBinPath;$env:Path"
 Set-Location -LiteralPath $ProjectPath
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
 
 $agentName = "phone-wrapper"
 $agentFile = Join-Path $ProjectPath ".vibe\agents\phone-wrapper.toml"
@@ -273,20 +275,38 @@ Bootstrap project context first:
 "@
 }
 
+function Get-AskBootstrapPrompt {
+    return @"
+Quick bootstrap:
+1) Read only:
+   - docs/START_HERE_NEW_CHAT.md
+   - docs/TODO.md
+2) Provide concise status:
+   - done
+   - in progress
+   - next
+   - risks/blockers
+"@
+}
+
 if ($Mode -eq "ask") {
     if ([string]::IsNullOrWhiteSpace($Task)) {
         $Task = "Read project context files and give short status: done/in progress/next/risks."
     }
 
-    $bootstrap = Get-BootstrapPrompt
-    $askPrompt = @"
+    if ($SkipBootstrap) {
+        $askPrompt = $Task
+    } else {
+        $bootstrap = Get-AskBootstrapPrompt
+        $askPrompt = @"
 $bootstrap
 
 User task:
 $Task
 "@
+    }
 
-    & $vibeExe @agentArgs -p $askPrompt --max-turns 8 --output text
+    & $vibeExe @agentArgs -p $askPrompt --max-turns 4 --output text
     exit $LASTEXITCODE
 }
 
