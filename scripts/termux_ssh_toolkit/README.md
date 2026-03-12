@@ -39,3 +39,24 @@ powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\03
 - Сценарии: `wrun monitor|incident|recover|release`
 - Агентные команды: `wvibe` (wrapper, можно `wvibe "задача"`), `waider`
 
+## Перенос в другой проект
+
+Пошаговый перенос описан в:
+- `docs/TERMUX_VIBE_WRAPPER_PLAYBOOK.md`
+
+Минимально нужно перенести:
+- `scripts/termux_ssh_toolkit/`
+- `.vibe/agents/phone-wrapper.toml`
+- `VIBE.md`
+
+## Если видишь кракозябры
+
+Toolkit уже включает UTF-8 prelude для удаленных PowerShell-команд.
+
+Если локальная Windows-консоль всё равно ломает русский:
+```powershell
+chcp 65001
+[Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [Console]::OutputEncoding
+```
