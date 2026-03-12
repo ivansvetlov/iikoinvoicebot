@@ -217,9 +217,16 @@ whelp() {
     --yes: выполнить без вопроса.
 
 АГЕНТЫ:
-  wvibe [текст задачи]
-    Запустить Mistral Vibe в режиме project-wrapper.
-    Если передан текст, он отправится как стартовая задача.
+  wvibe
+    Старт Vibe с автопрогревом контекста (чтение ключевых docs).
+  wvibe reconnect
+    Продолжить последнюю сессию после обрыва.
+  wvibe --no-bootstrap
+    Старт без автопрогрева.
+  wvibe "<задача>"
+    Старт с автопрогревом + сразу задача.
+  wreconnect
+    Короткая команда, то же самое что wvibe reconnect.
   waider
     Запустить aider в проекте (если установлен).
 
@@ -374,8 +381,33 @@ wdiag() {
 }
 
 wvibe() {
+  local mode="start"
+  local skip_bootstrap=0
+
+  if [ \$# -gt 0 ]; then
+    case "\$1" in
+      reconnect|rc)
+        mode="reconnect"
+        shift
+        ;;
+      --no-bootstrap)
+        skip_bootstrap=1
+        shift
+        ;;
+    esac
+  fi
+
+  if [ "\$mode" = "reconnect" ]; then
+    wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode reconnect"
+    return
+  fi
+
   if [ \$# -eq 0 ]; then
-    wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN'"
+    if [ "\$skip_bootstrap" -eq 1 ]; then
+      wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -SkipBootstrap"
+    else
+      wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start"
+    fi
     return
   fi
 
@@ -387,7 +419,15 @@ wvibe() {
   local task="\$*"
   local task_b64
   task_b64="$(printf '%s' "\$task" | base64 | tr -d '\r\n')"
-  wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Task \\\$task"
+  if [ "\$skip_bootstrap" -eq 1 ]; then
+    wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -SkipBootstrap -Task \\\$task"
+  else
+    wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Mode start -Task \\\$task"
+  fi
+}
+
+wreconnect() {
+  wvibe reconnect
 }
 
 waider() {

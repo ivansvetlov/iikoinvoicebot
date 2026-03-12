@@ -37,7 +37,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\03
 - Сервисы: `wstart`, `wstop`, `wrestart`, `wps`
 - Логи/диагностика: `wtail`, `wlogs`, `wdiag`, `wsmoke`, `wmetrics`, `wdevstatus`
 - Сценарии: `wrun monitor|incident|recover|release`
-- Агентные команды: `wvibe` (wrapper, можно `wvibe "задача"`), `waider`
+- Агентные команды: `wvibe` (автопрогрев контекста), `wvibe reconnect`, `wreconnect`, `waider`
 
 ## Перенос в другой проект
 
