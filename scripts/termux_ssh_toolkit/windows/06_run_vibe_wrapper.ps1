@@ -69,17 +69,17 @@ if ($Mode -eq "mcp_cmd") {
     }
 
     $mcpPrompt = @"
-Выполни команду пользователя через MCP инструмент `termux_bridge_run_command`.
-Правила:
-1) Вызови инструмент ровно один раз.
-2) Передай в `command` ровно текст команды пользователя без изменений.
-3) Верни ответом только:
+Run the user command via MCP tool `termux_bridge_run_command`.
+Rules:
+1) Call the tool exactly once.
+2) Pass the exact user command text to `command` without edits.
+3) Return only:
    - exit_code
    - stdout
    - stderr
-Без дополнительного анализа.
+No extra analysis.
 
-Команда пользователя:
+User command:
 $Task
 "@
 
@@ -89,22 +89,22 @@ $Task
 
 function Get-BootstrapPrompt {
     return @"
-Сначала выполни прогрев контекста по проекту:
-1) Прочитай файлы:
+Bootstrap project context first:
+1) Read files:
    - docs/START_HERE_NEW_CHAT.md
    - docs/AGENT_HANDOFF.md
    - docs/TODO.md
    - docs/ARCHITECTURE.md
    - docs/README.md
    - VIBE.md
-2) После чтения дай короткий статус:
+2) Then provide a short status:
    - done
    - in progress
    - next
    - risks/blockers
-3) Если пользователь просит выполнить консольную команду, используй MCP-инструмент
-   `termux_bridge_run_command` и верни фактический результат.
-4) Затем переходи к работе по задаче пользователя.
+3) If the user asks to run an exact terminal command, use MCP tool
+   `termux_bridge_run_command` and return actual output.
+4) Then continue with the user task.
 "@
 }
 
@@ -120,10 +120,11 @@ if ([string]::IsNullOrWhiteSpace($Task)) {
     $wrappedPrompt = @"
 $bootstrap
 
-Задача пользователя:
+User task:
 $Task
 "@
 }
 
 & $vibeExe @agentArgs $wrappedPrompt
 exit $LASTEXITCODE
+
