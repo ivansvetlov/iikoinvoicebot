@@ -216,8 +216,9 @@ whelp() {
     --yes: выполнить без вопроса.
 
 АГЕНТЫ:
-  wvibe
-    Запустить Mistral Vibe в проекте.
+  wvibe [текст задачи]
+    Запустить Mistral Vibe в режиме project-wrapper.
+    Если передан текст, он отправится как стартовая задача.
   waider
     Запустить aider в проекте (если установлен).
 
@@ -372,7 +373,20 @@ wdiag() {
 }
 
 wvibe() {
-  wcmd "\\\$env:Path='\$WINDEV_UV_BIN;' + \\\$env:Path; Set-Location '\$WINDEV_PROJECT_WIN'; vibe"
+  if [ \$# -eq 0 ]; then
+    wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN'"
+    return
+  fi
+
+  if ! command -v base64 >/dev/null 2>&1; then
+    echo "base64 command not found in Termux"
+    return 1
+  fi
+
+  local task="\$*"
+  local task_b64
+  task_b64="$(printf '%s' "\$task" | base64 | tr -d '\r\n')"
+  wcmd "Set-Location '\$WINDEV_PROJECT_WIN'; \\\$task=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$task_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\06_run_vibe_wrapper.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -UvBinPath '\$WINDEV_UV_BIN' -Task \\\$task"
 }
 
 waider() {
@@ -464,4 +478,3 @@ echo
 echo "Toolkit installed."
 echo "Run: source ~/.bashrc"
 echo "Run: whelp"
-
