@@ -84,14 +84,12 @@ _wssh_base() {
 
 _wps() {
   local cmd="\$*"
-  local prelude="chcp 65001 > \\\$null; [Console]::InputEncoding=[System.Text.UTF8Encoding]::new(\\\$false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(\\\$false); \\\$OutputEncoding=[Console]::OutputEncoding"
-  _wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -Command "\$prelude; \$cmd"
+  _wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -Command "\$cmd"
 }
 
 _wps_tty() {
   local cmd="\$*"
-  local prelude="chcp 65001 > \\\$null; [Console]::InputEncoding=[System.Text.UTF8Encoding]::new(\\\$false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(\\\$false); \\\$OutputEncoding=[Console]::OutputEncoding"
-  _wssh_base -tt "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -Command "\$prelude; \$cmd"
+  _wssh_base -tt "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -Command "\$cmd"
 }
 
 _confirm() {
