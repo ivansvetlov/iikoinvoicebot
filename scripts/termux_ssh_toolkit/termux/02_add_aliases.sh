@@ -2,16 +2,17 @@
 set -euo pipefail
 
 # Usage:
-#   bash 02_add_aliases.sh [windows_user] [windows_host] [host_alias] [project_win_path] [uv_bin_win_path]
+#   bash 02_add_aliases.sh [windows_user] [windows_host] [host_alias] [project_win_path] [uv_bin_win_path] [termux_repo_path]
 #
 # Example:
-#   bash 02_add_aliases.sh MiBookPro 192.168.0.135 windev "C:\Users\MiBookPro\PycharmProjects\PythonProject" "C:\Users\MiBookPro\.local\bin"
+#   bash 02_add_aliases.sh MiBookPro 192.168.0.135 windev "C:\Users\MiBookPro\PycharmProjects\PythonProject" "C:\Users\MiBookPro\.local\bin" "$HOME/iikoinvoicebot"
 
 WIN_USER="${1:-MiBookPro}"
 WIN_HOST="${2:-192.168.0.135}"
 HOST_ALIAS="${3:-windev}"
 WIN_PROJECT="${4:-C:\Users\MiBookPro\PycharmProjects\PythonProject}"
 WIN_UV_BIN="${5:-C:\Users\MiBookPro\.local\bin}"
+TERMUX_REPO="${6:-$HOME/iikoinvoicebot}"
 
 SSH_DIR="$HOME/.ssh"
 SSH_CONFIG="$SSH_DIR/config"
@@ -70,6 +71,7 @@ export WINDEV_USER="$WIN_USER"
 export WINDEV_HOST="$WIN_HOST"
 export WINDEV_PROJECT_WIN="$WIN_PROJECT"
 export WINDEV_UV_BIN="$WIN_UV_BIN"
+export WINDEV_TERMUX_REPO="$TERMUX_REPO"
 
 _wssh_base() {
   ssh \
@@ -314,6 +316,17 @@ wsetip() {
 
 wssh() {
   _wssh_base "\$WINDEV_ALIAS"
+}
+
+wenter() {
+  _wssh_base -tt "\$WINDEV_ALIAS" "cmd /k \"cd /d \$WINDEV_PROJECT_WIN\""
+}
+
+wgo() {
+  if [ -n "\${WINDEV_TERMUX_REPO:-}" ] && [ -d "\$WINDEV_TERMUX_REPO" ]; then
+    cd "\$WINDEV_TERMUX_REPO" || return 1
+  fi
+  wenter
 }
 
 wcmd() {

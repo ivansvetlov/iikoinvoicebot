@@ -8,6 +8,7 @@ WIN_HOST=""
 HOST_ALIAS="windev"
 WIN_PROJECT=""
 WIN_UV_BIN=""
+TERMUX_REPO="$HOME/iikoinvoicebot"
 SKIP_KEYGEN=0
 
 if ! command -v pkg >/dev/null 2>&1; then
@@ -26,6 +27,7 @@ Options:
   --alias <name>         SSH alias in ~/.ssh/config (default: windev)
   --project <path>       Windows project path (default: C:\Users\<user>\PycharmProjects\PythonProject)
   --uv-bin <path>        Windows uv bin path (default: C:\Users\<user>\.local\bin)
+  --termux-repo <path>   Local Termux repo path for one-command resume (default: ~/iikoinvoicebot)
   --skip-keygen          Skip SSH key setup in Termux
   -h, --help             Show this help
 USAGE
@@ -51,6 +53,10 @@ while [ $# -gt 0 ]; do
       ;;
     --uv-bin)
       WIN_UV_BIN="${2:-}"
+      shift 2
+      ;;
+    --termux-repo)
+      TERMUX_REPO="${2:-}"
       shift 2
       ;;
     --skip-keygen)
@@ -86,7 +92,7 @@ if [ "$SKIP_KEYGEN" -eq 0 ]; then
   bash "$SCRIPT_DIR/01_setup_termux.sh"
 fi
 
-bash "$SCRIPT_DIR/02_add_aliases.sh" "$WIN_USER" "$WIN_HOST" "$HOST_ALIAS" "$WIN_PROJECT" "$WIN_UV_BIN"
+bash "$SCRIPT_DIR/02_add_aliases.sh" "$WIN_USER" "$WIN_HOST" "$HOST_ALIAS" "$WIN_PROJECT" "$WIN_UV_BIN" "$TERMUX_REPO"
 
 echo
 echo "Done."

@@ -68,7 +68,7 @@ Restart-Service sshd
 ```bash
 cd ~/iikoinvoicebot
 git pull
-bash scripts/termux_ssh_toolkit/termux/install.sh --win-user MiBookPro --win-host 192.168.0.135 --skip-keygen
+bash scripts/termux_ssh_toolkit/termux/install.sh --win-user MiBookPro --win-host 192.168.0.135 --termux-repo "$HOME/iikoinvoicebot" --skip-keygen
 source ~/.bashrc
 ```
 
@@ -77,6 +77,16 @@ Sanity check:
 ```bash
 wcmd "Get-Date"
 ```
+
+One-command resume from fresh Termux session:
+
+```bash
+wgo
+```
+
+What it does:
+- local: `cd $WINDEV_TERMUX_REPO` (if exists)
+- remote: opens SSH session and enters Windows project directory
 
 ## 5) Stable Vibe Usage from Phone
 
@@ -142,7 +152,7 @@ Cause:
 Fix:
 1. `git pull`
 2. reinstall aliases:
-   - `bash scripts/termux_ssh_toolkit/termux/install.sh --win-user MiBookPro --win-host 192.168.0.135 --skip-keygen`
+   - `bash scripts/termux_ssh_toolkit/termux/install.sh --win-user MiBookPro --win-host 192.168.0.135 --termux-repo "$HOME/iikoinvoicebot" --skip-keygen`
 3. `source ~/.bashrc`
 4. run section 6 direct bypass test.
 
@@ -166,9 +176,7 @@ ipconfig
 ## 8) Daily Fast Path
 
 ```bash
-cd ~/iikoinvoicebot
-git pull
-source ~/.bashrc
+wgo
 wcmd "Get-Date"
 wvibe doctor
 wvibe ask "what is TODO status?"
