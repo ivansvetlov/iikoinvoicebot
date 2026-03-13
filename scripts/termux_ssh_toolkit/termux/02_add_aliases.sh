@@ -574,6 +574,50 @@ wvshell() {
   _wssh_base -tt "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "\$shell_ps1" -ProjectPath "\$WINDEV_PROJECT_WIN" -UvBinPath "\$WINDEV_UV_BIN"
 }
 
+wplan() {
+  if [ \$# -eq 0 ]; then
+    echo "Usage: wplan <task text>"
+    return 1
+  fi
+  if ! command -v base64 >/dev/null 2>&1; then
+    echo "base64 command not found in Termux"
+    return 1
+  fi
+  local msg="\$*"
+  local msg_b64
+  msg_b64="\$(printf '%s' "\$msg" | base64 | tr -d '\r\n')"
+  _wps "Set-Location '\$WINDEV_PROJECT_WIN'; \$txt=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$msg_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action plan -Source 'termux' -Text \$txt"
+}
+
+wmailbox() {
+  local action="\${1:-status}"
+  shift || true
+  case "\$action" in
+    ensure|status|list|digest|show)
+      _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action '\$action'"
+      ;;
+    resolve)
+      if [ \$# -eq 0 ]; then
+        echo "Usage: wmailbox resolve <file1.md> [file2.md ...]"
+        return 1
+      fi
+      local joined=""
+      local it
+      for it in "\$@"; do
+        if [ -n "\$joined" ]; then
+          joined="\$joined','"
+        fi
+        joined="\$joined\$it"
+      done
+      _wps "Set-Location '\$WINDEV_PROJECT_WIN'; \$items=@('\$joined' -split \"','\"); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action resolve -Items \$items"
+      ;;
+    *)
+      echo "Usage: wmailbox [ensure|status|list|digest|show|resolve]"
+      return 1
+      ;;
+  esac
+}
+
 waider() {
   wcmd "\\\$env:Path='\$WINDEV_UV_BIN;' + \\\$env:Path; Set-Location '\$WINDEV_PROJECT_WIN'; aider"
 }

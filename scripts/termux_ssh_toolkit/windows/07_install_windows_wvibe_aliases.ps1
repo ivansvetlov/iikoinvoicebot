@@ -77,6 +77,8 @@ $dispatchCommands = @(
     "wtest",
     "wdeploy",
     "wrun",
+    "wplan",
+    "wmailbox",
     "waider",
     "wgo",
     "wenter",

@@ -148,6 +148,8 @@ echo $env:Path
 wvibe doctor
 wvibe ask --no-bootstrap "Reply exactly: OK"
 wvshell
+wplan "Проверить TODO и обновить статус Stage 8"
+wmailbox digest
 wvibe ask "read docs/START_HERE_NEW_CHAT.md and return short project status"
 ```
 
@@ -155,6 +157,12 @@ For longer requests in `wvshell`:
 - `/turns 12` to raise ask turn limit
 - `/mcp on` to keep MCP tools enabled for asks
 - `/mcpcmd <exact command>` for exact host command execution via MCP
+
+Mailbox handoff:
+1. `wplan "<task from phone>"`
+2. `wmailbox digest`
+3. In Vibe ask: read `ops/mailbox/for_codex.md` and prepare concise request for Codex.
+4. Send Codex: `read ops/mailbox/for_codex.md`
 
 ## 6) Direct Bypass Test (No Aliases)
 

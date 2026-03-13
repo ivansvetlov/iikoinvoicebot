@@ -4,7 +4,7 @@
     [string]$ProjectPath = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path,
     [string]$UvBinPath = "$env:USERPROFILE\.local\bin",
     [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$Args
+    [string[]]$CommandArgs
 )
 
 Set-StrictMode -Version Latest
@@ -21,12 +21,15 @@ if (-not (Test-Path -LiteralPath $ProjectPath)) {
 $procCtl = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\05_phone_process_control.ps1"
 $vibeShim = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\07_wvibe_windows_shim.ps1"
 $vibeLightShell = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\09_wvibe_light_shell.ps1"
+$mailboxTool = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\10_mailbox.ps1"
 $venvPython = Join-Path $ProjectPath ".venv\Scripts\python.exe"
 $sharedDir = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\shared"
 $helpRu = Join-Path $sharedDir "whelp_ru.txt"
 $helpSetsRu = Join-Path $sharedDir "whelp_sets_ru.txt"
-if ($null -eq $Args) {
-    $Args = @()
+if ($null -eq $CommandArgs) {
+    $CommandArgs = @()
+} elseif ($CommandArgs -is [string]) {
+    $CommandArgs = @($CommandArgs)
 }
 
 function Get-LastCodeOrZero {
@@ -113,11 +116,11 @@ $exitCode = 0
 
 switch ($cmd) {
     "whelp" {
-        $topic = if ($Args.Count -gt 0) { $Args[0] } else { "all" }
+        $topic = if ($CommandArgs.Count -gt 0) { $CommandArgs[0] } else { "all" }
         Show-Help -Topic $topic
     }
     "wh" {
-        $topic = if ($Args.Count -gt 0) { $Args[0] } else { "all" }
+        $topic = if ($CommandArgs.Count -gt 0) { $CommandArgs[0] } else { "all" }
         Show-Help -Topic $topic
     }
     "wproj" {
@@ -132,22 +135,22 @@ switch ($cmd) {
         $exitCode = Get-LastCodeOrZero
     }
     "wstart" {
-        $target = if ($Args.Count -gt 0) { $Args[0] } else { "all" }
+        $target = if ($CommandArgs.Count -gt 0) { $CommandArgs[0] } else { "all" }
         $exitCode = Invoke-ProcessCtl -Action "start" -Target $target
     }
     "wstop" {
-        $target = if ($Args.Count -gt 0) { $Args[0] } else { "all" }
+        $target = if ($CommandArgs.Count -gt 0) { $CommandArgs[0] } else { "all" }
         $exitCode = Invoke-ProcessCtl -Action "stop" -Target $target
     }
     "wrestart" {
-        $target = if ($Args.Count -gt 0) { $Args[0] } else { "all" }
+        $target = if ($CommandArgs.Count -gt 0) { $CommandArgs[0] } else { "all" }
         $exitCode = Invoke-ProcessCtl -Action "restart" -Target $target
     }
     "wps" {
         $exitCode = Invoke-ProcessCtl -Action "status" -Target "all"
     }
     "wtail" {
-        $sel = if ($Args.Count -gt 0) { $Args[0] } else { "worker" }
+        $sel = if ($CommandArgs.Count -gt 0) { $CommandArgs[0] } else { "worker" }
         $file = switch ($sel) {
             "backend" { "backend.log" }
             "worker" { "worker.log" }
@@ -162,8 +165,8 @@ switch ($cmd) {
     }
     "wlogs" {
         $tailArgs = @("-CommandName", "wtail", "-ProjectPath", $ProjectPath, "-UvBinPath", $UvBinPath)
-        if ($Args.Count -gt 0) {
-            $tailArgs += $Args
+        if ($CommandArgs.Count -gt 0) {
+            $tailArgs += $CommandArgs
         }
         & $PSCommandPath @tailArgs
         $exitCode = Get-LastCodeOrZero
@@ -175,10 +178,10 @@ switch ($cmd) {
     "wmetrics" {
         Set-Location -LiteralPath $ProjectPath
         $metricsArgs = @("scripts\metrics_report.py")
-        if ($Args.Count -eq 0) {
+        if ($CommandArgs.Count -eq 0) {
             $metricsArgs += @("--minutes", "60")
         } else {
-            $metricsArgs += $Args
+            $metricsArgs += $CommandArgs
         }
         $exitCode = Invoke-ProjectPython -Arguments $metricsArgs
     }
@@ -208,7 +211,7 @@ switch ($cmd) {
     "wdeploy" {
         $dryRun = $false
         $forceYes = $false
-        foreach ($arg in $Args) {
+        foreach ($arg in $CommandArgs) {
             switch ($arg) {
                 "--dry-run" { $dryRun = $true; continue }
                 "--yes" { $forceYes = $true; continue }
@@ -244,10 +247,10 @@ switch ($cmd) {
         $exitCode = Run-Smoke
     }
     "wrun" {
-        if ($Args.Count -eq 0) {
+        if ($CommandArgs.Count -eq 0) {
             throw "Использование: wrun [monitor|incident|recover|release]"
         }
-        switch ($Args[0].ToLowerInvariant()) {
+        switch ($CommandArgs[0].ToLowerInvariant()) {
             "monitor" {
                 $exitCode = Invoke-ProcessCtl -Action "status" -Target "all"
                 if ($exitCode -ne 0) { break }
@@ -301,28 +304,76 @@ switch ($cmd) {
             }
         }
     }
+    "wplan" {
+        if (-not (Test-Path -LiteralPath $mailboxTool)) {
+            throw "Mailbox tool not found: $mailboxTool"
+        }
+        if ($CommandArgs.Count -eq 0) {
+            throw "Использование: wplan <текст задачи>"
+        }
+        $taskText = [string]::Join(" ", $CommandArgs)
+        & $mailboxTool -Action plan -ProjectPath $ProjectPath -Source "windows" -Text $taskText
+        $exitCode = Get-LastCodeOrZero
+    }
+    "wmailbox" {
+        if (-not (Test-Path -LiteralPath $mailboxTool)) {
+            throw "Mailbox tool not found: $mailboxTool"
+        }
+        $sub = if ($CommandArgs.Count -gt 0) { $CommandArgs[0].ToLowerInvariant() } else { "status" }
+        switch ($sub) {
+            "ensure" {
+                & $mailboxTool -Action ensure -ProjectPath $ProjectPath
+            }
+            "status" {
+                & $mailboxTool -Action status -ProjectPath $ProjectPath
+            }
+            "list" {
+                & $mailboxTool -Action list -ProjectPath $ProjectPath
+            }
+            "digest" {
+                & $mailboxTool -Action digest -ProjectPath $ProjectPath
+            }
+            "show" {
+                & $mailboxTool -Action show -ProjectPath $ProjectPath
+            }
+            "resolve" {
+                if ($CommandArgs.Count -lt 2) {
+                    throw "Использование: wmailbox resolve <file1.md> [file2.md ...]"
+                }
+                $items = @()
+                for ($j = 1; $j -lt $CommandArgs.Count; $j++) {
+                    $items += $CommandArgs[$j]
+                }
+                & $mailboxTool -Action resolve -ProjectPath $ProjectPath -Items $items
+            }
+            default {
+                throw "Использование: wmailbox [ensure|status|list|digest|show|resolve]"
+            }
+        }
+        $exitCode = Get-LastCodeOrZero
+    }
     "wvibe" {
         if (-not (Test-Path -LiteralPath $vibeShim)) {
             throw "Vibe shim not found: $vibeShim"
         }
-        & $vibeShim -ProjectPath $ProjectPath -UvBinPath $UvBinPath @Args
+        & $vibeShim -ProjectPath $ProjectPath -UvBinPath $UvBinPath @CommandArgs
         $exitCode = Get-LastCodeOrZero
     }
     "wreconnect" {
         if (-not (Test-Path -LiteralPath $vibeShim)) {
             throw "Vibe shim not found: $vibeShim"
         }
-        & $vibeShim -ProjectPath $ProjectPath -UvBinPath $UvBinPath reconnect @Args
+        & $vibeShim -ProjectPath $ProjectPath -UvBinPath $UvBinPath reconnect @CommandArgs
         $exitCode = Get-LastCodeOrZero
     }
     "wmcp" {
-        if ($Args.Count -eq 0) {
+        if ($CommandArgs.Count -eq 0) {
             throw "Использование: wmcp ""<точная команда>"""
         }
         if (-not (Test-Path -LiteralPath $vibeShim)) {
             throw "Vibe shim not found: $vibeShim"
         }
-        & $vibeShim -ProjectPath $ProjectPath -UvBinPath $UvBinPath mcp @Args
+        & $vibeShim -ProjectPath $ProjectPath -UvBinPath $UvBinPath mcp @CommandArgs
         $exitCode = Get-LastCodeOrZero
     }
     "waider" {
@@ -340,8 +391,8 @@ switch ($cmd) {
         $enableMcp = $false
         $askMaxTurns = 8
         $taskParts = @()
-        for ($i = 0; $i -lt $Args.Count; $i++) {
-            $a = $Args[$i]
+        for ($i = 0; $i -lt $CommandArgs.Count; $i++) {
+            $a = $CommandArgs[$i]
             switch ($a) {
                 "--bootstrap" {
                     $withBootstrap = $true
@@ -360,13 +411,13 @@ switch ($cmd) {
                     continue
                 }
                 "--turns" {
-                    if ($i + 1 -ge $Args.Count) {
+                    if ($i + 1 -ge $CommandArgs.Count) {
                         throw "Для --turns нужно указать число."
                     }
                     $i++
                     $parsedTurns = 0
-                    if (-not [int]::TryParse($Args[$i], [ref]$parsedTurns)) {
-                        throw "Неверное значение --turns: $($Args[$i])"
+                    if (-not [int]::TryParse($CommandArgs[$i], [ref]$parsedTurns)) {
+                        throw "Неверное значение --turns: $($CommandArgs[$i])"
                     }
                     $askMaxTurns = $parsedTurns
                     continue

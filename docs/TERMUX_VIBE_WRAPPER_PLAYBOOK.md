@@ -93,12 +93,20 @@ From Termux:
 wvibe doctor
 wvibe ask --no-bootstrap "Reply exactly: OK"
 wvshell
+wplan "Пример задачи от телефона"
+wmailbox digest
 ```
 
 Inside `wvshell`:
 - `/turns 12` to increase turn limit for long tasks
 - `/mcp on` to allow MCP tools during ask requests
 - `/mcpcmd <exact command>` for direct MCP command run
+
+Mailbox flow:
+1. Add task from phone: `wplan "..."`
+2. Build digest: `wmailbox digest`
+3. Let Vibe read `ops/mailbox/for_codex.md` and summarize/clean request
+4. Send Codex instruction to read same file
 
 Inside Windows shell (`MiBookPro`), install wrappers once:
 

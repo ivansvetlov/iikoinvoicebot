@@ -19,6 +19,10 @@
     Обновить toolkit: cd repo -> git pull -> install.sh -> source ~/.bashrc.
   wstartgo [Termux]
     Сначала wrefresh, потом wgo.
+  wplan "<текст задачи>"
+    Положить задачу из телефона в ops/mailbox/inbox.
+  wmailbox [status|list|digest|show|resolve]
+    Управление mailbox для передачи задач Codex.
   wgo
     Войти в Windows PowerShell (папка пользователя).
   wenter
@@ -94,6 +98,12 @@
   wrun incident
   wrun recover
   wrun release
+
+Mailbox-цикл (телефон -> Vibe -> Codex):
+  1) wplan "<что сделать>"
+  2) wmailbox digest
+  3) в Vibe: "прочитай ops/mailbox/for_codex.md и дай аккуратный запрос для Codex"
+  4) написать Codex: "прочитай ops/mailbox/for_codex.md"
 
 Если не работает:
   1) command not found -> source ~/.bashrc
