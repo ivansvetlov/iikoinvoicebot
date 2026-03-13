@@ -25,24 +25,44 @@ if (-not (Test-Path -LiteralPath $wrapper)) {
 $mode = "start"
 $skipBootstrap = $false
 $forceCleanup = $false
+$enableMcp = $false
+$askMaxTurns = $null
 $taskParts = @()
 
-foreach ($arg in $Args) {
-    switch ($arg) {
-        "reconnect" { $mode = "reconnect"; continue }
-        "rc" { $mode = "reconnect"; continue }
-        "stop" { $mode = "stop"; continue }
-        "kill" { $mode = "stop"; continue }
-        "doctor" { $mode = "doctor"; continue }
-        "diag" { $mode = "doctor"; continue }
-        "ps" { $mode = "doctor"; continue }
-        "ask" { if ($mode -eq "start") { $mode = "ask"; continue } }
-        "text" { if ($mode -eq "start") { $mode = "ask"; continue } }
-        "mcp" { if ($mode -eq "start") { $mode = "mcp_cmd"; continue } }
-        "--no-bootstrap" { $skipBootstrap = $true; continue }
-        "--force" { $forceCleanup = $true; continue }
+$i = 0
+while ($i -lt $Args.Count) {
+    $arg = $Args[$i]
+    switch -Regex ($arg) {
+        "^(reconnect|rc)$" { $mode = "reconnect"; $i++; continue }
+        "^(stop|kill)$" { $mode = "stop"; $i++; continue }
+        "^(doctor|diag|ps)$" { $mode = "doctor"; $i++; continue }
+        "^(ask|text)$" { if ($mode -eq "start") { $mode = "ask" }; $i++; continue }
+        "^mcp$" { if ($mode -eq "start") { $mode = "mcp_cmd" }; $i++; continue }
+        "^--no-bootstrap$" { $skipBootstrap = $true; $i++; continue }
+        "^--force$" { $forceCleanup = $true; $i++; continue }
+        "^--mcp$" { $enableMcp = $true; $i++; continue }
+        "^--max-turns=(\d+)$" {
+            $askMaxTurns = [int]$matches[1]
+            $i++
+            continue
+        }
+        "^--max-turns$" {
+            if ($i + 1 -ge $Args.Count) {
+                throw "Expected integer after --max-turns"
+            }
+            $next = $Args[$i + 1]
+            $parsed = 0
+            if (-not [int]::TryParse($next, [ref]$parsed)) {
+                throw "Invalid value for --max-turns: $next"
+            }
+            $askMaxTurns = $parsed
+            $i += 2
+            continue
+        }
         default {
             $taskParts += $arg
+            $i++
+            continue
         }
     }
 }
@@ -73,6 +93,12 @@ if ($skipBootstrap) {
 }
 if ($forceCleanup) {
     $invokeArgs += "-ForceCleanup"
+}
+if ($enableMcp) {
+    $invokeArgs += "-EnableMcp"
+}
+if ($null -ne $askMaxTurns) {
+    $invokeArgs += @("-AskMaxTurns", [string]$askMaxTurns)
 }
 if (-not [string]::IsNullOrWhiteSpace($taskBase64)) {
     $invokeArgs += @("-TaskBase64", $taskBase64)

@@ -95,6 +95,11 @@ wvibe ask --no-bootstrap "Reply exactly: OK"
 wvshell
 ```
 
+Inside `wvshell`:
+- `/turns 12` to increase turn limit for long tasks
+- `/mcp on` to allow MCP tools during ask requests
+- `/mcpcmd <exact command>` for direct MCP command run
+
 Inside Windows shell (`MiBookPro`), install wrappers once:
 
 ```powershell

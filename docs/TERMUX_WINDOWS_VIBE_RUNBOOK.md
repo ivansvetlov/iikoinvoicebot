@@ -151,6 +151,11 @@ wvshell
 wvibe ask "read docs/START_HERE_NEW_CHAT.md and return short project status"
 ```
 
+For longer requests in `wvshell`:
+- `/turns 12` to raise ask turn limit
+- `/mcp on` to keep MCP tools enabled for asks
+- `/mcpcmd <exact command>` for exact host command execution via MCP
+
 ## 6) Direct Bypass Test (No Aliases)
 
 If wrapper/alias behavior is suspicious, run this exact command from Termux:

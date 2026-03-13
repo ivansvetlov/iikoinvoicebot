@@ -337,6 +337,8 @@ switch ($cmd) {
         }
 
         $withBootstrap = $false
+        $enableMcp = $false
+        $askMaxTurns = 8
         $taskParts = @()
         for ($i = 0; $i -lt $Args.Count; $i++) {
             $a = $Args[$i]
@@ -353,6 +355,22 @@ switch ($cmd) {
                     $withBootstrap = $false
                     continue
                 }
+                "--mcp" {
+                    $enableMcp = $true
+                    continue
+                }
+                "--turns" {
+                    if ($i + 1 -ge $Args.Count) {
+                        throw "Для --turns нужно указать число."
+                    }
+                    $i++
+                    $parsedTurns = 0
+                    if (-not [int]::TryParse($Args[$i], [ref]$parsedTurns)) {
+                        throw "Неверное значение --turns: $($Args[$i])"
+                    }
+                    $askMaxTurns = $parsedTurns
+                    continue
+                }
                 default {
                     $taskParts += $a
                 }
@@ -362,15 +380,31 @@ switch ($cmd) {
         if ($taskParts.Count -gt 0) {
             $taskText = [string]::Join(" ", $taskParts)
             if ($withBootstrap) {
-                & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -WithBootstrap -Task $taskText
+                if ($enableMcp) {
+                    & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -WithBootstrap -EnableMcp -AskMaxTurns $askMaxTurns -Task $taskText
+                } else {
+                    & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -WithBootstrap -AskMaxTurns $askMaxTurns -Task $taskText
+                }
             } else {
-                & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -Task $taskText
+                if ($enableMcp) {
+                    & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -EnableMcp -AskMaxTurns $askMaxTurns -Task $taskText
+                } else {
+                    & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -AskMaxTurns $askMaxTurns -Task $taskText
+                }
             }
         } else {
             if ($withBootstrap) {
-                & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -WithBootstrap
+                if ($enableMcp) {
+                    & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -WithBootstrap -EnableMcp -AskMaxTurns $askMaxTurns
+                } else {
+                    & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -WithBootstrap -AskMaxTurns $askMaxTurns
+                }
             } else {
-                & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath
+                if ($enableMcp) {
+                    & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -EnableMcp -AskMaxTurns $askMaxTurns
+                } else {
+                    & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -AskMaxTurns $askMaxTurns
+                }
             }
         }
         $exitCode = Get-LastCodeOrZero

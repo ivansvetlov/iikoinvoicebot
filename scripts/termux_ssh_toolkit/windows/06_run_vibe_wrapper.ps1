@@ -7,7 +7,8 @@ param(
     [string]$Mode = "start",
     [switch]$SkipBootstrap,
     [switch]$ForceCleanup,
-    [switch]$EnableMcp
+    [switch]$EnableMcp,
+    [int]$AskMaxTurns = 8
 )
 
 Set-StrictMode -Version Latest
@@ -315,7 +316,9 @@ $Task
 "@
     }
 
-    & $vibeExe @agentArgs -p $askPrompt --max-turns 4 --output text
+    if ($AskMaxTurns -lt 1) { $AskMaxTurns = 1 }
+    if ($AskMaxTurns -gt 24) { $AskMaxTurns = 24 }
+    & $vibeExe @agentArgs -p $askPrompt --max-turns $AskMaxTurns --output text
     exit $LASTEXITCODE
 }
 

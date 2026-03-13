@@ -2,7 +2,9 @@
     [string]$ProjectPath = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path,
     [string]$UvBinPath = "$env:USERPROFILE\.local\bin",
     [switch]$WithBootstrap,
-    [string]$Task = ""
+    [string]$Task = "",
+    [int]$AskMaxTurns = 8,
+    [switch]$EnableMcp
 )
 
 Set-StrictMode -Version Latest
@@ -30,6 +32,9 @@ function Show-LocalHelp {
     /help        показать эту справку
     /doctor      проверить состояние wrapper
     /reconnect   продолжить последнюю сессию
+    /mcp on|off  включить/выключить MCP режим
+    /mcpcmd ...  выполнить точную команду через MCP
+    /turns N     поставить лимит turn'ов для ask (1..24)
     /bootstrap   включить bootstrap на следующий запрос
     /noboot      выключить bootstrap (по умолчанию)
     /exit        выйти
@@ -37,13 +42,28 @@ function Show-LocalHelp {
 }
 
 $useBootstrap = $WithBootstrap.IsPresent
+$useMcp = $EnableMcp.IsPresent
+if ($AskMaxTurns -lt 1) { $AskMaxTurns = 1 }
+if ($AskMaxTurns -gt 24) { $AskMaxTurns = 24 }
+
+function Invoke-Ask([string]$text) {
+    if ($useBootstrap) {
+        if ($useMcp) {
+            & $shimPath -ProjectPath $ProjectPath -UvBinPath $UvBinPath ask --mcp --max-turns $AskMaxTurns $text
+        } else {
+            & $shimPath -ProjectPath $ProjectPath -UvBinPath $UvBinPath ask --max-turns $AskMaxTurns $text
+        }
+    } else {
+        if ($useMcp) {
+            & $shimPath -ProjectPath $ProjectPath -UvBinPath $UvBinPath ask --no-bootstrap --mcp --max-turns $AskMaxTurns $text
+        } else {
+            & $shimPath -ProjectPath $ProjectPath -UvBinPath $UvBinPath ask --no-bootstrap --max-turns $AskMaxTurns $text
+        }
+    }
+}
 
 if (-not [string]::IsNullOrWhiteSpace($Task)) {
-    if ($useBootstrap) {
-        & $shimPath -ProjectPath $ProjectPath -UvBinPath $UvBinPath ask $Task
-    } else {
-        & $shimPath -ProjectPath $ProjectPath -UvBinPath $UvBinPath ask --no-bootstrap $Task
-    }
+    Invoke-Ask -text $Task
     exit $LASTEXITCODE
 }
 
@@ -53,6 +73,12 @@ if ($useBootstrap) {
 } else {
     Write-Host "Режим: без bootstrap."
 }
+if ($useMcp) {
+    Write-Host "MCP: on"
+} else {
+    Write-Host "MCP: off"
+}
+Write-Host "ask turns: $AskMaxTurns"
 Write-Host "Напиши /help для списка команд."
 
 while ($true) {
@@ -82,6 +108,28 @@ while ($true) {
             & $shimPath -ProjectPath $ProjectPath -UvBinPath $UvBinPath reconnect
             continue
         }
+        "^\/mcp\s+on$" {
+            $useMcp = $true
+            Write-Host "mcp: on"
+            continue
+        }
+        "^\/mcp\s+off$" {
+            $useMcp = $false
+            Write-Host "mcp: off"
+            continue
+        }
+        "^\/mcpcmd\s+(.+)$" {
+            & $shimPath -ProjectPath $ProjectPath -UvBinPath $UvBinPath mcp $matches[1]
+            continue
+        }
+        "^\/turns\s+(\d+)$" {
+            $t = [int]$matches[1]
+            if ($t -lt 1) { $t = 1 }
+            if ($t -gt 24) { $t = 24 }
+            $AskMaxTurns = $t
+            Write-Host "ask turns: $AskMaxTurns"
+            continue
+        }
         "^\/bootstrap$" {
             $useBootstrap = $true
             Write-Host "bootstrap: on"
@@ -94,11 +142,7 @@ while ($true) {
         }
         default {
             try {
-                if ($useBootstrap) {
-                    & $shimPath -ProjectPath $ProjectPath -UvBinPath $UvBinPath ask $cmd
-                } else {
-                    & $shimPath -ProjectPath $ProjectPath -UvBinPath $UvBinPath ask --no-bootstrap $cmd
-                }
+                Invoke-Ask -text $cmd
             } catch {
                 Write-Host "[error] $($_.Exception.Message)"
             }
