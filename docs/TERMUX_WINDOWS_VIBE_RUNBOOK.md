@@ -97,6 +97,30 @@ What it does:
 - remote: opens interactive PowerShell and enters `%USERPROFILE%` (`C:\Users\MiBookPro`)
 - colorized command input comes from `PSReadLine` in this PowerShell session
 
+## 4.1) Install `wvibe` Command Inside Windows Shell
+
+This is required if you want to run `wvibe doctor` directly after `wgo`/`wenter` inside `MiBookPro`.
+
+Run once on Windows in project root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\07_install_windows_wvibe_aliases.ps1
+```
+
+Then verify inside Windows shell:
+
+```powershell
+where.exe wvibe
+wvibe doctor
+```
+
+If `wvibe` is still not found:
+1. Close and reopen SSH session.
+2. Ensure `%USERPROFILE%\.local\bin` is in `PATH`:
+```powershell
+echo $env:Path
+```
+
 ## 5) Stable Vibe Usage from Phone
 
 ```bash
@@ -163,7 +187,9 @@ Fix:
 2. reinstall aliases:
    - `bash scripts/termux_ssh_toolkit/termux/install.sh --win-user MiBookPro --win-host 192.168.0.135 --termux-repo "$HOME/iikoinvoicebot" --skip-keygen`
 3. `source ~/.bashrc`
-4. run section 6 direct bypass test.
+4. on Windows run:
+   - `powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\07_install_windows_wvibe_aliases.ps1`
+5. run section 6 direct bypass test.
 
 ### F) SSH timeout to host
 Cause:

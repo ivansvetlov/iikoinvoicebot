@@ -1,120 +1,144 @@
-# Termux + SSH + Vibe Wrapper Playbook
+# Termux + Windows SSH + Vibe Wrapper Playbook
 
-Этот документ описывает, как перенести текущий подход (работа с телефона через Termux, SSH в Windows и `wvibe` wrapper) в другой проект.
+This document is a transfer guide for the workflow:
+`Termux -> SSH -> Windows -> wvibe`.
 
-## Что переносить в новый проект
+Goal: reproduce setup fast, with deterministic steps.
 
-Скопируй в новый репозиторий:
+## 1) Copy These Files To A New Project
+
 - `scripts/termux_ssh_toolkit/`
 - `scripts/termux_ssh_toolkit/mcp/termux_bridge_mcp.py`
 - `.vibe/agents/phone-wrapper.toml`
 - `VIBE.md`
 
-Это минимальный набор для:
-- one-shot установки toolkit на телефоне;
-- стабильной SSH-работы;
-- wrapper-режима `wvibe` с проектными правилами.
-- выполнения точных команд через MCP bridge.
+## 2) Prerequisites
 
-## Минимальные требования
+- Windows machine with OpenSSH Server enabled.
+- Termux installed from F-Droid or GitHub release.
+- Termux packages: `git`, `openssh`.
+- Windows has `uv` and `mistral-vibe` installed.
+- Project is available as a git repository on Windows.
 
-- Windows-машина с OpenSSH Server.
-- Телефон с Termux (`git`, `openssh`).
-- В проекте на Windows есть Python-окружение (`.venv`) и git-репозиторий.
-- Установлен `mistral-vibe` (через `uv tool install mistral-vibe`).
+## 3) One-Time Bootstrap
 
-## Быстрая установка в новом проекте
+### Windows (PowerShell as Administrator)
 
-### 1) На Windows
-PowerShell от администратора:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\01_enable_openssh_server_admin.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\02_add_termux_pubkey.ps1 -PublicKeyPath .\local_setup\termux_ssh\secrets\termux_id_ed25519.pub
 ```
 
-Добавить pubkey телефона:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\02_add_termux_pubkey.ps1 -PublicKeyPath .\termux_id_ed25519.pub
-```
+### Termux
 
-Проверить IP:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\03_show_connection_info.ps1
-```
-
-### 2) На телефоне (Termux)
-В корне репозитория:
 ```bash
-bash scripts/termux_ssh_toolkit/termux/install.sh --win-user <WINDOWS_USER> --win-host <WINDOWS_LAN_IP>
+apt update
+pkg upgrade -y
+pkg install git openssh -y
+ssh-keygen -t ed25519 -C "termux-phone" -f ~/.ssh/id_ed25519
+```
+
+Add the public key to GitHub, then clone:
+
+```bash
+ssh -T git@github.com
+git clone git@github.com:ivansvetlov/iikoinvoicebot.git
+cd ~/iikoinvoicebot
+```
+
+Install toolkit aliases:
+
+```bash
+bash scripts/termux_ssh_toolkit/termux/install.sh --win-user MiBookPro --win-host 192.168.0.135 --termux-repo "$HOME/iikoinvoicebot" --skip-keygen
 source ~/.bashrc
-whelp
 ```
 
-## Что обязательно адаптировать под новый проект
+## 4) Daily Entry
 
-1. Пути по умолчанию (если отличаются):
-- `--project "C:\Users\<User>\...\<ProjectDir>"`
-- `--uv-bin "C:\Users\<User>\.local\bin"`
+From Termux:
 
-2. Сервисный контроллер:
-- файл `scripts/termux_ssh_toolkit/windows/05_phone_process_control.ps1`
-- обновить блок `$components` под свои entrypoint-команды.
+```bash
+wgo
+```
 
-3. Wrapper-политика агента:
-- `VIBE.md` — проектные правила, проверки, ограничения.
-- `.vibe/agents/phone-wrapper.toml` — профиль агента.
+What `wgo` does:
+- local: enters your Termux repo path;
+- remote: opens interactive PowerShell in `%USERPROFILE%`.
 
-4. Команды проверки:
-- `wtest`, `wdevstatus`, `wsmoke`, `wmetrics` в `termux/02_add_aliases.sh` при необходимости подстрой под свои скрипты.
+If you need project folder on Windows immediately:
 
-## Как использовать после установки
+```bash
+wenter
+```
 
-- Базово:
-  - `wssh`
-  - `wstatus`
-  - `wdiag`
-- Агент:
-  - `wvibe`
-  - `wvibe reconnect` (после обрыва продолжает последнюю сессию)
-  - `wreconnect` (короткий алиас)
-  - `wvibe mcp "<команда>"` (выполнить команду через MCP и вернуть результат)
-  - `wmcp "<команда>"` (короткий алиас)
-  - `wvibe "проверь ветку, запусти тесты, дай отчет"`
+## 5) Reliable Vibe Usage
 
-## Кодировка (fix для кракозябр)
+From Termux:
 
-Симптом: в ответах видишь строки вида `РџСЂРёРІРµС‚` вместо русского текста.
+```bash
+wvibe doctor
+wvibe ask --no-bootstrap "Reply exactly: OK"
+```
 
-Что уже сделано в toolkit:
-- В `_wps` добавлен UTF-8 prelude перед каждым удаленным PowerShell-вызовом:
-  - `chcp 65001`
-  - установка `InputEncoding/OutputEncoding` в UTF-8.
+Inside Windows shell (`MiBookPro`), install wrappers once:
 
-Если проблема всё же повторяется на локальной Windows-консоли:
 ```powershell
-chcp 65001
-[Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$OutputEncoding = [Console]::OutputEncoding
+powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\07_install_windows_wvibe_aliases.ps1
 ```
 
-И проверь, что файлы сохранены в UTF-8.
+Verify:
 
-## Траблшутинг
+```powershell
+where.exe wvibe
+wvibe doctor
+```
 
-- `No such file` в Termux:
-  - ты не в каталоге репозитория на телефоне или не сделал `git pull`.
-- `command not found: whelp`:
-  - `source ~/.bashrc`
-- SSH timeout:
-  - `wsetip <new_ip>`
-  - `wfixssh`
-  - `wssh`
+Available commands after install:
+- `wvibe ...`
+- `wreconnect`
+- `wmcp "<exact command>"`
 
-## Рекомендация для масштабирования
+## 6) Hard Rules To Avoid Quoting Failures
 
-Для каждого нового проекта держи такой же набор:
-- `scripts/termux_ssh_toolkit/`
-- `.vibe/agents/`
-- `VIBE.md`
+1. One command per line.
+2. For `wcmd`, wrap the full PowerShell command in single quotes.
+3. Use exact path: `C:\Users\MiBookPro\.local\bin`.
+4. After Termux reinstall, re-add phone pubkey on Windows.
+5. If a command hangs, first validate transport with `wcmd "Get-Date"`.
 
-Тогда перенос занимает 5-10 минут и не зависит от ручной настройки каждого раза.
+Good:
+
+```bash
+wcmd '$env:Path="C:\Users\MiBookPro\.local\bin;" + $env:Path; vibe --version'
+```
+
+Bad:
+
+```bash
+wcmd "$env:Path=..."
+```
+
+## 7) Quick Diagnostics
+
+1. Check SSH:
+```bash
+ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes MiBookPro@192.168.0.135
+```
+2. Check alias load:
+```bash
+type wvibe
+```
+3. Check wrapper health:
+```bash
+wvibe doctor
+```
+4. If `wvibe` is not found in Windows:
+```powershell
+echo $env:Path
+where.exe wvibe
+```
+
+## 8) Scaling Recommendation
+
+Keep the same toolkit layout (`scripts/termux_ssh_toolkit`) in each new project.
+This makes setup repeatable and removes manual guesswork.
