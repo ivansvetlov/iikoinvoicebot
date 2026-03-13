@@ -117,7 +117,8 @@ What it does:
 
 ## 4.1) Install `wvibe` Command Inside Windows Shell
 
-This is required if you want to run `wvibe doctor` directly after `wgo`/`wenter` inside `MiBookPro`.
+This installs full `w*` toolkit commands in Windows shell (`whelp`, `wstatus`, `wtest`, `wdeploy`, `wvibe`, etc.).
+Use this if you want the same command style directly inside `MiBookPro`.
 
 Run once on Windows in project root:
 
@@ -129,6 +130,8 @@ Then verify inside Windows shell:
 
 ```powershell
 where.exe wvibe
+where.exe whelp
+whelp
 wvibe doctor
 ```
 

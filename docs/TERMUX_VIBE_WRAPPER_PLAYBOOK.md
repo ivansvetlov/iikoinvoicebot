@@ -102,10 +102,13 @@ Verify:
 
 ```powershell
 where.exe wvibe
+where.exe whelp
+whelp
 wvibe doctor
 ```
 
 Available commands after install:
+- `whelp`, `wstatus`, `wpull`, `wstart`, `wstop`, `wrestart`, `wtail`, `wtest`, `wdeploy`, `wrun`
 - `wvibe ...`
 - `wreconnect`
 - `wmcp "<exact command>"`

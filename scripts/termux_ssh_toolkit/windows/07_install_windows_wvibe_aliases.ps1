@@ -14,6 +14,10 @@ $shimPath = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\07_wvibe_
 if (-not (Test-Path -LiteralPath $shimPath)) {
     throw "Shim script not found: $shimPath"
 }
+$dispatchPath = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\08_wtoolkit_windows_dispatch.ps1"
+if (-not (Test-Path -LiteralPath $dispatchPath)) {
+    throw "Dispatcher script not found: $dispatchPath"
+}
 
 New-Item -ItemType Directory -Path $UvBinPath -Force | Out-Null
 
@@ -47,6 +51,41 @@ exit /b %ERRORLEVEL%
 "@
 [System.IO.File]::WriteAllText($wmcpCmdPath, $wmcpCmd, $utf8NoBom)
 
+$dispatchCommands = @(
+    "whelp",
+    "wh",
+    "wproj",
+    "wstatus",
+    "wpull",
+    "wps",
+    "wstart",
+    "wstop",
+    "wrestart",
+    "wtail",
+    "wlogs",
+    "wdevstatus",
+    "wmetrics",
+    "wsmoke",
+    "wdiag",
+    "wtest",
+    "wdeploy",
+    "wrun",
+    "waider",
+    "wgo",
+    "wenter"
+)
+
+foreach ($name in $dispatchCommands) {
+    $path = Join-Path $UvBinPath "$name.cmd"
+    $content = @"
+@echo off
+setlocal
+"$psExe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$dispatchPath" -CommandName "$name" -ProjectPath "$ProjectPath" -UvBinPath "$UvBinPath" %*
+exit /b %ERRORLEVEL%
+"@
+    [System.IO.File]::WriteAllText($path, $content, $utf8NoBom)
+}
+
 $pathEntries = @()
 if ($env:Path) {
     $pathEntries = $env:Path.Split(";") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
@@ -63,6 +102,9 @@ Write-Host "[ok] installed:"
 Write-Host " - $wvibeCmdPath"
 Write-Host " - $wreconnectCmdPath"
 Write-Host " - $wmcpCmdPath"
+foreach ($name in $dispatchCommands) {
+    Write-Host " - $(Join-Path $UvBinPath "$name.cmd")"
+}
 if (-not $inPath) {
     Write-Host "[warn] $UvBinPath is not in PATH for this session."
     Write-Host "[next] reopen terminal or run:"
