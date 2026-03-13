@@ -644,6 +644,45 @@ wrun() {
       ;;
   esac
 }
+
+# Unified help source: shared files used by both Termux and Windows wrappers.
+_whelp_shared_dir() {
+  echo "\$WINDEV_TERMUX_REPO/scripts/termux_ssh_toolkit/shared"
+}
+
+wsets() {
+  local sets_file
+  sets_file="$(_whelp_shared_dir)/whelp_sets_ru.txt"
+  if [ -f "\$sets_file" ]; then
+    cat "\$sets_file"
+    return 0
+  fi
+  echo "Файл наборов команд не найден: \$sets_file"
+}
+
+whelp() {
+  local topic="\${1:-all}"
+  local help_file
+  help_file="$(_whelp_shared_dir)/whelp_ru.txt"
+
+  case "\$topic" in
+    sets|set|scenarios|scenario)
+      wsets
+      return 0
+      ;;
+  esac
+
+  if [ -f "\$help_file" ]; then
+    cat "\$help_file"
+    return 0
+  fi
+
+  echo "Файл справки не найден: \$help_file"
+}
+
+wh() {
+  whelp "\$@"
+}
 $BASH_BLOCK_END
 EOF
 

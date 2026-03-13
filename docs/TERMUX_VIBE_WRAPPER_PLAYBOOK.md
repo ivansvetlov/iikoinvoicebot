@@ -9,6 +9,8 @@ Goal: reproduce setup fast, with deterministic steps.
 
 - `scripts/termux_ssh_toolkit/`
 - `scripts/termux_ssh_toolkit/mcp/termux_bridge_mcp.py`
+- `scripts/termux_ssh_toolkit/shared/whelp_ru.txt`
+- `scripts/termux_ssh_toolkit/shared/whelp_sets_ru.txt`
 - `.vibe/agents/phone-wrapper.toml`
 - `VIBE.md`
 

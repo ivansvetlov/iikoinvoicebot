@@ -1,0 +1,98 @@
+ТЕЛЕФОН -> ПК: ПОЛНАЯ СПРАВКА
+
+Что это:
+  Ты в Termux на телефоне.
+  Команды w* работают через SSH на Windows-хосте и/или локально в текущей среде.
+
+Быстрый старт:
+  1) wstartgo
+  2) whelp
+  3) wstatus
+  4) wvibe doctor
+
+Связь и база:
+  whelp
+    Показать эту справку.
+  whelp sets
+    Показать готовые наборы команд.
+  wrefresh [Termux]
+    Обновить toolkit: cd repo -> git pull -> install.sh -> source ~/.bashrc.
+  wstartgo [Termux]
+    Сначала wrefresh, потом wgo.
+  wgo
+    Войти в Windows PowerShell (папка пользователя).
+  wenter
+    Войти в Windows PowerShell (папка проекта).
+  wfixssh [Termux]
+    Исправить права SSH-ключей и локальные сокеты в Termux.
+  wsetip <ip_пк> [Termux]
+    Обновить IP Windows-хоста в ~/.ssh/config.
+  wssh [Termux]
+    Обычный SSH-вход на Windows.
+  wcmd "<PowerShell-команда>" [Termux]
+    Выполнить одну PowerShell-команду на ПК.
+
+Проект и git:
+  wproj
+    Показать путь проекта.
+  wstatus
+    git status -sb + текущая ветка.
+  wpull
+    git pull --ff-only.
+
+Сервисы (backend/worker/bot):
+  wstart [all|backend|worker|bot]
+    Запустить сервис(ы).
+  wstop [all|backend|worker|bot]
+    Остановить сервис(ы).
+  wrestart [all|backend|worker|bot]
+    Перезапустить сервис(ы).
+  wps
+    Показать статус сервисов.
+
+Логи и диагностика:
+  wtail [backend|worker|bot|file.log]
+    Смотреть live-лог.
+  wlogs [...]
+    Алиас для wtail.
+  wdevstatus
+    Проверка dev-окружения.
+  wmetrics [args]
+    Отчет по метрикам (по умолчанию окно 60 минут).
+  wsmoke
+    Быстрая проверка: dev_status + /health + /metrics/summary.
+  wdiag
+    Один экран: host + git + services + smoke.
+
+Тесты и деплой:
+  wtest
+    Запустить unittest.
+  wdeploy [--dry-run] [--yes]
+    pull -> test -> restart all -> smoke.
+
+Агенты:
+  wvibe
+    Старт Vibe с автопрогревом контекста.
+  wvibe ask --no-bootstrap "<задача>"
+    Быстрый одноразовый запрос.
+  wvibe reconnect
+    Продолжить последнюю сессию.
+  wvibe mcp "<точная команда>"
+    Выполнить точную команду через MCP bridge.
+  wreconnect
+    Алиас для wvibe reconnect.
+  wmcp "<точная команда>"
+    Алиас для wvibe mcp.
+  waider
+    Запустить aider в проекте (если установлен).
+
+Готовые сценарии:
+  wrun monitor
+  wrun incident
+  wrun recover
+  wrun release
+
+Если не работает:
+  1) command not found -> source ~/.bashrc
+  2) timeout SSH -> wsetip <новый_ip_пк>, затем wssh
+  3) просит пароль по ключу -> wfixssh и повторная проверка ключа на Windows

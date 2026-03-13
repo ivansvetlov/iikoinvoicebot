@@ -21,6 +21,12 @@ if (-not (Test-Path -LiteralPath $ProjectPath)) {
 $procCtl = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\05_phone_process_control.ps1"
 $vibeShim = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\07_wvibe_windows_shim.ps1"
 $venvPython = Join-Path $ProjectPath ".venv\Scripts\python.exe"
+$sharedDir = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\shared"
+$helpRu = Join-Path $sharedDir "whelp_ru.txt"
+$helpSetsRu = Join-Path $sharedDir "whelp_sets_ru.txt"
+if ($null -eq $Args) {
+    $Args = @()
+}
 
 function Invoke-ProcessCtl {
     param(
@@ -73,30 +79,23 @@ function Run-Smoke {
 }
 
 function Show-Help {
-    @"
-Команды Windows toolkit:
-  whelp                    Показать эту справку
-  wproj                    Показать путь проекта
-  wstatus                  git status -sb + текущая ветка
-  wpull                    git pull --ff-only
-  wps                      Статус сервисов
-  wstart [target]          Запустить сервисы: all|backend|worker|bot
-  wstop [target]           Остановить сервисы
-  wrestart [target]        Перезапустить сервисы
-  wtail [target|file]      Смотреть логи (worker/backend/bot или имя файла)
-  wlogs [target|file]      Алиас для wtail
-  wdevstatus               Запустить scripts/dev_status.py
-  wmetrics [args]          Запустить scripts/metrics_report.py (по умолчанию --minutes 60)
-  wsmoke                   dev_status + /health + /metrics/summary
-  wdiag                    host + git + services + smoke
-  wtest                    Запустить unittest
-  wdeploy [--dry-run|--yes]
-  wrun [monitor|incident|recover|release]
-  wvibe ...                Обертка над Vibe
-  wreconnect               Алиас для: wvibe reconnect
-  wmcp "<точная команда>"  Алиас для: wvibe mcp ...
-  waider                   Запустить aider в проекте
-"@ | Write-Output
+    param([string]$Topic = "all")
+
+    if ($Topic -in @("sets", "set", "scenarios", "scenario")) {
+        if (Test-Path -LiteralPath $helpSetsRu) {
+            Get-Content -LiteralPath $helpSetsRu -Encoding UTF8 | Out-Host
+            return
+        }
+        Write-Output "Файл наборов команд не найден: $helpSetsRu"
+        return
+    }
+
+    if (Test-Path -LiteralPath $helpRu) {
+        Get-Content -LiteralPath $helpRu -Encoding UTF8 | Out-Host
+        return
+    }
+
+    Write-Output "Файл справки не найден: $helpRu"
 }
 
 $cmd = $CommandName.ToLowerInvariant()
@@ -104,10 +103,12 @@ $exitCode = 0
 
 switch ($cmd) {
     "whelp" {
-        Show-Help
+        $topic = if ($Args.Count -gt 0) { $Args[0] } else { "all" }
+        Show-Help -Topic $topic
     }
     "wh" {
-        Show-Help
+        $topic = if ($Args.Count -gt 0) { $Args[0] } else { "all" }
+        Show-Help -Topic $topic
     }
     "wproj" {
         Write-Output $ProjectPath
