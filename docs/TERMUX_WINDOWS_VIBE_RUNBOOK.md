@@ -96,6 +96,12 @@ Optional starter alias (same behavior):
 wstartgo
 ```
 
+Force-refresh aliases + config before SSH:
+
+```bash
+wrefresh
+```
+
 If you need to land directly in the Windows project folder, use:
 
 ```bash

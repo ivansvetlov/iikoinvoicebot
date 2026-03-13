@@ -71,6 +71,12 @@ Alternative starter alias:
 wstartgo
 ```
 
+If you want to only refresh local toolkit block first:
+
+```bash
+wrefresh
+```
+
 If you need project folder on Windows immediately:
 
 ```bash

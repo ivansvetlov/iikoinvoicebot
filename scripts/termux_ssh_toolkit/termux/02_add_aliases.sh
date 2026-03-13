@@ -164,6 +164,10 @@ whelp() {
     Полная справка (этот экран).
   whelp sets
     Только готовые наборы команд.
+  wrefresh
+    Обновить toolkit: cd repo -> git pull -> install.sh -> source ~/.bashrc
+  wstartgo
+    Сразу сделать wrefresh и потом открыть wgo.
   wfixssh
     Локально чинит SSH-права/сокеты в Termux.
   wsetip <ip_пк>
@@ -349,7 +353,27 @@ wgo() {
   _wssh_base -tt "\$WINDEV_ALIAS" "powershell -NoLogo -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-Location -LiteralPath \\\$env:USERPROFILE\""
 }
 
+wrefresh() {
+  if [ -z "\${WINDEV_TERMUX_REPO:-}" ] || [ ! -d "\$WINDEV_TERMUX_REPO" ]; then
+    echo "[error] Termux repo is not configured: \$WINDEV_TERMUX_REPO"
+    return 1
+  fi
+
+  cd "\$WINDEV_TERMUX_REPO" || return 1
+  git pull --ff-only || return 1
+  bash scripts/termux_ssh_toolkit/termux/install.sh \
+    --win-user "\$WINDEV_USER" \
+    --win-host "\$WINDEV_HOST" \
+    --alias "\$WINDEV_ALIAS" \
+    --project "\$WINDEV_PROJECT_WIN" \
+    --uv-bin "\$WINDEV_UV_BIN" \
+    --termux-repo "\$WINDEV_TERMUX_REPO" \
+    --skip-keygen || return 1
+  source "\$HOME/.bashrc"
+}
+
 wstartgo() {
+  wrefresh || return 1
   wgo "\$@"
 }
 
