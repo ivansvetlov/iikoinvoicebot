@@ -92,6 +92,7 @@ From Termux:
 ```bash
 wvibe doctor
 wvibe ask --no-bootstrap "Reply exactly: OK"
+wvshell
 ```
 
 Inside Windows shell (`MiBookPro`), install wrappers once:

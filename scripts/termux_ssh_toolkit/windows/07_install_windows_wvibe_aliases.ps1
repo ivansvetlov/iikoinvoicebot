@@ -18,6 +18,10 @@ $dispatchPath = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\08_wt
 if (-not (Test-Path -LiteralPath $dispatchPath)) {
     throw "Dispatcher script not found: $dispatchPath"
 }
+$lightShellPath = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\09_wvibe_light_shell.ps1"
+if (-not (Test-Path -LiteralPath $lightShellPath)) {
+    throw "Light shell script not found: $lightShellPath"
+}
 
 New-Item -ItemType Directory -Path $UvBinPath -Force | Out-Null
 
@@ -75,7 +79,8 @@ $dispatchCommands = @(
     "wrun",
     "waider",
     "wgo",
-    "wenter"
+    "wenter",
+    "wvshell"
 )
 
 foreach ($name in $dispatchCommands) {

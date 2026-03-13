@@ -147,6 +147,7 @@ echo $env:Path
 ```bash
 wvibe doctor
 wvibe ask --no-bootstrap "Reply exactly: OK"
+wvshell
 wvibe ask "read docs/START_HERE_NEW_CHAT.md and return short project status"
 ```
 

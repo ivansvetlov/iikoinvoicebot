@@ -20,6 +20,7 @@ if (-not (Test-Path -LiteralPath $ProjectPath)) {
 
 $procCtl = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\05_phone_process_control.ps1"
 $vibeShim = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\07_wvibe_windows_shim.ps1"
+$vibeLightShell = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\windows\09_wvibe_light_shell.ps1"
 $venvPython = Join-Path $ProjectPath ".venv\Scripts\python.exe"
 $sharedDir = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\shared"
 $helpRu = Join-Path $sharedDir "whelp_ru.txt"
@@ -317,6 +318,50 @@ switch ($cmd) {
         $env:Path = "$UvBinPath;$env:Path"
         Set-Location -LiteralPath $ProjectPath
         & aider
+        $exitCode = $LASTEXITCODE
+    }
+    "wvshell" {
+        if (-not (Test-Path -LiteralPath $vibeLightShell)) {
+            throw "Light shell script not found: $vibeLightShell"
+        }
+
+        $withBootstrap = $false
+        $taskParts = @()
+        for ($i = 0; $i -lt $Args.Count; $i++) {
+            $a = $Args[$i]
+            switch ($a) {
+                "--bootstrap" {
+                    $withBootstrap = $true
+                    continue
+                }
+                "-WithBootstrap" {
+                    $withBootstrap = $true
+                    continue
+                }
+                "--noboot" {
+                    $withBootstrap = $false
+                    continue
+                }
+                default {
+                    $taskParts += $a
+                }
+            }
+        }
+
+        if ($taskParts.Count -gt 0) {
+            $taskText = [string]::Join(" ", $taskParts)
+            if ($withBootstrap) {
+                & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -WithBootstrap -Task $taskText
+            } else {
+                & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -Task $taskText
+            }
+        } else {
+            if ($withBootstrap) {
+                & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath -WithBootstrap
+            } else {
+                & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath
+            }
+        }
         $exitCode = $LASTEXITCODE
     }
     "wgo" {

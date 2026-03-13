@@ -562,6 +562,11 @@ wmcp() {
   wvibe mcp "\$@"
 }
 
+wvshell() {
+  local shell_ps1="\$WINDEV_PROJECT_WIN\\scripts\\termux_ssh_toolkit\\windows\\09_wvibe_light_shell.ps1"
+  _wssh_base -tt "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "\$shell_ps1" -ProjectPath "\$WINDEV_PROJECT_WIN" -UvBinPath "\$WINDEV_UV_BIN"
+}
+
 waider() {
   wcmd "\\\$env:Path='\$WINDEV_UV_BIN;' + \\\$env:Path; Set-Location '\$WINDEV_PROJECT_WIN'; aider"
 }
