@@ -52,8 +52,8 @@ function Get-PidPath([string]$name) {
     return Join-Path $pidDir $components[$name].pid
 }
 
-function Save-Pid([string]$name, [int]$pid) {
-    Set-Content -LiteralPath (Get-PidPath $name) -Value "$pid" -Encoding ascii
+function Save-Pid([string]$name, [int]$procId) {
+    Set-Content -LiteralPath (Get-PidPath $name) -Value "$procId" -Encoding ascii
 }
 
 function Remove-Pid([string]$name) {
@@ -69,12 +69,12 @@ function Get-ProcByPidFile([string]$name) {
         return $null
     }
     $raw = (Get-Content -LiteralPath $path -Raw).Trim()
-    $pid = 0
-    if (-not [int]::TryParse($raw, [ref]$pid)) {
+    $procId = 0
+    if (-not [int]::TryParse($raw, [ref]$procId)) {
         Remove-Pid $name
         return $null
     }
-    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
     if ($null -eq $proc) {
         Remove-Pid $name
         return $null
@@ -142,11 +142,11 @@ function Stop-Component([string]$name) {
         return
     }
 
-    $pid = $proc.Id
-    Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+    $procId = $proc.Id
+    Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 300
     Remove-Pid $name
-    Write-Host "[stopped] $name pid=$pid"
+    Write-Host "[stopped] $name pid=$procId"
 }
 
 function Status-Component([string]$name) {
@@ -170,4 +170,3 @@ foreach ($name in $targets) {
         "status" { Status-Component $name }
     }
 }
-

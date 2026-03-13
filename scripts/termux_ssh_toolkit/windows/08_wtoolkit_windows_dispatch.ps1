@@ -29,6 +29,14 @@ if ($null -eq $Args) {
     $Args = @()
 }
 
+function Get-LastCodeOrZero {
+    $var = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
+    if ($null -eq $var) {
+        return 0
+    }
+    return [int]$var.Value
+}
+
 function Invoke-ProcessCtl {
     param(
         [Parameter(Mandatory = $true)][string]$Action,
@@ -38,7 +46,7 @@ function Invoke-ProcessCtl {
         throw "Process control script not found: $procCtl"
     }
     & $procCtl -Action $Action -Target $Target -ProjectPath $ProjectPath | Out-Host
-    return $LASTEXITCODE
+    return (Get-LastCodeOrZero)
 }
 
 function Invoke-ProjectPython {
@@ -49,15 +57,16 @@ function Invoke-ProjectPython {
         throw "Python venv not found: $venvPython"
     }
     & $venvPython @Arguments | Out-Host
-    return $LASTEXITCODE
+    return (Get-LastCodeOrZero)
 }
 
 function Run-Status {
     Set-Location -LiteralPath $ProjectPath
     & git status -sb | Out-Host
-    if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+    $gitStatusCode = Get-LastCodeOrZero
+    if ($gitStatusCode -ne 0) { return $gitStatusCode }
     & git branch --show-current | Out-Host
-    return $LASTEXITCODE
+    return (Get-LastCodeOrZero)
 }
 
 function Run-Smoke {
@@ -120,7 +129,7 @@ switch ($cmd) {
     "wpull" {
         Set-Location -LiteralPath $ProjectPath
         & git pull --ff-only
-        $exitCode = $LASTEXITCODE
+        $exitCode = Get-LastCodeOrZero
     }
     "wstart" {
         $target = if ($Args.Count -gt 0) { $Args[0] } else { "all" }
@@ -157,7 +166,7 @@ switch ($cmd) {
             $tailArgs += $Args
         }
         & $PSCommandPath @tailArgs
-        $exitCode = $LASTEXITCODE
+        $exitCode = Get-LastCodeOrZero
     }
     "wdevstatus" {
         Set-Location -LiteralPath $ProjectPath
@@ -223,7 +232,8 @@ switch ($cmd) {
 
         Set-Location -LiteralPath $ProjectPath
         & git pull --ff-only
-        if ($LASTEXITCODE -ne 0) { $exitCode = $LASTEXITCODE; break }
+        $pullCode = Get-LastCodeOrZero
+        if ($pullCode -ne 0) { $exitCode = $pullCode; break }
 
         $exitCode = Invoke-ProjectPython -Arguments @("-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py", "-v")
         if ($exitCode -ne 0) { break }
@@ -278,7 +288,8 @@ switch ($cmd) {
                 if ($exitCode -ne 0) { break }
                 Set-Location -LiteralPath $ProjectPath
                 & git pull --ff-only
-                if ($LASTEXITCODE -ne 0) { $exitCode = $LASTEXITCODE; break }
+                $releasePullCode = Get-LastCodeOrZero
+                if ($releasePullCode -ne 0) { $exitCode = $releasePullCode; break }
                 $exitCode = Invoke-ProjectPython -Arguments @("-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py", "-v")
                 if ($exitCode -ne 0) { break }
                 $exitCode = Invoke-ProcessCtl -Action "restart" -Target "all"
@@ -295,14 +306,14 @@ switch ($cmd) {
             throw "Vibe shim not found: $vibeShim"
         }
         & $vibeShim -ProjectPath $ProjectPath -UvBinPath $UvBinPath @Args
-        $exitCode = $LASTEXITCODE
+        $exitCode = Get-LastCodeOrZero
     }
     "wreconnect" {
         if (-not (Test-Path -LiteralPath $vibeShim)) {
             throw "Vibe shim not found: $vibeShim"
         }
         & $vibeShim -ProjectPath $ProjectPath -UvBinPath $UvBinPath reconnect @Args
-        $exitCode = $LASTEXITCODE
+        $exitCode = Get-LastCodeOrZero
     }
     "wmcp" {
         if ($Args.Count -eq 0) {
@@ -312,13 +323,13 @@ switch ($cmd) {
             throw "Vibe shim not found: $vibeShim"
         }
         & $vibeShim -ProjectPath $ProjectPath -UvBinPath $UvBinPath mcp @Args
-        $exitCode = $LASTEXITCODE
+        $exitCode = Get-LastCodeOrZero
     }
     "waider" {
         $env:Path = "$UvBinPath;$env:Path"
         Set-Location -LiteralPath $ProjectPath
         & aider
-        $exitCode = $LASTEXITCODE
+        $exitCode = Get-LastCodeOrZero
     }
     "wvshell" {
         if (-not (Test-Path -LiteralPath $vibeLightShell)) {
@@ -362,7 +373,7 @@ switch ($cmd) {
                 & $vibeLightShell -ProjectPath $ProjectPath -UvBinPath $UvBinPath
             }
         }
-        $exitCode = $LASTEXITCODE
+        $exitCode = Get-LastCodeOrZero
     }
     "wgo" {
         $psExe = Join-Path $PSHOME "powershell.exe"
@@ -370,7 +381,7 @@ switch ($cmd) {
             $psExe = "powershell"
         }
         & $psExe -NoLogo -NoExit -Command "Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-Location -LiteralPath `$env:USERPROFILE"
-        $exitCode = $LASTEXITCODE
+        $exitCode = Get-LastCodeOrZero
     }
     "wenter" {
         $psExe = Join-Path $PSHOME "powershell.exe"
@@ -378,7 +389,7 @@ switch ($cmd) {
             $psExe = "powershell"
         }
         & $psExe -NoLogo -NoExit -Command "Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-Location -LiteralPath '$ProjectPath'"
-        $exitCode = $LASTEXITCODE
+        $exitCode = Get-LastCodeOrZero
     }
     default {
         throw "Неизвестная команда: $CommandName. Выполни whelp."

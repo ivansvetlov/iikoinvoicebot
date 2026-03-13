@@ -349,7 +349,11 @@ wenter() {
 }
 
 wgo() {
-  wlocalprep
+  if [ "${WINDEV_SKIP_LOCALPREP_ONCE:-0}" = "1" ]; then
+    WINDEV_SKIP_LOCALPREP_ONCE=0
+  else
+    wlocalprep
+  fi
   _wssh_base -tt "\$WINDEV_ALIAS" "powershell -NoLogo -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-Location -LiteralPath \\\$env:USERPROFILE\""
 }
 
@@ -359,6 +363,7 @@ wrefresh() {
     return 1
   fi
 
+  local from_dir="\$PWD"
   cd "\$WINDEV_TERMUX_REPO" || return 1
   git pull --ff-only || return 1
   bash scripts/termux_ssh_toolkit/termux/install.sh \
@@ -369,11 +374,13 @@ wrefresh() {
     --uv-bin "\$WINDEV_UV_BIN" \
     --termux-repo "\$WINDEV_TERMUX_REPO" \
     --skip-keygen || return 1
-  source "\$HOME/.bashrc"
+  source "\$HOME/.bashrc" || return 1
+  cd "\$from_dir" || true
 }
 
 wstartgo() {
   wrefresh || return 1
+  WINDEV_SKIP_LOCALPREP_ONCE=1
   wgo "\$@"
 }
 
