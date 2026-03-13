@@ -28,6 +28,7 @@ $wvibeCmdPath = Join-Path $UvBinPath "wvibe.cmd"
 $wvibeCmd = @"
 @echo off
 setlocal
+chcp 65001 >nul
 "$psExe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$shimPath" -ProjectPath "$ProjectPath" -UvBinPath "$UvBinPath" %*
 exit /b %ERRORLEVEL%
 "@
@@ -37,6 +38,7 @@ $wreconnectCmdPath = Join-Path $UvBinPath "wreconnect.cmd"
 $wreconnectCmd = @"
 @echo off
 setlocal
+chcp 65001 >nul
 call "%~dp0wvibe.cmd" reconnect %*
 exit /b %ERRORLEVEL%
 "@
@@ -46,6 +48,7 @@ $wmcpCmdPath = Join-Path $UvBinPath "wmcp.cmd"
 $wmcpCmd = @"
 @echo off
 setlocal
+chcp 65001 >nul
 call "%~dp0wvibe.cmd" mcp %*
 exit /b %ERRORLEVEL%
 "@
@@ -80,6 +83,7 @@ foreach ($name in $dispatchCommands) {
     $content = @"
 @echo off
 setlocal
+chcp 65001 >nul
 "$psExe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$dispatchPath" -CommandName "$name" -ProjectPath "$ProjectPath" -UvBinPath "$UvBinPath" %*
 exit /b %ERRORLEVEL%
 "@

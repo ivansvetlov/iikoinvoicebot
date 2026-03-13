@@ -9,6 +9,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
 
 if (-not (Test-Path -LiteralPath $ProjectPath)) {
     throw "Project path not found: $ProjectPath"
@@ -70,28 +74,28 @@ function Run-Smoke {
 
 function Show-Help {
     @"
-Windows toolkit commands:
-  whelp                    Show this help
-  wproj                    Show project path
-  wstatus                  git status -sb + current branch
+Команды Windows toolkit:
+  whelp                    Показать эту справку
+  wproj                    Показать путь проекта
+  wstatus                  git status -sb + текущая ветка
   wpull                    git pull --ff-only
-  wps                      Service status
-  wstart [target]          Start service(s): all|backend|worker|bot
-  wstop [target]           Stop service(s)
-  wrestart [target]        Restart service(s)
-  wtail [target|file]      Tail logs (worker/backend/bot or file name)
-  wlogs [target|file]      Alias of wtail
-  wdevstatus               Run scripts/dev_status.py
-  wmetrics [args]          Run scripts/metrics_report.py (--minutes 60 by default)
+  wps                      Статус сервисов
+  wstart [target]          Запустить сервисы: all|backend|worker|bot
+  wstop [target]           Остановить сервисы
+  wrestart [target]        Перезапустить сервисы
+  wtail [target|file]      Смотреть логи (worker/backend/bot или имя файла)
+  wlogs [target|file]      Алиас для wtail
+  wdevstatus               Запустить scripts/dev_status.py
+  wmetrics [args]          Запустить scripts/metrics_report.py (по умолчанию --minutes 60)
   wsmoke                   dev_status + /health + /metrics/summary
   wdiag                    host + git + services + smoke
-  wtest                    Run unittest suite
+  wtest                    Запустить unittest
   wdeploy [--dry-run|--yes]
   wrun [monitor|incident|recover|release]
-  wvibe ...                Vibe wrapper
-  wreconnect               Alias to: wvibe reconnect
-  wmcp "<exact command>"   Alias to: wvibe mcp ...
-  waider                   Start aider in project
+  wvibe ...                Обертка над Vibe
+  wreconnect               Алиас для: wvibe reconnect
+  wmcp "<точная команда>"  Алиас для: wvibe mcp ...
+  waider                   Запустить aider в проекте
 "@ | Write-Output
 }
 
@@ -197,7 +201,7 @@ switch ($cmd) {
             switch ($arg) {
                 "--dry-run" { $dryRun = $true; continue }
                 "--yes" { $forceYes = $true; continue }
-                default { throw "Unknown option: $arg. Usage: wdeploy [--dry-run] [--yes]" }
+                default { throw "Неизвестная опция: $arg. Использование: wdeploy [--dry-run] [--yes]" }
             }
         }
 
@@ -208,7 +212,7 @@ switch ($cmd) {
 
         if ($dryRun) { break }
         if (-not $forceYes) {
-            $answer = Read-Host "Run deploy cycle? [y/N]"
+            $answer = Read-Host "Запустить deploy-цикл? [y/N]"
             if ($answer -notmatch "^(y|Y|yes|YES)$") {
                 $exitCode = 1
                 break
@@ -229,7 +233,7 @@ switch ($cmd) {
     }
     "wrun" {
         if ($Args.Count -eq 0) {
-            throw "Usage: wrun [monitor|incident|recover|release]"
+            throw "Использование: wrun [monitor|incident|recover|release]"
         }
         switch ($Args[0].ToLowerInvariant()) {
             "monitor" {
@@ -280,7 +284,7 @@ switch ($cmd) {
                 $exitCode = Run-Smoke
             }
             default {
-                throw "Usage: wrun [monitor|incident|recover|release]"
+                throw "Использование: wrun [monitor|incident|recover|release]"
             }
         }
     }
@@ -300,7 +304,7 @@ switch ($cmd) {
     }
     "wmcp" {
         if ($Args.Count -eq 0) {
-            throw "Usage: wmcp ""<exact command>"""
+            throw "Использование: wmcp ""<точная команда>"""
         }
         if (-not (Test-Path -LiteralPath $vibeShim)) {
             throw "Vibe shim not found: $vibeShim"
@@ -331,7 +335,7 @@ switch ($cmd) {
         $exitCode = $LASTEXITCODE
     }
     default {
-        throw "Unknown command: $CommandName. Run whelp."
+        throw "Неизвестная команда: $CommandName. Выполни whelp."
     }
 }
 
