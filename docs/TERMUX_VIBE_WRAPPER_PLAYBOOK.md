@@ -62,8 +62,14 @@ wgo
 ```
 
 What `wgo` does:
-- local: enters your Termux repo path;
+- local: enters your Termux repo path and runs `git pull --ff-only`;
 - remote: opens interactive PowerShell in `%USERPROFILE%`.
+
+Alternative starter alias:
+
+```bash
+wstartgo
+```
 
 If you need project folder on Windows immediately:
 

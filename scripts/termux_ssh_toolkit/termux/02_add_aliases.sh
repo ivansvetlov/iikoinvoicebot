@@ -318,15 +318,39 @@ wssh() {
   _wssh_base "\$WINDEV_ALIAS"
 }
 
+wlocalprep() {
+  if [ -z "\${WINDEV_TERMUX_REPO:-}" ] || [ ! -d "\$WINDEV_TERMUX_REPO" ]; then
+    echo "[warn] Termux repo is not configured or missing: \$WINDEV_TERMUX_REPO"
+    return 0
+  fi
+
+  local from_dir="\$PWD"
+  cd "\$WINDEV_TERMUX_REPO" || return 1
+
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "[sync] cd \$WINDEV_TERMUX_REPO"
+    if ! git pull --ff-only; then
+      echo "[warn] git pull failed, continue with current local state"
+    fi
+  else
+    echo "[warn] Not a git repo: \$WINDEV_TERMUX_REPO"
+  fi
+
+  cd "\$from_dir" || true
+}
+
 wenter() {
+  wlocalprep
   _wssh_base -tt "\$WINDEV_ALIAS" "powershell -NoLogo -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-Location -LiteralPath '\$WINDEV_PROJECT_WIN'\""
 }
 
 wgo() {
-  if [ -n "\${WINDEV_TERMUX_REPO:-}" ] && [ -d "\$WINDEV_TERMUX_REPO" ]; then
-    cd "\$WINDEV_TERMUX_REPO" || return 1
-  fi
+  wlocalprep
   _wssh_base -tt "\$WINDEV_ALIAS" "powershell -NoLogo -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-Location -LiteralPath \\\$env:USERPROFILE\""
+}
+
+wstartgo() {
+  wgo "\$@"
 }
 
 wcmd() {

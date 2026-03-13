@@ -84,6 +84,18 @@ One-command resume from fresh Termux session:
 wgo
 ```
 
+`wgo` now does local prep before SSH:
+- enters configured Termux repo (`$WINDEV_TERMUX_REPO`)
+- runs `git pull --ff-only`
+- returns to original local folder
+- opens interactive PowerShell in Windows `%USERPROFILE%`
+
+Optional starter alias (same behavior):
+
+```bash
+wstartgo
+```
+
 If you need to land directly in the Windows project folder, use:
 
 ```bash
