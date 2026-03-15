@@ -1,17 +1,17 @@
 ﻿# DEV_SETUP
 
-РџРѕРІС‚РѕСЂСЏРµРјС‹Р№ Р»РѕРєР°Р»СЊРЅС‹Р№ СЃС†РµРЅР°СЂРёР№ Р·Р°РїСѓСЃРєР° СЃ РЅРѕРІРѕР№ СЃС‚СЂСѓРєС‚СѓСЂРѕР№ РїСЂРѕРµРєС‚Р°.
+Повторяемый локальный сценарий запуска с новой структурой проекта.
 
-## 1) РџРѕРґРіРѕС‚РѕРІРєР°
-1. РЎРєРѕРїРёСЂСѓР№С‚Рµ `config/config/.env.example` РІ `.env`.
-2. Р—Р°РїРѕР»РЅРёС‚Рµ РјРёРЅРёРјСѓРј: `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, `REDIS_URL`.
-3. РЈСЃС‚Р°РЅРѕРІРёС‚Рµ Р·Р°РІРёСЃРёРјРѕСЃС‚Рё:
+## 1) Подготовка
+1. Скопируйте `config/config/.env.example` в `.env`.
+2. Заполните минимум: `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, `REDIS_URL`.
+3. Установите зависимости:
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
-4. Р—Р°РїСѓСЃС‚РёС‚Рµ Redis.
+4. Запустите Redis.
 
-## 2) Р—Р°РїСѓСЃРє РєРѕРјРїРѕРЅРµРЅС‚РѕРІ
+## 2) Запуск компонентов
 Backend:
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.entrypoints.main:app --host 127.0.0.1 --port 8000
@@ -27,14 +27,14 @@ Bot:
 .\.venv\Scripts\python.exe -m app.entrypoints.bot
 ```
 
-## 3) РџСЂРѕРІРµСЂРєР°
+## 3) Проверка
 ```powershell
 curl http://127.0.0.1:8000/health
 curl "http://127.0.0.1:8000/metrics/summary?window_minutes=60"
 .\.venv\Scripts\python.exe scripts\dev_status.py
 ```
 
-## 4) Р›РѕРіРё
+## 4) Логи
 - `logs/backend.log`
 - `logs/worker.log`
 - `logs/bot.log`

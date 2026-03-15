@@ -33,3 +33,9 @@ curl "http://127.0.0.1:8000/metrics/summary?window_minutes=60"
 - `logs/errors.log`
 - `logs/alerts.jsonl`
 - `logs/metrics.jsonl`
+
+## Phone Link (Termux/Tailscale)
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\03_show_connection_info.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\11_tailscale_phone_link.ps1
+```

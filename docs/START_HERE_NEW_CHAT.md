@@ -10,9 +10,9 @@ If you open a new chat and need to continue work fast, follow this order.
 5. `docs/TERMUX_WINDOWS_VIBE_RUNBOOK.md` - strict setup/troubleshooting route for Termux -> Windows -> Vibe.
 
 ## 2) Current focus (Stage 8)
-- `docs/IIKO_SERVER_INCOMING_INVOICE_MAPPING.md` - target mapping to iikoServer incoming invoice API.
-- `docs/BUSINESS_INTEGRATIONS_PLAN.md` - product/business roadmap inside iiko ecosystem.
-- `docs/IIKO_STORE_CATALOG.md` - market snapshot (`store.iiko.ru` and connectors).
+- `docs/exp/IIKO_SERVER_INCOMING_INVOICE_MAPPING.md` - target mapping to iikoServer incoming invoice API.
+- `docs/exp/BUSINESS_INTEGRATIONS_PLAN.md` - product/business roadmap inside iiko ecosystem.
+- `docs/exp/IIKO_STORE_CATALOG.md` - market snapshot (`store.iiko.ru` and connectors).
 
 ## 3) Runtime entrypoints
 - Backend: `app.entrypoints.main`

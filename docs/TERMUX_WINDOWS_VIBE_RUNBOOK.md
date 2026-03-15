@@ -253,3 +253,26 @@ wvibe ask "what is TODO status?"
 ```
 
 If one command fails, use section 7 and apply only the exact matching fix.
+
+## 9) Tailscale Mode (Phone Outside Home LAN)
+
+Use this mode when phone and Windows are on different networks.
+
+On Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\11_tailscale_phone_link.ps1 -InstallIfMissing -LoginIfLoggedOut
+```
+
+Expected:
+- Tailscale service is `Running`
+- script returns a `Tailscale IPv4` (usually `100.x.x.x`)
+
+On Termux:
+
+```bash
+wsetip <tailscale_ipv4_from_windows>
+wssh
+```
+
+Then continue normal workflow (`wgo`, `wvibe ask ...`).

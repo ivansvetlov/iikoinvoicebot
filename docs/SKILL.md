@@ -18,10 +18,10 @@ You must:
 
 1. Identify all runtimes and environments in the repo
 2. For each runtime, find methods to: observe (logs, probes), restart/reload, drive state, and verify behavior
-3. **Test each method yourself** вЂ” run it, see it work, confirm the output
+3. **Test each method yourself** — run it, see it work, confirm the output
 4. Only after successful verification, document the method in docs/DEBUG.md
 
-**Primary artifact:** `docs/DEBUG.md` вЂ” a runbook containing **only verified, working** techniques in the workspace root. You should add a link to the docs/DEBUG.md in the docs/AGENTS.md / CLAUDE.md files, depending on the environment you are working in.
+**Primary artifact:** `docs/DEBUG.md` — a runbook containing **only verified, working** techniques in the workspace root. You should add a link to the docs/DEBUG.md in the docs/AGENTS.md / CLAUDE.md files, depending on the environment you are working in.
 
 ---
 
@@ -40,7 +40,7 @@ You must:
 
 3. **Cover every runtime**
 
-    - Backend, frontend, extension, worker, mobile вЂ” each environment needs its own verified debug/test path.
+    - Backend, frontend, extension, worker, mobile — each environment needs its own verified debug/test path.
     - Some runtimes are injected by others or accessed by others (e.g., extension injects content scripts, frontend could be accesses via debug-WebSocket through backend, etc.). Map these relationships.
 
 **Important:** Try to find how-eval approach for each runtime. You should be able to evaluate code snippets in realtime in each runtime to test your changes before committing them to the code and to get access to the runtime state and data to debug and test your changes. If there are no eval mechanisms, consider creating DebugEvalServer and bash scripts to make queries to this server.
@@ -50,9 +50,9 @@ You must:
     - Hot reload is problematic: you can never be sure if the new code is loaded or not
     - **Preferred model:** hot-eval first в†’ then commit to code в†’ rebuild в†’ restart в†’ verify
     - For each runtime, find:
-        1. **Eval mechanism** вЂ” a way to test code snippets in realtime
-        2. **Rebuild command** вЂ” how to recompile the code
-        3. **Restart method** вЂ” how to restart the runtime with fresh code
+        1. **Eval mechanism** — a way to test code snippets in realtime
+        2. **Rebuild command** — how to recompile the code
+        3. **Restart method** — how to restart the runtime with fresh code
     - This gives deterministic feedback: you KNOW when new code is running
 
 5. **Automation over manual**
@@ -68,7 +68,7 @@ You must:
 
 ## Outputs
 
--   `docs/DEBUG.md` вЂ” contains **only verified techniques**:
+-   `docs/DEBUG.md` — contains **only verified techniques**:
 
     -   Each runtime with its start/stop/restart commands (you ran them)
     -   Logging methods that work (you added a log, saw the output)
@@ -77,8 +77,8 @@ You must:
     -   Test commands (you ran them, they passed/failed as expected)
 
 -   Optional:
-    -   `./debug/*.{sh,js,py}` вЂ” helper scripts you created and tested
-    -   `./debug/*.md` вЂ” extended notes on complex setups
+    -   `./debug/*.{sh,js,py}` — helper scripts you created and tested
+    -   `./debug/*.md` — extended notes on complex setups
 
 ---
 
@@ -119,8 +119,8 @@ For each runtime, go through this cycle:
 6. Confirm it's back
 ```
 
-вњ… If all steps work в†’ document the commands in docs/DEBUG.md
-вќЊ If something fails в†’ try to fix it or note it as broken
+✅ If all steps work → document the commands in docs/DEBUG.md
+❌ If something fails → try to fix it or note it as broken
 
 #### 2.2 Test: Can you observe it? (logging)
 
@@ -131,8 +131,8 @@ For each runtime, go through this cycle:
 4. Remove the test log
 ```
 
-вњ… If you saw your log в†’ document the logging method in docs/DEBUG.md
-вќЊ If you can't see logs в†’ investigate why, try alternatives
+✅ If you saw your log → document the logging method in docs/DEBUG.md
+❌ If you can't see logs → investigate why, try alternatives
 
 #### 2.3 Test: What's the eval/REPL mechanism?
 
@@ -145,8 +145,8 @@ For rapid iteration, find a way to execute code without rebuilding:
 4. Test that you can access runtime state (e.g., `core`, `ideContext`, globals)
 ```
 
-вњ… If eval works в†’ document the exact command/method to use it
-вќЊ If no eval available в†’ **CREATE ONE**
+✅ If eval works → document the exact command/method to use it
+❌ If no eval available → **CREATE ONE**
 
 **Important:** Eval is critical for autonomous work. If a runtime doesn't have eval out of the box, you should build it:
 
@@ -155,7 +155,7 @@ For rapid iteration, find a way to execute code without rebuilding:
 -   This is achievable in almost any environment (Node, browser, Python, etc.)
 -   Example: HTTP endpoint on localhost that calls `eval()` and returns JSON
 
-Don't settle for "eval not available" вЂ” make the environment work for you.
+Don't settle for "eval not available" — make the environment work for you.
 
 #### 2.4 Test: What's the rebuild + restart cycle?
 
@@ -167,8 +167,8 @@ Don't settle for "eval not available" вЂ” make the environment work for you.
 5. Verify the change is now active (see the log)
 ```
 
-вњ… Document the exact commands for rebuild and restart
-вќЊ If rebuild fails в†’ fix build issues first
+✅ Document the exact commands for rebuild and restart
+❌ If rebuild fails → fix build issues first
 
 #### 2.5 Test: Can you send debug data out? (for sandboxed environments)
 
@@ -181,8 +181,8 @@ For environments where you can't access console (content scripts, web workers, e
 4. Confirm you received the data
 ```
 
-вњ… If data arrives в†’ document the debug server setup
-вќЊ If blocked (CORS, CSP, etc.) в†’ document the limitation and workarounds
+✅ If data arrives → document the debug server setup
+❌ If blocked (CORS, CSP, etc.) → document the limitation and workarounds
 
 #### 2.6 Test: Can you drive app state programmatically?
 
@@ -192,8 +192,8 @@ For environments where you can't access console (content scripts, web workers, e
 3. Confirm the app is in that state
 ```
 
-вњ… If it works в†’ document the recipe
-вќЊ If it fails в†’ fix or note what's missing
+✅ If it works → document the recipe
+❌ If it fails → fix or note what's missing
 
 #### 2.7 Test: Can you run automated tests?
 
@@ -204,8 +204,8 @@ For environments where you can't access console (content scripts, web workers, e
 4. If no tests exist, note what testing infrastructure is available
 ```
 
-вњ… If tests run в†’ document the commands
-вќЊ If tests are broken в†’ fix or document the issues
+✅ If tests run → document the commands
+❌ If tests are broken → fix or document the issues
 
 ---
 
@@ -259,10 +259,10 @@ For every runtime you discover, you must test and document:
 
 ### Logging
 
--   `console.log` / `console.error` вЂ” works in Node, browser devtools
--   `process.stdout.write` вЂ” Node, visible in terminal
--   Fetch to debug server вЂ” for sandboxed environments (content scripts, workers)
--   File logging вЂ” when console not available
+-   `console.log` / `console.error` — works in Node, browser devtools
+-   `process.stdout.write` — Node, visible in terminal
+-   Fetch to debug server — for sandboxed environments (content scripts, workers)
+-   File logging — when console not available
 
 ### Debug servers
 
@@ -280,24 +280,24 @@ For every runtime you discover, you must test and document:
 
 ## Anti-patterns (what NOT to do)
 
-вќЊ Write "console.log should work here" without testing it
-вќЊ Document a method you read about but didn't try
-вќЊ Assume hot reload works without changing code and seeing the update
-вќЊ Document a debug server setup without actually sending data to it
-вќЊ Say "tests can be run with npm test" without running npm test
+❌ Write "console.log should work here" without testing it
+❌ Document a method you read about but didn't try
+❌ Assume hot reload works without changing code and seeing the update
+❌ Document a debug server setup without actually sending data to it
+❌ Say "tests can be run with npm test" without running npm test
 
 ### CRITICAL: Reading code is NOT verification
 
 **This is the most common mistake.** Reading source code to understand HOW something works is NOT the same as VERIFYING that it works.
 
-вќЊ **NOT VERIFICATION:**
+❌ **NOT VERIFICATION:**
 
 -   Reading `Logger.ts` and seeing it calls `console.log` в†’ "logging works"
 -   Reading `DebugEvalServer.ts` and seeing it listens on port 5656 в†’ "debug server works"
 -   Reading `launch.json` and seeing debug configurations в†’ "debugging is set up"
 -   Reading test files and seeing test cases в†’ "tests work"
 
-вњ… **ACTUAL VERIFICATION:**
+✅ **ACTUAL VERIFICATION:**
 
 -   Adding `console.log('TEST123')` to a file, running the code, seeing "TEST123" in output
 -   Running `curl -X POST http://localhost:5656/eval -d 'test'` and getting a response

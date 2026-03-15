@@ -60,3 +60,25 @@ chcp 65001
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $OutputEncoding = [Console]::OutputEncoding
 ```
+
+## Tailscale for phone access outside LAN
+
+If your phone is not on the same Wi-Fi/LAN, use Tailscale instead of exposing port `22`.
+
+Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\11_tailscale_phone_link.ps1 -InstallIfMissing -LoginIfLoggedOut
+```
+
+After login, the script prints:
+- Tailscale IPv4 for this Windows host
+- SSH command for Termux
+- quick alias update command (`wsetip <tailscale_ip>`)
+
+Termux:
+
+```bash
+wsetip <tailscale_ip_from_windows_script>
+wssh
+```

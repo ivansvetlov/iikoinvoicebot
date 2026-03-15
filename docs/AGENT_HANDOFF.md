@@ -1,110 +1,110 @@
-﻿# Handoff: С‡С‚Рѕ СЃРґРµР»Р°РЅРѕ РІ РїСЂРѕРµРєС‚Рµ Рё РіРґРµ СЃРјРѕС‚СЂРµС‚СЊ (РґР»СЏ СЃР»РµРґСѓСЋС‰РµРіРѕ Р°РіРµРЅС‚Р°)
+﻿# Handoff: что сделано в проекте и где смотреть (для следующего агента)
 
-> Р¦РµР»СЊ СЌС‚РѕРіРѕ С„Р°Р№Р»Р° вЂ” С‡С‚РѕР±С‹ РЅРѕРІС‹Р№ Р°РіРµРЅС‚/СЂР°Р·СЂР°Р±РѕС‚С‡РёРє Р·Р° 10вЂ“15 РјРёРЅСѓС‚ РїРѕРЅСЏР» С‚РµРєСѓС‰РµРµ СЃРѕСЃС‚РѕСЏРЅРёРµ РїСЂРѕРµРєС‚Р°, СЂРµС€РµРЅРёСЏ Рё РіРґРµ РёСЃРєР°С‚СЊ РїСЂРёС‡РёРЅС‹ РѕС€РёР±РѕРє.
+> Цель этого файла — чтобы новый агент/разработчик за 10–15 минут понял текущее состояние проекта, решения и где искать причины ошибок.
 
-## 0) Р“Р»Р°РІРЅС‹Рµ РїСЂР°РІРёР»Р°
-- РћСЃРЅРѕРІРЅС‹Рµ РїСЂР°РІРёР»Р° РґР»СЏ Р°РіРµРЅС‚РѕРІ/СЂР°Р·СЂР°Р±РѕС‚С‡РёРєРѕРІ: `docs/AGENTS.md` (РєРѕСЂРµРЅСЊ РїСЂРѕРµРєС‚Р°).
-- РџСЂРѕРІРµСЂРµРЅРЅС‹Рµ РєРѕРјР°РЅРґС‹ Р·Р°РїСѓСЃРєР°/РґРёР°РіРЅРѕСЃС‚РёРєРё: `docs/DEBUG.md`.
+## 0) Главные правила
+- Основные правила для агентов/разработчиков: `docs/AGENTS.md` (корень проекта).
+- Проверенные команды запуска/диагностики: `docs/DEBUG.md`.
 
-## 0) Р’Р°Р¶РЅРѕ РїСЂРѕ СЃРµРєСЂРµС‚С‹
-- **РќРµР»СЊР·СЏ РєРѕРјРјРёС‚РёС‚СЊ**: `.env`, `github_ssh_*`, РїР°РїРєРё `logs/`, `data/`, `tmp/`, `.venv/`.
-- Р”Р°РјРї `dialogue_dump.jsonl` СЃРѕРґРµСЂР¶РёС‚ РёСЃС‚РѕСЂРёСЋ Рё РїРѕС‚РµРЅС†РёР°Р»СЊРЅРѕ СЃРµРєСЂРµС‚С‹, РїРѕСЌС‚РѕРјСѓ РѕРЅ **РІ `.gitignore`**.
+## 0) Важно про секреты
+- **Нельзя коммитить**: `.env`, `github_ssh_*`, папки `logs/`, `data/`, `tmp/`, `.venv/`.
+- Дамп `dialogue_dump.jsonl` содержит историю и потенциально секреты, поэтому он **в `.gitignore`**.
 
-## 1) РђСЂС…РёС‚РµРєС‚СѓСЂР° (РєР°Рє С‚РµС‡С‘С‚ Р·Р°РїСЂРѕСЃ)
-**Telegram в†’ Bot в†’ Backend в†’ Queue (Redis/RQ) в†’ Worker в†’ (LLM/OCR/РїР°СЂСЃРёРЅРі) в†’ (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ iiko) в†’ Telegram editMessage**
+## 1) Архитектура (как течёт запрос)
+**Telegram → Bot → Backend → Queue (Redis/RQ) → Worker → (LLM/OCR/парсинг) → (опционально iiko) → Telegram editMessage**
 
-РљР»СЋС‡РµРІС‹Рµ РјРѕРјРµРЅС‚С‹:
-- Backend **РЅРµ** РѕР±СЂР°Р±Р°С‚С‹РІР°РµС‚ С„Р°Р№Р» СЃРёРЅС…СЂРѕРЅРЅРѕ: `/process` Рё `/process-batch` РєР»Р°РґСѓС‚ Р·Р°РґР°С‡Сѓ РІ РѕС‡РµСЂРµРґСЊ Рё РѕС‚РІРµС‡Р°СЋС‚ `status="queued"`.
-- Worker (`app/tasks.py`) РІС‹РїРѕР»РЅСЏРµС‚ РѕР±СЂР°Р±РѕС‚РєСѓ Рё **СЂРµРґР°РєС‚РёСЂСѓРµС‚** СЃС‚Р°С‚СѓСЃРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ РІ Telegram.
+Ключевые моменты:
+- Backend **не** обрабатывает файл синхронно: `/process` и `/process-batch` кладут задачу в очередь и отвечают `status="queued"`.
+- Worker (`app/tasks.py`) выполняет обработку и **редактирует** статусное сообщение в Telegram.
 
-## 2) Р“РґРµ РіР»Р°РІРЅР°СЏ Р»РѕРіРёРєР°
-- `app/services/pipeline.py` вЂ” РѕСЃРЅРѕРІРЅРѕР№ РїР°Р№РїР»Р°Р№РЅ:
-  - РёР·РІР»РµС‡РµРЅРёРµ С‚РµРєСЃС‚Р°/РєРѕРЅС‚РµРЅС‚Р°;
-  - РІС‹Р·РѕРІ LLM;
-  - РІР°Р»РёРґР°С†РёСЏ СЂРµР·СѓР»СЊС‚Р°С‚Р°;
-  - (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ) Р·Р°РіСЂСѓР·РєР° РІ iiko.
-- `app/api.py` вЂ” FastAPI:
-  - `/process` (РѕРґРёРЅ С„Р°Р№Р»), `/process-batch` (РЅРµСЃРєРѕР»СЊРєРѕ С„Р°Р№Р»РѕРІ);
-  - СЃРѕС…СЂР°РЅСЏРµС‚ job РІ `data/jobs/<request_id>/` Рё РєР»Р°РґС‘С‚ Р·Р°РґР°С‡Сѓ РІ РѕС‡РµСЂРµРґСЊ.
-- `app/tasks.py` вЂ” РІРѕСЂРєРµСЂ:
-  - С‡РёС‚Р°РµС‚ payload, РІС‹Р·С‹РІР°РµС‚ pipeline, РїРёС€РµС‚ РІ Р‘Р” (TaskRecord), СЂРµРґР°РєС‚РёСЂСѓРµС‚ СЃРѕРѕР±С‰РµРЅРёРµ РІ Telegram.
-- `app/bot/manager.py` вЂ” Р»РѕРіРёРєР° Telegram:
-  - РїРѕРґРґРµСЂР¶РєР° С„РѕС‚Рѕ/РґРѕРєСѓРјРµРЅС‚РѕРІ;
-  - media group (Р°Р»СЊР±РѕРј) в†’ `/process-batch`;
-  - `/split` + `/done` СЂРµР¶РёРј РґР»СЏ СЃРєР»РµР№РєРё С‡Р°СЃС‚РµР№;
-  - rate-limit/РёРґРµРјРїРѕС‚РµРЅС‚РЅРѕСЃС‚СЊ/Р»РѕРіРёСЂРѕРІР°РЅРёРµ СЃРѕР±С‹С‚РёР№.
-- `app/bot/backend_client.py` вЂ” HTTPвЂ‘РєР»РёРµРЅС‚ РґР»СЏ `/process` Рё `/process-batch` (Р±РѕС‚ в†’ backend).
-- `app/bot/file_storage.py` вЂ” С„Р°Р№Р»РѕРІРѕРµ С…СЂР°РЅРёР»РёС‰Рµ pending/split (bot side).
-- `docs/ARCHITECTURE.md` вЂ” РєСЂР°С‚РєРёР№ РѕР±Р·РѕСЂ РјРѕРґСѓР»РµР№ Рё РїРѕС‚РѕРєРѕРІ.
+## 2) Где главная логика
+- `app/services/pipeline.py` — основной пайплайн:
+  - извлечение текста/контента;
+  - вызов LLM;
+  - валидация результата;
+  - (опционально) загрузка в iiko.
+- `app/api.py` — FastAPI:
+  - `/process` (один файл), `/process-batch` (несколько файлов);
+  - сохраняет job в `data/jobs/<request_id>/` и кладёт задачу в очередь.
+- `app/tasks.py` — воркер:
+  - читает payload, вызывает pipeline, пишет в БД (TaskRecord), редактирует сообщение в Telegram.
+- `app/bot/manager.py` — логика Telegram:
+  - поддержка фото/документов;
+  - media group (альбом) → `/process-batch`;
+  - `/split` + `/done` режим для склейки частей;
+  - rate-limit/идемпотентность/логирование событий.
+- `app/bot/backend_client.py` — HTTP‑клиент для `/process` и `/process-batch` (бот → backend).
+- `app/bot/file_storage.py` — файловое хранилище pending/split (bot side).
+- `docs/ARCHITECTURE.md` — краткий обзор модулей и потоков.
 
-## 3) Р§С‚Рѕ РґРѕР±Р°РІРёР»Рё РґР»СЏ СѓСЃС‚РѕР№С‡РёРІРѕСЃС‚Рё (РЅРµРіР°С‚РёРІРЅС‹Рµ РєРµР№СЃС‹)
-### 3.1 User-friendly РѕС€РёР±РєРё + error_code
-- Р’ API-РѕС‚РІРµС‚Р°С… РµСЃС‚СЊ `error_code` (РјР°С€РёРЅРѕС‡РёС‚Р°РµРјС‹Р№ РєРѕРґ), РїРѕ РЅРµРјСѓ Р±РѕС‚ РїРѕРєР°Р·С‹РІР°РµС‚ РїРѕРґСЃРєР°Р·РєРё.
-- РћС€РёР±РєРё С„РѕСЂРјР°С‚РёСЂСѓСЋС‚СЃСЏ Р±РµР· СЃС‚РµРєС‚СЂРµР№СЃРѕРІ.
+## 3) Что добавили для устойчивости (негативные кейсы)
+### 3.1 User-friendly ошибки + error_code
+- В API-ответах есть `error_code` (машиночитаемый код), по нему бот показывает подсказки.
+- Ошибки форматируются без стектрейсов.
 
-### 3.2 Р—Р°С‰РёС‚Р° РѕС‚ В«Р·Р°С†РёРєР»РёРІР°РЅРёСЏВ» LLM
-РџСЂРёС‡РёРЅР° Р±Р°РіР°: LLM РјРѕР¶РµС‚ РЅР°С‡Р°С‚СЊ РїРѕРІС‚РѕСЂСЏС‚СЊ СЃС‚СЂРѕРєРё (РЅР°РїСЂРёРјРµСЂ, "РњР°СЃСЃР° Р±СЂСѓС‚С‚Рѕ" Рё РЅСѓР»Рё), СЂР°Р·РґСѓРІР°С‚СЊ РѕС‚РІРµС‚ РґРѕ Р»РёРјРёС‚Р° Рё РѕС‚РґР°РІР°С‚СЊ **РѕР±СЂРµР·Р°РЅРЅС‹Р№ JSON**.
+### 3.2 Защита от «зацикливания» LLM
+Причина бага: LLM может начать повторять строки (например, "Масса брутто" и нули), раздувать ответ до лимита и отдавать **обрезанный JSON**.
 
-РЎРґРµР»Р°РЅРѕ:
-- `max_output_tokens` СѓРјРµРЅСЊС€РµРЅ РґРѕ **1000**;
-- РІ function schema РѕРіСЂР°РЅРёС‡РµРЅС‹ `items` С‡РµСЂРµР· `maxItems` (СЃРј. `pipeline.py`);
-- РґРѕР±Р°РІР»РµРЅ РґРµС‚РµРєС‚РѕСЂ РјСѓСЃРѕСЂР° (`llm_garbage` / `llm_bad_response`).
+Сделано:
+- `max_output_tokens` уменьшен до **1000**;
+- в function schema ограничены `items` через `maxItems` (см. `pipeline.py`);
+- добавлен детектор мусора (`llm_garbage` / `llm_bad_response`).
 
-## 4) РљРѕРґС‹ Р·Р°СЏРІРѕРє: РґР»РёРЅРЅС‹Р№ request_id vs РєРѕСЂРѕС‚РєРёР№ РєРѕРґ
-- Р’РЅСѓС‚СЂРµРЅРЅРёР№ `request_id` РґР»РёРЅРЅС‹Р№ Рё РЅСѓР¶РµРЅ СЃРёСЃС‚РµРјРµ (СѓРЅРёРєР°Р»СЊРЅРѕСЃС‚СЊ, РїР°РїРєРё jobs, Р‘Р”).
-- РџРѕР»СЊР·РѕРІР°С‚РµР»СЋ РїРѕРєР°Р·С‹РІР°РµРј РєРѕСЂРѕС‚РєРѕ: **`HHMMSS_mmm`** (РЅР°РїСЂРёРјРµСЂ `000736_800`).
+## 4) Коды заявок: длинный request_id vs короткий код
+- Внутренний `request_id` длинный и нужен системе (уникальность, папки jobs, БД).
+- Пользователю показываем коротко: **`HHMMSS_mmm`** (например `000736_800`).
 
-### Р•РґРёРЅС‹Р№ С„РѕСЂРјР°С‚ СЃРѕРѕР±С‰РµРЅРёР№
-РЎРґРµР»Р°РЅРѕ С‚Р°Рє, С‡С‚РѕР±С‹ Р±РѕС‚ Рё РІРѕСЂРєРµСЂ С„РѕСЂРјР°С‚РёСЂРѕРІР°Р»Рё СЃРѕРѕР±С‰РµРЅРёСЏ РѕРґРёРЅР°РєРѕРІРѕ:
+### Единый формат сообщений
+Сделано так, чтобы бот и воркер форматировали сообщения одинаково:
 - `app/utils/user_messages.py`:
   - `short_request_code(request_id)`
   - `format_user_response(payload)`
 
-## 5) Р”РёР°РіРЅРѕСЃС‚РёРєР° РїРѕ РєРѕРґСѓ Р·Р°СЏРІРєРё (СЃР°РјС‹Р№ РїРѕР»РµР·РЅС‹Р№ РёРЅСЃС‚СЂСѓРјРµРЅС‚)
-РЎРєСЂРёРїС‚:
+## 5) Диагностика по коду заявки (самый полезный инструмент)
+Скрипт:
 - `scripts/diagnose_request.py`
 
-РћРЅ РїСЂРёРЅРёРјР°РµС‚:
-- РїРѕР»РЅС‹Р№ request_id
-- РєРѕСЂРѕС‚РєРёР№ РєРѕРґ (`000736_800`)
-- РёР»Рё СЃС‚СЂРѕРєСѓ С†РµР»РёРєРѕРј (`РљРѕРґ Р·Р°СЏРІРєРё: 000736_800`)
+Он принимает:
+- полный request_id
+- короткий код (`000736_800`)
+- или строку целиком (`Код заявки: 000736_800`)
 
-Р РїРµС‡Р°С‚Р°РµС‚ + СЃРѕС…СЂР°РЅСЏРµС‚ РѕС‚С‡С‘С‚:
+И печатает + сохраняет отчёт:
 - `tmp/diagnose_<request_id>.json`
 
-## 6) Veai workflows (РїРѕРґСЃРєР°Р·РєРё РІ IDE)
-РЎРј. `.veai/workflows/`:
-- `Р”РёР°РіРЅРѕСЃС‚РёРєР°_request_id.md`
-- `Р РµРіСЂРµСЃСЃРёСЏ_СЃРјРѕСѓРє_С‡РµРє.md`
-- `РћС‚РєР°С‚_С‡РµСЂРµР·_git_Р±РµР·РѕРїР°СЃРЅРѕ.md`
+## 6) Veai workflows (подсказки в IDE)
+См. `.veai/workflows/`:
+- `Диагностика_request_id.md`
+- `Регрессия_смоук_чек.md`
+- `Откат_через_git_безопасно.md`
 
-## 7) Git-РїСЂРѕС†РµСЃСЃ (РєР°Рє РЅРµ Р±РѕСЏС‚СЊСЃСЏ РѕС‚РєР°С‚РѕРІ)
-- `main` вЂ” СЃС‚Р°Р±РёР»СЊРЅР°СЏ РІРµС‚РєР°.
-- РўРµРі СЃС‚Р°Р±РёР»СЊРЅРѕР№ С‚РѕС‡РєРё: `stable-2026-03-09`.
+## 7) Git-процесс (как не бояться откатов)
+- `main` — стабильная ветка.
+- Тег стабильной точки: `stable-2026-03-09`.
 - Активная разработка: `feature/*`; актуальную ветку всегда проверяйте командой `git status -sb`.
 
-## 8) РР·РІРµСЃС‚РЅС‹Рµ РїСЂРѕР±Р»РµРјС‹/Р·Р°РјРµС‚РєРё
-- **Media group Р°Р»СЊР±РѕРј**: РµСЃР»Рё backend СЃРѕС…СЂР°РЅСЏРµС‚ С„Р°Р№Р»С‹ РїРѕ РѕРґРёРЅР°РєРѕРІРѕРјСѓ РёРјРµРЅРё, РІРѕР·РјРѕР¶РЅР° РїРµСЂРµР·Р°РїРёСЃСЊ. `/split` СЃРѕС…СЂР°РЅСЏРµС‚ СѓРЅРёРєР°Р»СЊРЅС‹Рµ РёРјРµРЅР° Рё РЅР°РґС‘Р¶РЅРµРµ.
-- Р•СЃР»Рё РІРёРґРёС‚Рµ РјСѓСЃРѕСЂ РІСЂРѕРґРµ "РњР°СЃСЃР° Р±СЂСѓС‚С‚Рѕ" вЂ” СЌС‚Рѕ РїСЂРёР·РЅР°Рє С‚РѕРіРѕ, С‡С‚Рѕ РЅР° РІС…РѕРґ РїСЂРёС€Р»Р° С‡Р°СЃС‚СЊ С‚Р°Р±Р»РёС†С‹ Р±РµР· РєРѕРЅС‚РµРєСЃС‚Р° (РІРµСЂС‚РёРєР°Р»СЊРЅС‹Рµ РїРѕР»РѕСЃС‹). Р›СѓС‡С€Рµ С†РµР»СЊРЅС‹Р№ РєР°РґСЂ/ PDF.
+## 8) Известные проблемы/заметки
+- **Media group альбом**: если backend сохраняет файлы по одинаковому имени, возможна перезапись. `/split` сохраняет уникальные имена и надёжнее.
+- Если видите мусор вроде "Масса брутто" — это признак того, что на вход пришла часть таблицы без контекста (вертикальные полосы). Лучше цельный кадр/ PDF.
 
-## 9) РќРµРґР°РІРЅРёРµ РёР·РјРµРЅРµРЅРёСЏ (2026-03-10)
-- РџРµСЂРµСЂР°Р±РѕС‚Р°РЅ pending-UX РІ Р±РѕС‚Рµ: РІРјРµСЃС‚Рѕ СЃРєСЂС‹С‚РѕРіРѕ С‚Р°Р№РјРµСЂР° вЂ” СЏРІРЅС‹Рµ РєРЅРѕРїРєРё "РћР±СЂР°Р±РѕС‚Р°С‚СЊ/Р”РѕР±Р°РІРёС‚СЊ РµС‰С‘", Рё СЏРІРЅС‹Р№ РІС‹Р±РѕСЂ СЂРµР¶РёРјР° РїСЂРё 2+ С„Р°Р№Р»Р°С…. Р¤Р°Р№Р»С‹: `app/bot/manager.py`, `app/bot/backend_client.py`, `app/bot/file_storage.py`.
-- Р›РѕРі СЃС‚РѕРёРјРѕСЃС‚Рё LLM РїРµСЂРµРІРµРґС‘РЅ РІ append-only (Р±РµР· РїРµСЂРµС‡С‚РµРЅРёСЏ CSV). Р¤Р°Р№Р»: `app/services/pipeline.py`.
-- `.env` С‡РёС‚Р°РµС‚СЃСЏ СЃ `utf-8-sig` РёР·-Р·Р° BOM; РґРѕР±Р°РІР»РµРЅС‹ СѓС‚РёР»РёС‚С‹ `scripts/check_bom.py` Рё `scripts/strip_bom.py`.
-- РђСЂС…РёС‚РµРєС‚СѓСЂРЅС‹Р№ РѕР±Р·РѕСЂ РїРµСЂРµРЅРµСЃС‘РЅ РІ `docs/ARCHITECTURE.md`.
-- Р”РѕР±Р°РІР»РµРЅ `.gitattributes` РґР»СЏ LF РІ СЂРµРїРѕР·РёС‚РѕСЂРёРё; Р»РѕРєР°Р»СЊРЅРѕ `core.autocrlf=false` СЂРµРєРѕРјРµРЅРґРѕРІР°РЅ РґР»СЏ С‡РёСЃС‚С‹С… РґРёС„С„РѕРІ.
-- Р”РѕР±Р°РІР»РµРЅ `logs/llm_costs_summary.json` (РёС‚РѕРіРё LLM Р±РµР· РїРµСЂРµСЃС‡С‘С‚Р° CSV) + `scripts/llm_costs_rebuild.py` РґР»СЏ РїРµСЂРµСЃР±РѕСЂРєРё.
-- РЈРїСЂРѕС‰С‘РЅ UX: СѓР±СЂР°РЅ СЂРµР¶РёРј `/multi`, РІ split РґРѕР±Р°РІР»РµРЅС‹ РєРЅРѕРїРєРё В«Р—Р°РІРµСЂС€РёС‚СЊ/Р”РѕР±Р°РІРёС‚СЊ РµС‰С‘/РћС‚РјРµРЅРёС‚СЊВ».
-- `/start` С‚РµРїРµСЂСЊ РѕС‡РёС‰Р°РµС‚ pending/split Р±СѓС„РµСЂС‹, С‡С‚РѕР±С‹ РЅРµ С‚СЏРЅСѓС‚СЊ СЃС‚Р°СЂС‹Рµ С„Р°Р№Р»С‹.
+## 9) Недавние изменения (2026-03-10)
+- Переработан pending-UX в боте: вместо скрытого таймера — явные кнопки "Обработать/Добавить ещё", и явный выбор режима при 2+ файлах. Файлы: `app/bot/manager.py`, `app/bot/backend_client.py`, `app/bot/file_storage.py`.
+- Лог стоимости LLM переведён в append-only (без перечтения CSV). Файл: `app/services/pipeline.py`.
+- `.env` читается с `utf-8-sig` из-за BOM; добавлены утилиты `scripts/check_bom.py` и `scripts/strip_bom.py`.
+- Архитектурный обзор перенесён в `docs/ARCHITECTURE.md`.
+- Добавлен `.gitattributes` для LF в репозитории; локально `core.autocrlf=false` рекомендован для чистых диффов.
+- Добавлен `logs/llm_costs_summary.json` (итоги LLM без пересчёта CSV) + `scripts/llm_costs_rebuild.py` для пересборки.
+- Упрощён UX: убран режим `/multi`, в split добавлены кнопки «Завершить/Добавить ещё/Отменить».
+- `/start` теперь очищает pending/split буферы, чтобы не тянуть старые файлы.
 
-РџСЂРѕРІРµСЂРєР°: Р·Р°РїСѓСЃС‚РёС‚СЊ `python -m app.entrypoints.bot`, РѕС‚РїСЂР°РІРёС‚СЊ 1 С„Р°Р№Р» Рё СѓР±РµРґРёС‚СЊСЃСЏ, С‡С‚Рѕ РїРѕСЏРІР»СЏРµС‚СЃСЏ СЏРІРЅР°СЏ РєР»Р°РІРёР°С‚СѓСЂР° "РћР±СЂР°Р±РѕС‚Р°С‚СЊ/Р”РѕР±Р°РІРёС‚СЊ РµС‰С‘"; РѕС‚РїСЂР°РІРёС‚СЊ 2 С„Р°Р№Р»Р° вЂ” СѓРІРёРґРµС‚СЊ РІС‹Р±РѕСЂ "РћР±СЉРµРґРёРЅРёС‚СЊ/Р Р°Р·РґРµР»СЊРЅРѕ".
+Проверка: запустить `python -m app.entrypoints.bot`, отправить 1 файл и убедиться, что появляется явная клавиатура "Обработать/Добавить ещё"; отправить 2 файла — увидеть выбор "Объединить/Раздельно".
 
 ---
 
-### Р‘С‹СЃС‚СЂС‹Р№ С‡РµРє-Р»РёСЃС‚ РґР»СЏ РЅРѕРІРѕРіРѕ Р°РіРµРЅС‚Р°
-1) РџСЂРѕС‡РёС‚Р°С‚СЊ СЌС‚РѕС‚ С„Р°Р№Р».
-2) РћС‚РєСЂС‹С‚СЊ `pipeline.py`, РЅР°Р№С‚Рё РЅР°СЃС‚СЂРѕР№РєРё LLM (max_output_tokens/maxItems) Рё РґРµС‚РµРєС‚РѕСЂ РјСѓСЃРѕСЂР°.
-3) РџСЂРё Р»СЋР±РѕР№ РїСЂРѕР±Р»РµРјРµ вЂ” РІР·СЏС‚СЊ РєРѕРґ Р·Р°СЏРІРєРё Рё Р·Р°РїСѓСЃС‚РёС‚СЊ `scripts/diagnose_request.py`.
+### Быстрый чек-лист для нового агента
+1) Прочитать этот файл.
+2) Открыть `pipeline.py`, найти настройки LLM (max_output_tokens/maxItems) и детектор мусора.
+3) При любой проблеме — взять код заявки и запустить `scripts/diagnose_request.py`.
 
 ## 10) Recent changes (2026-03-11)
 - Improved image preprocessing for recognition: auto-crop white document area, autocontrast, upscale, unsharp mask.
@@ -128,7 +128,7 @@
 - LLM schema now targets explicit item fields: `name`, `quantity`, `mass`, `unit_price`, `amount_without_tax`, `tax_rate`, `tax_amount`, `amount_with_tax`.
 - Mapping: `quantity -> unit_amount`, `mass -> supply_quantity`, `amount_without_tax -> cost_without_tax`, `amount_with_tax -> cost_with_tax/total_cost`.
 - Basic derivations added: compute missing `amount_with_tax`/`tax_amount`/`tax_rate` when possible.
-- User-facing invoice formatting shows mass, sum Р±РµР· РќР”РЎ, РќР”РЎ %, РќР”РЎ СЃСѓРјРјР°, СЃСѓРјРјР° СЃ РќР”РЎ.
+- User-facing invoice formatting shows mass, sum без НДС, НДС %, НДС сумма, сумма с НДС.
 - Image preprocessing now attempts OCR-based header detection to crop above the table header with safe padding. If OCR is unavailable, it falls back to line-based grid detection (horizontal/vertical runs).
 - Cropped images allow a larger upscale cap (`IMAGE_MAX_DIM_CROPPED`) to improve readability of small tables.
 - Added `TESSERACT_CMD` config and auto-detection of common Windows install paths for OCR.
@@ -136,32 +136,32 @@
 
 ## 12) Event codes centralization (2026-03-11)
 - Р¤Р°Р№Р»С‹:
-  - РґРѕР±Р°РІР»РµРЅ `app/bot/event_codes.py` (РµРґРёРЅС‹Р№ СЂРµРµСЃС‚СЂ `BOT_*` + helper С„РѕСЂРјР°С‚РёСЂРѕРІР°РЅРёСЏ);
-  - РґРѕР±Р°РІР»РµРЅ `docs/BOT_EVENT_CODES.md` (РєР°РЅРѕРЅРёС‡РµСЃРєРѕРµ РѕРїРёСЃР°РЅРёРµ РєРѕРґРѕРІ Рё СЃС‚Р°С‚СѓСЃРѕРІ active/archive);
-  - РѕР±РЅРѕРІР»РµРЅС‹ `app/bot/manager.py`, `docs/DEBUG.md`, `docs/README.md`, `docs/TODO.md`.
-- РџРѕРІРµРґРµРЅРёРµ:
-  - РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРёРµ СЃРѕРѕР±С‰РµРЅРёСЏ СЃ `РљРѕРґ СЃРѕР±С‹С‚РёСЏ: BOT_*` С„РѕСЂРјРёСЂСѓСЋС‚СЃСЏ С‡РµСЂРµР· РµРґРёРЅС‹Р№ helper (`append_event_code`);
-  - Р°РєС‚РёРІРЅС‹Рµ РєРѕРґС‹ (`BOT_BACKEND_UNAVAILABLE`, `BOT_RATE_LIMIT`, `BOT_NO_PENDING`) СЃРѕР±СЂР°РЅС‹ РІ РѕРґРЅРѕРј РјРµСЃС‚Рµ;
-  - `BOT_PENDING_TIMEOUT` Р·Р°С„РёРєСЃРёСЂРѕРІР°РЅ РєР°Рє Р°СЂС…РёРІРЅС‹Р№ (РЅРµ СЌРјРёС‚РёС‚СЃСЏ СЃ РїРµСЂРµС…РѕРґР° РЅР° СЏРІРЅС‹Р№ pending UX).
-- Р‘С‹СЃС‚СЂР°СЏ РїСЂРѕРІРµСЂРєР°:
+  - добавлен `app/bot/event_codes.py` (единый реестр `BOT_*` + helper форматирования);
+  - добавлен `docs/BOT_EVENT_CODES.md` (каноническое описание кодов и статусов active/archive);
+  - обновлены `app/bot/manager.py`, `docs/DEBUG.md`, `docs/README.md`, `docs/TODO.md`.
+- Поведение:
+  - пользовательские сообщения с `Код события: BOT_*` формируются через единый helper (`append_event_code`);
+  - активные коды (`BOT_BACKEND_UNAVAILABLE`, `BOT_RATE_LIMIT`, `BOT_NO_PENDING`) собраны в одном месте;
+  - `BOT_PENDING_TIMEOUT` зафиксирован как архивный (не эмитится с перехода на явный pending UX).
+- Быстрая проверка:
   - `python -m compileall app\bot\event_codes.py app\bot\manager.py`
-  - РѕС‚РєСЂС‹С‚СЊ `docs/BOT_EVENT_CODES.md` Рё СЃРІРµСЂРёС‚СЊ РєРѕРґС‹ СЃ `app/bot/event_codes.py`.
+  - открыть `docs/BOT_EVENT_CODES.md` и сверить коды с `app/bot/event_codes.py`.
 
 ## 13) Stage 4 completed: reliability + observability (2026-03-11)
 - Р¤Р°Р№Р»С‹:
-  - РґРѕР±Р°РІР»РµРЅ `app/observability.py` (РµРґРёРЅРѕРµ Р»РѕРіРёСЂРѕРІР°РЅРёРµ, Р°Р»РµСЂС‚С‹, РјРµС‚СЂРёРєРё);
-  - РґРѕР±Р°РІР»РµРЅС‹ `scripts/metrics_report.py`, `scripts/export_user_messages.py`;
-  - РґРѕР±Р°РІР»РµРЅ `docs/BOT_MESSAGE_CATALOG.md`;
-  - РѕР±РЅРѕРІР»РµРЅС‹ `app/api.py`, `app/tasks.py`, `app/entrypoints/bot.py`, `app/entrypoints/worker.py`, `app/config.py`, `config/.env.example`;
-  - РѕР±РЅРѕРІР»РµРЅС‹ `docs/DEBUG.md`, `docs/DEV_SETUP.md`, `docs/ARCHITECTURE.md`, `docs/README.md`, `docs/TODO.md`;
-  - СѓРґР°Р»РµРЅР° РјС‘СЂС‚РІР°СЏ РїР°РїРєР° `app/logs/`.
-- РџРѕРІРµРґРµРЅРёРµ:
-  - backend/worker/bot РїРёС€СѓС‚ Р»РѕРіРё С‡РµСЂРµР· РµРґРёРЅС‹Р№ observability-СЃР»РѕР№ РІ `logs/*.log` + РѕР±С‰РёР№ `logs/errors.log`;
-  - РІРєР»СЋС‡РµРЅС‹ Р°Р»РµСЂС‚С‹ РІ `logs/alerts.jsonl` (c cooldown Рё optional Telegram С‡РµСЂРµР· `ALERTS_TELEGRAM_CHAT_ID`);
-  - РІРєР»СЋС‡РµРЅ РјРѕРЅРёС‚РѕСЂРёРЅРі РІСЂРµРјРµРЅРё/РѕС€РёР±РѕРє РІ `logs/metrics.jsonl`, РґРѕСЃС‚СѓРїРµРЅ `/metrics/summary` Рё `scripts/metrics_report.py`;
-  - РІСЃРµ С‡РµРєР±РѕРєСЃС‹ Р­С‚Р°РїР° 4 РѕС‚РјРµС‡РµРЅС‹ РєР°Рє РІС‹РїРѕР»РЅРµРЅРЅС‹Рµ РІ `docs/TODO.md`;
-  - С‚РµРєСЃС‚С‹ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРёС… СЃРѕРѕР±С‰РµРЅРёР№ РІС‹РЅРµСЃРµРЅС‹ РІ РѕС‚РґРµР»СЊРЅС‹Р№ РєР°С‚Р°Р»РѕРі `docs/BOT_MESSAGE_CATALOG.md` (РѕР±РЅРѕРІР»СЏРµС‚СЃСЏ СЃРєСЂРёРїС‚РѕРј).
-- Р‘С‹СЃС‚СЂР°СЏ РїСЂРѕРІРµСЂРєР°:
+  - добавлен `app/observability.py` (единое логирование, алерты, метрики);
+  - добавлены `scripts/metrics_report.py`, `scripts/export_user_messages.py`;
+  - добавлен `docs/BOT_MESSAGE_CATALOG.md`;
+  - обновлены `app/api.py`, `app/tasks.py`, `app/entrypoints/bot.py`, `app/entrypoints/worker.py`, `app/config.py`, `config/.env.example`;
+  - обновлены `docs/DEBUG.md`, `docs/DEV_SETUP.md`, `docs/ARCHITECTURE.md`, `docs/README.md`, `docs/TODO.md`;
+  - удалена мёртвая папка `app/logs/`.
+- Поведение:
+  - backend/worker/bot пишут логи через единый observability-слой в `logs/*.log` + общий `logs/errors.log`;
+  - включены алерты в `logs/alerts.jsonl` (c cooldown и optional Telegram через `ALERTS_TELEGRAM_CHAT_ID`);
+  - включен мониторинг времени/ошибок в `logs/metrics.jsonl`, доступен `/metrics/summary` и `scripts/metrics_report.py`;
+  - все чекбоксы Этапа 4 отмечены как выполненные в `docs/TODO.md`;
+  - тексты пользовательских сообщений вынесены в отдельный каталог `docs/BOT_MESSAGE_CATALOG.md` (обновляется скриптом).
+- Быстрая проверка:
   - `python -m compileall app\observability.py app\api.py app\\tasks.py app\\entrypoints\\bot.py app\\entrypoints\\worker.py scripts\metrics_report.py scripts\export_user_messages.py`
   - `curl "http://127.0.0.1:8000/metrics/summary?window_minutes=60"`
   - `python scripts\metrics_report.py --minutes 60`
@@ -216,3 +216,44 @@
 - Quick check:
   - `git branch -vv`
   - `git status -sb`
+
+## 18) iikoServer mapping + ecosystem analysis docs (2026-03-11)
+- Files:
+  - added `docs/exp/IIKO_SERVER_INCOMING_INVOICE_MAPPING.md`;
+  - added `docs/exp/BUSINESS_INTEGRATIONS_PLAN.md`;
+  - added `docs/exp/IIKO_STORE_CATALOG.md`;
+  - updated `docs/TODO.md` (Stage 8 checklist).
+- Behavior/decisions:
+  - documented complete incoming invoice field mapping for `iikoServer` (`incomingInvoiceDto` + `incomingInvoiceItemDto`), including required fields, optional fields, read-only fields, VAT and unit conversion rules;
+  - documented migration strategy from current Playwright UI upload to API-first path with idempotency and safe posting policy (`NEW` draft by default, optional auto-post);
+  - captured live catalog snapshot from `store.iiko.ru` and `store.iiko.ru/connectors` for product/partner landscape planning;
+  - created business roadmap focused on non-trivial value modules (supplier reliability, margin drift control, claim automation, cross-store procurement optimization).
+- Quick check:
+  - open and review `docs/exp/IIKO_SERVER_INCOMING_INVOICE_MAPPING.md`;
+  - open and review `docs/exp/BUSINESS_INTEGRATIONS_PLAN.md`;
+  - open and review `docs/exp/IIKO_STORE_CATALOG.md`;
+  - run `git status -sb` to confirm only docs were changed.
+
+## 19) New chat entrypoint (2026-03-12)
+- File:
+  - added `docs/START_HERE_NEW_CHAT.md` (single-page onboarding entrypoint).
+- Purpose:
+  - gives a strict reading order and immediate run commands for fast context restore in a fresh chat;
+  - points directly to Stage 8 target docs and next implementation tasks.
+- Quick check:
+  - open `docs/START_HERE_NEW_CHAT.md`;
+  - execute `git status -sb`.
+
+## 20) Termux/Tailscale phone link sync (2026-03-16)
+- Files:
+  - added `scripts/termux_ssh_toolkit/windows/11_tailscale_phone_link.ps1`;
+  - updated `scripts/termux_ssh_toolkit/windows/03_show_connection_info.ps1` (includes Tailscale info + preferred LAN IP selection);
+  - updated `docs/TERMUX_WINDOWS_VIBE_RUNBOOK.md` (Tailscale mode section);
+  - updated `scripts/termux_ssh_toolkit/README.md` and `local_setup/termux_ssh/README.md` with Tailscale usage path.
+- Behavior:
+  - Windows helper now reports Tailscale install/login state and gives ready-to-run Termux SSH command;
+  - connection info script now prefers `192.168.x.x` for LAN and also prints Tailscale SSH endpoint;
+  - you can switch Termux toolkit to Tailscale route via `wsetip <tailscale_ip>` and keep existing `wssh/wgo/wvibe` workflow unchanged.
+- Quick check:
+  - `powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\11_tailscale_phone_link.ps1`
+  - `powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\03_show_connection_info.ps1`
