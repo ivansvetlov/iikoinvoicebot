@@ -86,12 +86,14 @@ _wssh_base() {
 
 _wps() {
   local cmd="\$*"
-  _wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -Command "\$cmd"
+  local utf8_prelude='[Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; chcp 65001 > $null;'
+  _wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "\$utf8_prelude \$cmd"
 }
 
 _wps_tty() {
   local cmd="\$*"
-  _wssh_base -tt "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -Command "\$cmd"
+  local utf8_prelude='[Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; chcp 65001 > $null;'
+  _wssh_base -tt "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "\$utf8_prelude \$cmd"
 }
 
 _confirm() {

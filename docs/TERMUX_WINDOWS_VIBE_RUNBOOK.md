@@ -243,6 +243,21 @@ Get-NetTCPConnection -LocalPort 22 -State Listen
 ipconfig
 ```
 
+### G) Mojibake / unreadable Russian output in `wcmd`
+Cause:
+- remote PowerShell session ran without UTF-8 prelude.
+
+Fix now (current session):
+```bash
+wcmd '[Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; chcp 65001 > $null; powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\11_tailscale_phone_link.ps1'
+```
+
+Permanent fix:
+```bash
+wrefresh
+source ~/.bashrc
+```
+
 ## 8) Daily Fast Path
 
 ```bash
