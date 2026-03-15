@@ -710,7 +710,7 @@ _whelp_shared_dir() {
 
 wsets() {
   local sets_file
-  sets_file="$(_whelp_shared_dir)/whelp_sets_ru.txt"
+  sets_file="\$(_whelp_shared_dir)/whelp_sets_ru.txt"
   if [ -f "\$sets_file" ]; then
     cat "\$sets_file"
     return 0
@@ -721,7 +721,7 @@ wsets() {
 whelp() {
   local topic="\${1:-all}"
   local help_file
-  help_file="$(_whelp_shared_dir)/whelp_ru.txt"
+  help_file="\$(_whelp_shared_dir)/whelp_ru.txt"
 
   case "\$topic" in
     sets|set|scenarios|scenario)
