@@ -27,6 +27,9 @@ $env:Path = "$UvBinPath;$env:Path"
 Set-Location -LiteralPath $ProjectPath
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
+if ([string]::IsNullOrWhiteSpace($env:MISTRAL_API_KEY)) {
+    $env:MISTRAL_API_KEY = [Environment]::GetEnvironmentVariable("MISTRAL_API_KEY", "User")
+}
 
 if ([string]::IsNullOrWhiteSpace($Task) -and -not [string]::IsNullOrWhiteSpace($TaskBase64)) {
     try {
