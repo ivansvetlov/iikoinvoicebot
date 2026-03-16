@@ -578,13 +578,21 @@ wvibe() {
     if [ -n "\$api_b64" ]; then
       local decoded_text
       if decoded_text="\$(printf '%s' "\$api_b64" | base64 -d 2>/dev/null)"; then
-        # Auto-fix common UTF-8 mojibake pattern like "Ð.../Ñ..."
-        if printf '%s' "\$decoded_text" | grep -q '[ÐÑ]'; then
-          if command -v python >/dev/null 2>&1; then
-            decoded_text="\$(printf '%s' "\$decoded_text" | python -c "import sys; s=sys.stdin.read(); \
-try: print(s.encode('latin1').decode('utf-8'), end='') \
-except Exception: print(s, end='')" 2>/dev/null || printf '%s' "\$decoded_text")"
-          fi
+        # Auto-fix common mojibake: choose representation with more Cyrillic chars.
+        local pybin=""
+        if command -v python3 >/dev/null 2>&1; then
+          pybin="python3"
+        elif command -v python >/dev/null 2>&1; then
+          pybin="python"
+        fi
+        if [ -n "\$pybin" ]; then
+          decoded_text="\$(printf '%s' "\$decoded_text" | "\$pybin" -c "import re,sys; s=sys.stdin.read(); \
+def score(t): return len(re.findall(r'[А-Яа-яЁё]', t)); \
+best=s; \
+try: cand=s.encode('latin1', 'ignore').decode('utf-8', 'ignore'); \
+except Exception: cand=s; \
+best = cand if score(cand) > score(best) else best; \
+print(best, end='')" 2>/dev/null || printf '%s' "\$decoded_text")"
         fi
         printf '%s\n' "\$decoded_text"
       else
