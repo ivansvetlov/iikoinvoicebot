@@ -477,6 +477,10 @@ wvibe() {
         mode="ask"
         shift
         ;;
+      api)
+        mode="api_ask"
+        shift
+        ;;
       stop|kill)
         mode="stop"
         shift
@@ -557,6 +561,8 @@ wvibe() {
     _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode mcp_cmd "\${force_args[@]}" -TaskBase64 "\$task_b64"
   elif [ "\$mode" = "ask" ]; then
     _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode ask "\${force_args[@]}" -TaskBase64 "\$task_b64"
+  elif [ "\$mode" = "api_ask" ]; then
+    _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode api_ask "\${force_args[@]}" -TaskBase64 "\$task_b64"
   else
     local start_args=(-Mode start)
     if [ "\$skip_bootstrap" -eq 1 ]; then

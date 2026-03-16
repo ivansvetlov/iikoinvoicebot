@@ -3,7 +3,7 @@ param(
     [string]$UvBinPath = "C:\Users\MiBookPro\.local\bin",
     [string]$Task = "",
     [string]$TaskBase64 = "",
-    [ValidateSet("start", "reconnect", "mcp_cmd", "ask", "stop", "doctor")]
+    [ValidateSet("start", "reconnect", "mcp_cmd", "ask", "api_ask", "stop", "doctor")]
     [string]$Mode = "start",
     [switch]$SkipBootstrap,
     [switch]$ForceCleanup,
@@ -299,6 +299,46 @@ Quick bootstrap:
 "@
 }
 
+function Get-ActiveModelName {
+    $cfgPath = Join-Path $env:USERPROFILE ".vibe\config.toml"
+    if (Test-Path -LiteralPath $cfgPath) {
+        $rawCfg = Get-Content -LiteralPath $cfgPath -Raw -Encoding UTF8
+        $m = [regex]::Match($rawCfg, '(?m)^\s*active_model\s*=\s*"([^"]+)"\s*$')
+        if ($m.Success) {
+            return $m.Groups[1].Value
+        }
+    }
+    return "mistral-small-latest"
+}
+
+function Invoke-DirectApiAsk([string]$promptText) {
+    if ([string]::IsNullOrWhiteSpace($promptText)) {
+        throw "Task is required for api_ask mode."
+    }
+
+    $apiKey = $env:MISTRAL_API_KEY
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        $apiKey = [Environment]::GetEnvironmentVariable("MISTRAL_API_KEY", "User")
+    }
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        throw "MISTRAL_API_KEY is not set."
+    }
+
+    $modelName = Get-ActiveModelName
+    $bodyObj = @{
+        model      = $modelName
+        messages   = @(@{ role = "user"; content = $promptText })
+        max_tokens = 512
+    }
+    $jsonBody = $bodyObj | ConvertTo-Json -Depth 6
+    $response = Invoke-RestMethod -Method Post -Uri "https://api.mistral.ai/v1/chat/completions" -Headers @{ Authorization = "Bearer $apiKey" } -Body $jsonBody -ContentType "application/json" -TimeoutSec 45
+    $answer = $response.choices[0].message.content
+    if ($null -eq $answer) {
+        $answer = ""
+    }
+    Write-Output "$answer"
+}
+
 if ($Mode -eq "ask") {
     if ([string]::IsNullOrWhiteSpace($Task)) {
         $Task = "Read project context files and give short status: done/in progress/next/risks."
@@ -320,6 +360,14 @@ $Task
     if ($AskMaxTurns -gt 24) { $AskMaxTurns = 24 }
     & $vibeExe @agentArgs -p $askPrompt --max-turns $AskMaxTurns --output text
     exit $LASTEXITCODE
+}
+
+if ($Mode -eq "api_ask") {
+    if ([string]::IsNullOrWhiteSpace($Task)) {
+        $Task = "Reply exactly: API_OK"
+    }
+    Invoke-DirectApiAsk -promptText $Task
+    exit 0
 }
 
 if ([string]::IsNullOrWhiteSpace($Task) -and $SkipBootstrap) {
