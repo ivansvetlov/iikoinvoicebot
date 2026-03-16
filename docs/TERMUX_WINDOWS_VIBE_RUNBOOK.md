@@ -170,6 +170,16 @@ Phone terminal control (local Termux tmux):
 3. `wphone capture 80`
 4. `wphone attach` (optional interactive attach)
 
+Practical next plan (what we do now):
+1. Lock stable command loop (`wplan -> wmailbox codexclip -> paste to Codex`).
+   Done criteria: 5/5 runs without manual file reading and without encoding errors.
+2. Lock phone terminal control (`wphone run/capture`) for daily routines.
+   Done criteria: from phone we can run `git pull`, `wstatus`, `wtest` and capture output without interactive attach.
+3. Add mailbox return path for answers (`for_termux.md` + `wmailbox` read action).
+   Done criteria: answer can be pulled on phone in one command without opening files manually.
+4. Add safe automation presets (incident/recovery/release packs with confirmations).
+   Done criteria: one command runs a validated sequence with clear stop points on failures.
+
 ## 6) Direct Bypass Test (No Aliases)
 
 If wrapper/alias behavior is suspicious, run this exact command from Termux:

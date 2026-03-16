@@ -107,6 +107,12 @@ Mailbox-цикл (телефон -> Codex):
   3) открыть чат Codex и вставить prompt из буфера
   4) опционально: wmailbox flowclip (копирует всю пачку команд)
 
+Phone-terminal цикл (без UI-автоклика):
+  1) wphone init
+  2) wphone run "команда"
+  3) wphone capture 80
+  4) при необходимости: wphone attach
+
 Если не работает:
   1) command not found -> source ~/.bashrc
   2) timeout SSH -> wsetip <новый_ip_пк>, затем wssh

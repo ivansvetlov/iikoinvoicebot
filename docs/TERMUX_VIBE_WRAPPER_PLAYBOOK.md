@@ -114,6 +114,12 @@ Phone terminal control (local tmux in Termux):
 3. `wphone capture 80`
 4. `wphone attach` (optional)
 
+Practical next plan:
+1. Stabilize `wplan -> wmailbox codexclip -> paste`.
+2. Use `wphone run/capture` for repeated dev commands from phone.
+3. Add one-command answer pull from mailbox to phone.
+4. Promote stable presets into day-to-day wrappers.
+
 Inside Windows shell (`MiBookPro`), install wrappers once:
 
 ```powershell
