@@ -588,7 +588,7 @@ wplan() {
   local msg="\$*"
   local msg_b64
   msg_b64="\$(printf '%s' "\$msg" | base64 | tr -d '\r\n')"
-  _wps "Set-Location '\$WINDEV_PROJECT_WIN'; \\$txt=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$msg_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action plan -Source 'termux' -Text \\$txt"
+  _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action plan -Source 'termux' -Text ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$msg_b64')))"
 }
 
 wmailbox() {
@@ -651,7 +651,7 @@ FLOW
         fi
         joined="\$joined\$it"
       done
-      _wps "Set-Location '\$WINDEV_PROJECT_WIN'; \\$items=@('\$joined' -split \"','\"); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action resolve -Items \\$items"
+      _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action resolve -Items @('\$joined' -split \"','\")"
       ;;
     *)
       echo "Usage: wmailbox [ensure|status|list|digest|show|prompt|handoff|codexclip|flow|flowclip|resolve]"
