@@ -322,6 +322,11 @@ function Invoke-DirectApiAsk([string]$promptText) {
     if ([string]::IsNullOrWhiteSpace($promptText)) {
         throw "Task is required for api_ask mode."
     }
+    # Defensive sanitation for JSON body stability.
+    $promptText = $promptText -replace "`0", ""
+    if ($promptText.Length -gt 12000) {
+        $promptText = $promptText.Substring(0, 12000)
+    }
 
     $apiKey = $env:MISTRAL_API_KEY
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
@@ -337,8 +342,9 @@ function Invoke-DirectApiAsk([string]$promptText) {
         messages   = @(@{ role = "user"; content = $promptText })
         max_tokens = 512
     }
-    $jsonBody = $bodyObj | ConvertTo-Json -Depth 6
-    $response = Invoke-RestMethod -Method Post -Uri "https://api.mistral.ai/v1/chat/completions" -Headers @{ Authorization = "Bearer $apiKey" } -Body $jsonBody -ContentType "application/json" -TimeoutSec 45
+    $jsonBody = $bodyObj | ConvertTo-Json -Depth 6 -Compress
+    $jsonUtf8 = [System.Text.Encoding]::UTF8.GetBytes($jsonBody)
+    $response = Invoke-RestMethod -Method Post -Uri "https://api.mistral.ai/v1/chat/completions" -Headers @{ Authorization = "Bearer $apiKey" } -Body $jsonUtf8 -ContentType "application/json; charset=utf-8" -TimeoutSec 45
     $answer = $response.choices[0].message.content
     if ($null -eq $answer) {
         $answer = ""
