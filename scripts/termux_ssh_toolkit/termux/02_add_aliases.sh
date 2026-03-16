@@ -563,6 +563,15 @@ wvibe() {
   fi
 }
 
+wtask() {
+  if [ \$# -eq 0 ]; then
+    echo "Usage: wtask \"<task text>\""
+    echo "Example: wtask \"Проверь iiko smoke и запиши результат в docs/DEBUG.md\""
+    return 1
+  fi
+  wvibe ask --no-bootstrap "\$@"
+}
+
 wreconnect() {
   wvibe reconnect
 }
