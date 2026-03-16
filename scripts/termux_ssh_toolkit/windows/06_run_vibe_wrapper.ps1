@@ -13,6 +13,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+chcp 65001 > $null
 
 if (-not (Test-Path -LiteralPath $ProjectPath)) {
     throw "Project path not found: $ProjectPath"
@@ -349,9 +354,7 @@ function Invoke-DirectApiAsk([string]$promptText) {
     if ($null -eq $answer) {
         $answer = ""
     }
-    # Emit ASCII-safe text to avoid mojibake in SSH/PowerShell transport.
-    $safeAnswer = [regex]::Replace([string]$answer, '[^\u0009\u000A\u000D\u0020-\u007E]', '?')
-    Write-Output "$safeAnswer"
+    Write-Output "$answer"
 }
 
 function Read-FileSnippet([string]$path, [int]$maxChars = 5000) {
