@@ -75,11 +75,16 @@
 - [x] Add idempotency guard by external document key and duplicate prevention policy.
 - [x] Add dual-path feature flag (`iikoServer` primary, Playwright fallback).
 
+## Stage 8.1 — RMS demo stand onboarding (2026-03-16)
+- [x] Formalized RMS demo profile and links in doc: `docs/exp/IIKO_RMS_DEMO_PROFILE_2026-03-16.md`.
+- [ ] Define secure secrets policy for demo credentials (no plaintext in tracked docs for non-demo environments).
+- [ ] Add smoke auth/health script for RMS REST endpoint and expected response checks.
+- [ ] Run first end-to-end import test against demo stand and record findings in `docs/DEBUG.md`.
+
 ## Риски (архитектура и надежность)
 - [x] `P0` Batch flow: исправить обработку `files[]` в worker (`app/tasks.py`), чтобы батч не деградировал до `files[0]`; добавить регрессионный тест.
 - [x] `P1` Queue timeout: задать явный `job_timeout`/retry policy для разных типов задач (`single`, `batch`, `iiko upload`), добавить обработку failed jobs.
 - [ ] `P1` Throughput: подготовить профиль горизонтального масштабирования worker + мониторинг глубины очереди/lag.
 - [ ] `P1` Stateful bot: вынести runtime-state бота из памяти в персистентное хранилище для безопасного restart/horizontal scale.
 - [ ] `P1` Secrets: убрать хранение iiko credentials в `data/users.json`, перевести на защищенное хранилище с контролем доступа.
-
 

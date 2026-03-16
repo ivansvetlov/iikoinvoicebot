@@ -36,4 +36,5 @@ docker compose -f deploy/deploy/docker-compose.yml up -d --build
 - `docs/exp/IIKO_SERVER_INCOMING_INVOICE_MAPPING.md`
 - `docs/exp/BUSINESS_INTEGRATIONS_PLAN.md`
 - `docs/exp/IIKO_STORE_CATALOG.md`
+- `docs/exp/IIKO_RMS_DEMO_PROFILE_2026-03-16.md`
 - `docs/TERMUX_VIBE_WRAPPER_PLAYBOOK.md` (перенос phone/SSH/vibe подхода в другие проекты)
