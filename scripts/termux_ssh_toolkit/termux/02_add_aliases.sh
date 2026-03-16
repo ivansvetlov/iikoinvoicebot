@@ -324,22 +324,50 @@ wssh() {
   _wssh_base "\$WINDEV_ALIAS"
 }
 
-wlocalprep() {
-  if [ -z "\${WINDEV_TERMUX_REPO:-}" ] || [ ! -d "\$WINDEV_TERMUX_REPO" ]; then
-    echo "[warn] Termux repo is not configured or missing: \$WINDEV_TERMUX_REPO"
+_wrepo_detect() {
+  local d
+  local env_repo="\${WINDEV_TERMUX_REPO:-}"
+
+  if [ -n "\$env_repo" ] && [ -f "\$env_repo/scripts/termux_ssh_toolkit/termux/install.sh" ]; then
+    echo "\$env_repo"
     return 0
   fi
 
+  if [ -f "\$HOME/iikoinvoicebot/scripts/termux_ssh_toolkit/termux/install.sh" ]; then
+    echo "\$HOME/iikoinvoicebot"
+    return 0
+  fi
+
+  d="\$PWD"
+  while [ -n "\$d" ] && [ "\$d" != "/" ]; do
+    if [ -f "\$d/scripts/termux_ssh_toolkit/termux/install.sh" ]; then
+      echo "\$d"
+      return 0
+    fi
+    d="\$(dirname "\$d")"
+  done
+
+  return 1
+}
+
+wlocalprep() {
+  local repo
+  if ! repo="\$(_wrepo_detect)"; then
+    echo "[warn] Termux repo is not configured or missing: \${WINDEV_TERMUX_REPO:-}"
+    return 0
+  fi
+  export WINDEV_TERMUX_REPO="\$repo"
+
   local from_dir="\$PWD"
-  cd "\$WINDEV_TERMUX_REPO" || return 1
+  cd "\$repo" || return 1
 
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    echo "[sync] cd \$WINDEV_TERMUX_REPO"
+    echo "[sync] cd \$repo"
     if ! git pull --ff-only; then
       echo "[warn] git pull failed, continue with current local state"
     fi
   else
-    echo "[warn] Not a git repo: \$WINDEV_TERMUX_REPO"
+    echo "[warn] Not a git repo: \$repo"
   fi
 
   cd "\$from_dir" || true
@@ -360,13 +388,16 @@ wgo() {
 }
 
 wrefresh() {
-  if [ -z "\${WINDEV_TERMUX_REPO:-}" ] || [ ! -d "\$WINDEV_TERMUX_REPO" ]; then
-    echo "[error] Termux repo is not configured: \$WINDEV_TERMUX_REPO"
+  local repo
+  if ! repo="\$(_wrepo_detect)"; then
+    echo "[error] Termux repo is not configured: \${WINDEV_TERMUX_REPO:-}"
+    echo "[hint] Run: export WINDEV_TERMUX_REPO=\"\$HOME/iikoinvoicebot\""
     return 1
   fi
+  export WINDEV_TERMUX_REPO="\$repo"
 
   local from_dir="\$PWD"
-  cd "\$WINDEV_TERMUX_REPO" || return 1
+  cd "\$repo" || return 1
   git pull --ff-only || return 1
   bash scripts/termux_ssh_toolkit/termux/install.sh \
     --win-user "\$WINDEV_USER" \
@@ -374,7 +405,7 @@ wrefresh() {
     --alias "\$WINDEV_ALIAS" \
     --project "\$WINDEV_PROJECT_WIN" \
     --uv-bin "\$WINDEV_UV_BIN" \
-    --termux-repo "\$WINDEV_TERMUX_REPO" \
+    --termux-repo "\$repo" \
     --skip-keygen || return 1
   source "\$HOME/.bashrc" || return 1
   cd "\$from_dir" || true
@@ -1017,11 +1048,14 @@ wrun() {
 
 # Unified help source: shared files used by both Termux and Windows wrappers.
 _whelp_shared_dir() {
-  local default_repo="\${WINDEV_TERMUX_REPO:-\$HOME/iikoinvoicebot}"
+  local detected_repo
+  detected_repo="\$(_wrepo_detect 2>/dev/null || true)"
+  local default_repo="\${detected_repo:-\${WINDEV_TERMUX_REPO:-\$HOME/iikoinvoicebot}}"
   local candidate
 
   for candidate in \
     "\${WINDEV_TERMUX_REPO:-}/scripts/termux_ssh_toolkit/shared" \
+    "\${detected_repo:-}/scripts/termux_ssh_toolkit/shared" \
     "\$default_repo/scripts/termux_ssh_toolkit/shared" \
     "\$HOME/iikoinvoicebot/scripts/termux_ssh_toolkit/shared" \
     "\$PWD/scripts/termux_ssh_toolkit/shared"
