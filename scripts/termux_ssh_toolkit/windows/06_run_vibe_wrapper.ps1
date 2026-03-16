@@ -346,6 +346,44 @@ function Invoke-DirectApiAsk([string]$promptText) {
     Write-Output "$answer"
 }
 
+function Read-FileSnippet([string]$path, [int]$maxChars = 5000) {
+    if (-not (Test-Path -LiteralPath $path)) {
+        return ""
+    }
+    $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+    if ($raw.Length -le $maxChars) {
+        return $raw
+    }
+    return $raw.Substring(0, $maxChars)
+}
+
+function Build-ApiAskPrompt([string]$taskText, [switch]$NoBootstrap) {
+    if ($NoBootstrap) {
+        return $taskText
+    }
+
+    $startHere = Read-FileSnippet -path (Join-Path $ProjectPath "docs\START_HERE_NEW_CHAT.md")
+    $todo = Read-FileSnippet -path (Join-Path $ProjectPath "docs\TODO.md")
+    $arch = Read-FileSnippet -path (Join-Path $ProjectPath "docs\ARCHITECTURE.md")
+
+    return @"
+Use project context below to answer the user task.
+Be concise and practical. If context is insufficient, ask up to 3 clarifying questions.
+
+=== docs/START_HERE_NEW_CHAT.md (snippet) ===
+$startHere
+
+=== docs/TODO.md (snippet) ===
+$todo
+
+=== docs/ARCHITECTURE.md (snippet) ===
+$arch
+
+=== User task ===
+$taskText
+"@
+}
+
 if ($Mode -eq "ask") {
     if ([string]::IsNullOrWhiteSpace($Task)) {
         $Task = "Read project context files and give short status: done/in progress/next/risks."
@@ -373,7 +411,8 @@ if ($Mode -eq "api_ask") {
     if ([string]::IsNullOrWhiteSpace($Task)) {
         $Task = "Reply exactly: API_OK"
     }
-    Invoke-DirectApiAsk -promptText $Task
+    $apiPrompt = Build-ApiAskPrompt -taskText $Task -NoBootstrap:$SkipBootstrap
+    Invoke-DirectApiAsk -promptText $apiPrompt
     exit 0
 }
 
