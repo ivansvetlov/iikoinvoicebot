@@ -580,6 +580,22 @@ wmcp() {
   wvibe mcp "\$@"
 }
 
+wtask() {
+  if [ \$# -eq 0 ]; then
+    echo "Usage: wtask <task text>"
+    return 1
+  fi
+  wvibe api "\$*"
+}
+
+wtaskcli() {
+  if [ \$# -eq 0 ]; then
+    echo "Usage: wtaskcli <task text>"
+    return 1
+  fi
+  wvibe ask --no-bootstrap "\$*"
+}
+
 wvshell() {
   local shell_ps1="\$WINDEV_PROJECT_WIN\\scripts\\termux_ssh_toolkit\\windows\\09_wvibe_light_shell.ps1"
   _wssh_base -tt "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "\$shell_ps1" -ProjectPath "\$WINDEV_PROJECT_WIN" -UvBinPath "\$WINDEV_UV_BIN"
