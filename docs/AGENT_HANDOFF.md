@@ -135,7 +135,7 @@
 - Image model overrides: `OPENAI_MODEL_IMAGE` and optional `OPENAI_MODEL_IMAGE_FALLBACK` for stronger retries on OCR-heavy images.
 
 ## 12) Event codes centralization (2026-03-11)
-- Р¤Р°Р№Р»С‹:
+- Файлы:
   - добавлен `app/bot/event_codes.py` (единый реестр `BOT_*` + helper форматирования);
   - добавлен `docs/BOT_EVENT_CODES.md` (каноническое описание кодов и статусов active/archive);
   - обновлены `app/bot/manager.py`, `docs/DEBUG.md`, `docs/README.md`, `docs/TODO.md`.
@@ -148,7 +148,7 @@
   - открыть `docs/BOT_EVENT_CODES.md` и сверить коды с `app/bot/event_codes.py`.
 
 ## 13) Stage 4 completed: reliability + observability (2026-03-11)
-- Р¤Р°Р№Р»С‹:
+- Файлы:
   - добавлен `app/observability.py` (единое логирование, алерты, метрики);
   - добавлены `scripts/metrics_report.py`, `scripts/export_user_messages.py`;
   - добавлен `docs/BOT_MESSAGE_CATALOG.md`;

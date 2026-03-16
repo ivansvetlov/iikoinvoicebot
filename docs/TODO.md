@@ -77,8 +77,8 @@
 
 ## Stage 8.1 — RMS demo stand onboarding (2026-03-16)
 - [x] Formalized RMS demo profile and links in doc: `docs/exp/IIKO_RMS_DEMO_PROFILE_2026-03-16.md`.
-- [ ] Define secure secrets policy for demo credentials (no plaintext in tracked docs for non-demo environments).
-- [ ] Add smoke auth/health script for RMS REST endpoint and expected response checks.
+- [x] Define secure secrets policy for demo credentials (no plaintext in tracked docs for non-demo environments): `docs/SECURITY_SECRETS_POLICY.md`.
+- [x] Add smoke auth/health script for RMS REST endpoint and expected response checks (`scripts/iiko_server_smoke.py`, results in `logs/iiko_smoke_last.json`).
 - [ ] Run first end-to-end import test against demo stand and record findings in `docs/DEBUG.md`.
 
 ## Риски (архитектура и надежность)
@@ -87,4 +87,3 @@
 - [ ] `P1` Throughput: подготовить профиль горизонтального масштабирования worker + мониторинг глубины очереди/lag.
 - [ ] `P1` Stateful bot: вынести runtime-state бота из памяти в персистентное хранилище для безопасного restart/horizontal scale.
 - [ ] `P1` Secrets: убрать хранение iiko credentials в `data/users.json`, перевести на защищенное хранилище с контролем доступа.
-
