@@ -351,7 +351,7 @@ wenter() {
 }
 
 wgo() {
-  if [ "${WINDEV_SKIP_LOCALPREP_ONCE:-0}" = "1" ]; then
+  if [ "\${WINDEV_SKIP_LOCALPREP_ONCE:-0}" = "1" ]; then
     WINDEV_SKIP_LOCALPREP_ONCE=0
   else
     wlocalprep
@@ -588,7 +588,7 @@ wplan() {
   local msg="\$*"
   local msg_b64
   msg_b64="\$(printf '%s' "\$msg" | base64 | tr -d '\r\n')"
-  _wps "Set-Location '\$WINDEV_PROJECT_WIN'; \$txt=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$msg_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action plan -Source 'termux' -Text \$txt"
+  _wps "Set-Location '\$WINDEV_PROJECT_WIN'; \$txt=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$msg_b64')); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action plan -Source 'termux' -Text \$txt"
 }
 
 wmailbox() {
