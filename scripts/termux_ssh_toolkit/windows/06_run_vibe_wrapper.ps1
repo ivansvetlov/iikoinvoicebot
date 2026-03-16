@@ -349,35 +349,35 @@ function Invoke-DirectApiAsk([string]$promptText) {
         $env:WVIBE_PROMPT_B64 = $promptB64
         $env:WVIBE_MODEL = $modelName
         try {
-            $pyCode = @"
+            $pyCode = @'
 import os, json, base64, urllib.request
-prompt = base64.b64decode(os.environ.get("WVIBE_PROMPT_B64","")).decode("utf-8","replace")
-model = os.environ.get("WVIBE_MODEL","mistral-small-latest")
-key = os.environ.get("MISTRAL_API_KEY","")
+prompt = base64.b64decode(os.environ.get('WVIBE_PROMPT_B64', '')).decode('utf-8', 'replace')
+model = os.environ.get('WVIBE_MODEL', 'mistral-small-latest')
+key = os.environ.get('MISTRAL_API_KEY', '')
 if not key:
-    raise RuntimeError("MISTRAL_API_KEY is empty")
+    raise RuntimeError('MISTRAL_API_KEY is empty')
 payload = json.dumps({
-    "model": model,
-    "messages": [{"role":"user","content":prompt}],
-    "max_tokens": 512
-}, ensure_ascii=False).encode("utf-8")
+    'model': model,
+    'messages': [{'role': 'user', 'content': prompt}],
+    'max_tokens': 512
+}, ensure_ascii=False).encode('utf-8')
 req = urllib.request.Request(
-    "https://api.mistral.ai/v1/chat/completions",
+    'https://api.mistral.ai/v1/chat/completions',
     data=payload,
-    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json; charset=utf-8"},
-    method="POST",
+    headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json; charset=utf-8'},
+    method='POST',
 )
 with urllib.request.urlopen(req, timeout=45) as r:
     raw = r.read()
-obj = json.loads(raw.decode("utf-8","replace"))
-ans = obj["choices"][0]["message"]["content"]
+obj = json.loads(raw.decode('utf-8', 'replace'))
+ans = obj['choices'][0]['message']['content']
 if isinstance(ans, list):
-    ans = "".join((part.get("text","") if isinstance(part, dict) else str(part)) for part in ans)
-b64 = base64.b64encode(str(ans).encode("utf-8")).decode("ascii")
-print("__WVIBE_B64_BEGIN__")
+    ans = ''.join((part.get('text', '') if isinstance(part, dict) else str(part)) for part in ans)
+b64 = base64.b64encode(str(ans).encode('utf-8')).decode('ascii')
+print('__WVIBE_B64_BEGIN__')
 print(b64)
-print("__WVIBE_B64_END__")
-"@
+print('__WVIBE_B64_END__')
+'@
             & $py.Source -c $pyCode
             if ($LASTEXITCODE -eq 0) {
                 return
