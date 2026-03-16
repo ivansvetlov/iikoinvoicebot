@@ -1107,6 +1107,18 @@ whelp() {
 
   if [ -f "\$help_file" ]; then
     cat "\$help_file"
+    cat <<'EXTRA'
+
+Clipboard shortcuts:
+  wpaste
+    Pull mailbox reply to Android clipboard (body mode).
+  wpaste full
+    Pull full mailbox reply with header/meta.
+  wclip "<cmd>"
+    Copy one command to Android clipboard.
+  cat <<'EOF' | wclip
+    Copy multi-line command block to Android clipboard.
+EOF
     return 0
   fi
 
