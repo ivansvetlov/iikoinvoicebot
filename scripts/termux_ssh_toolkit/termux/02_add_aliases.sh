@@ -91,13 +91,23 @@ _wps() {
   local cmd="\$*"
   local utf8_prelude='[Console]::InputEncoding=[System.Text.UTF8Encoding]::new(\$false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(\$false); \$OutputEncoding=[Console]::OutputEncoding; chcp 65001 > \$null;'
   local full_cmd="\$utf8_prelude \$cmd"
+  local raw=""
+  local rc=0
   if command -v iconv > /dev/null 2>&1 && command -v base64 > /dev/null 2>&1; then
     local encoded
     encoded="\$(printf '%s' "\$full_cmd" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\r\n')"
-    _wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand "\$encoded"
+    raw="\$(_wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand "\$encoded" 2>&1)" || rc=\$?
   else
-    _wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "\$full_cmd"
+    raw="\$(_wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "\$full_cmd" 2>&1)" || rc=\$?
   fi
+  printf '%s\n' "\$raw" | awk '
+    BEGIN { drop=0 }
+    /^#< CLIXML/ { next }
+    /^<Objs Version=/ { drop=1 }
+    drop==1 { if (/<\/Objs>/) { drop=0 }; next }
+    { print }
+  '
+  return \$rc
 }
 
 _wps_tty() {
