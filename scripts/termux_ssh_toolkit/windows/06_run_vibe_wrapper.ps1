@@ -343,6 +343,51 @@ function Invoke-DirectApiAsk([string]$promptText) {
     }
 
     $modelName = Get-ActiveModelName
+    $py = Get-Command python -ErrorAction SilentlyContinue
+    if ($null -ne $py) {
+        $promptB64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($promptText))
+        $env:WVIBE_PROMPT_B64 = $promptB64
+        $env:WVIBE_MODEL = $modelName
+        try {
+            $pyCode = @"
+import os, json, base64, urllib.request
+prompt = base64.b64decode(os.environ.get("WVIBE_PROMPT_B64","")).decode("utf-8","replace")
+model = os.environ.get("WVIBE_MODEL","mistral-small-latest")
+key = os.environ.get("MISTRAL_API_KEY","")
+if not key:
+    raise RuntimeError("MISTRAL_API_KEY is empty")
+payload = json.dumps({
+    "model": model,
+    "messages": [{"role":"user","content":prompt}],
+    "max_tokens": 512
+}, ensure_ascii=False).encode("utf-8")
+req = urllib.request.Request(
+    "https://api.mistral.ai/v1/chat/completions",
+    data=payload,
+    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json; charset=utf-8"},
+    method="POST",
+)
+with urllib.request.urlopen(req, timeout=45) as r:
+    raw = r.read()
+obj = json.loads(raw.decode("utf-8","replace"))
+ans = obj["choices"][0]["message"]["content"]
+if isinstance(ans, list):
+    ans = "".join((part.get("text","") if isinstance(part, dict) else str(part)) for part in ans)
+b64 = base64.b64encode(str(ans).encode("utf-8")).decode("ascii")
+print("__WVIBE_B64_BEGIN__")
+print(b64)
+print("__WVIBE_B64_END__")
+"@
+            & $py.Source -c $pyCode
+            if ($LASTEXITCODE -eq 0) {
+                return
+            }
+        } finally {
+            Remove-Item Env:WVIBE_PROMPT_B64 -ErrorAction SilentlyContinue
+            Remove-Item Env:WVIBE_MODEL -ErrorAction SilentlyContinue
+        }
+    }
+
     $bodyObj = @{
         model      = $modelName
         messages   = @(@{ role = "user"; content = $promptText })
@@ -350,25 +395,7 @@ function Invoke-DirectApiAsk([string]$promptText) {
     }
     $jsonBody = $bodyObj | ConvertTo-Json -Depth 6 -Compress
     $jsonUtf8 = [System.Text.Encoding]::UTF8.GetBytes($jsonBody)
-    $handler = [System.Net.Http.HttpClientHandler]::new()
-    $client = [System.Net.Http.HttpClient]::new($handler)
-    try {
-        $client.Timeout = [TimeSpan]::FromSeconds(45)
-        $req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, "https://api.mistral.ai/v1/chat/completions")
-        $req.Headers.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $apiKey)
-        $req.Content = [System.Net.Http.ByteArrayContent]::new($jsonUtf8)
-        $req.Content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/json; charset=utf-8")
-
-        $resp = $client.SendAsync($req).GetAwaiter().GetResult()
-        $respBody = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-        if (-not $resp.IsSuccessStatusCode) {
-            throw "Mistral API error: HTTP $([int]$resp.StatusCode) - $respBody"
-        }
-        $response = $respBody | ConvertFrom-Json
-    } finally {
-        $client.Dispose()
-        $handler.Dispose()
-    }
+    $response = Invoke-RestMethod -Method Post -Uri "https://api.mistral.ai/v1/chat/completions" -Headers @{ Authorization = "Bearer $apiKey" } -Body $jsonUtf8 -ContentType "application/json; charset=utf-8" -TimeoutSec 45
     $answer = $response.choices[0].message.content
     if ($null -eq $answer) {
         $answer = ""
