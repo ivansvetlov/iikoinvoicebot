@@ -94,7 +94,7 @@ wvibe doctor
 wvibe ask --no-bootstrap "Reply exactly: OK"
 wvshell
 wplan "Пример задачи от телефона"
-wmailbox digest
+wmailbox codexclip
 ```
 
 Inside `wvshell`:
@@ -104,9 +104,9 @@ Inside `wvshell`:
 
 Mailbox flow:
 1. Add task from phone: `wplan "..."`
-2. Build digest: `wmailbox digest`
-3. Let Vibe read `ops/mailbox/for_codex.md` and summarize/clean request
-4. Send Codex instruction to read same file
+2. Build ready prompt + copy to Android clipboard: `wmailbox codexclip`
+3. Open Codex chat and paste clipboard text
+4. Optional: `wmailbox flowclip` to copy the full command pack
 
 Inside Windows shell (`MiBookPro`), install wrappers once:
 

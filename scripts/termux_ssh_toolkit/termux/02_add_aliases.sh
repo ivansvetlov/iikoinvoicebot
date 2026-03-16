@@ -595,8 +595,41 @@ wmailbox() {
   local action="\${1:-status}"
   shift || true
   case "\$action" in
-    ensure|status|list|digest|show)
+    ensure|status|list|digest|show|prompt|handoff)
       _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action '\$action'"
+      ;;
+    codexclip)
+      local prompt
+      prompt="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action handoff")"
+      if [ -z "\$prompt" ]; then
+        echo "[warn] empty prompt received from mailbox handoff"
+        return 1
+      fi
+      if command -v termux-clipboard-set >/dev/null 2>&1; then
+        printf '%s' "\$prompt" | termux-clipboard-set
+        echo "[ok] Codex prompt copied to Android clipboard."
+      else
+        echo "[warn] termux-clipboard-set not found. Install termux-api package/app."
+      fi
+      printf '%s\n' "\$prompt"
+      ;;
+    flow)
+      cat <<'FLOW'
+wplan "<что сделать>"
+wmailbox codexclip
+# затем открой Codex и вставь prompt из буфера
+FLOW
+      ;;
+    flowclip)
+      local flow_text
+      flow_text=\$'wplan "<что сделать>"\nwmailbox codexclip\n# затем открой Codex и вставь prompt из буфера'
+      if command -v termux-clipboard-set >/dev/null 2>&1; then
+        printf '%s' "\$flow_text" | termux-clipboard-set
+        echo "[ok] Command pack copied to Android clipboard."
+      else
+        echo "[warn] termux-clipboard-set not found. Install termux-api package/app."
+      fi
+      printf '%s\n' "\$flow_text"
       ;;
     resolve)
       if [ \$# -eq 0 ]; then
@@ -614,7 +647,7 @@ wmailbox() {
       _wps "Set-Location '\$WINDEV_PROJECT_WIN'; \$items=@('\$joined' -split \"','\"); powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action resolve -Items \$items"
       ;;
     *)
-      echo "Usage: wmailbox [ensure|status|list|digest|show|resolve]"
+      echo "Usage: wmailbox [ensure|status|list|digest|show|prompt|handoff|codexclip|flow|flowclip|resolve]"
       return 1
       ;;
   esac

@@ -149,7 +149,7 @@ wvibe doctor
 wvibe ask --no-bootstrap "Reply exactly: OK"
 wvshell
 wplan "Проверить TODO и обновить статус Stage 8"
-wmailbox digest
+wmailbox codexclip
 wvibe ask "read docs/START_HERE_NEW_CHAT.md and return short project status"
 ```
 
@@ -160,9 +160,9 @@ For longer requests in `wvshell`:
 
 Mailbox handoff:
 1. `wplan "<task from phone>"`
-2. `wmailbox digest`
-3. In Vibe ask: read `ops/mailbox/for_codex.md` and prepare concise request for Codex.
-4. Send Codex: `read ops/mailbox/for_codex.md`
+2. `wmailbox codexclip`
+3. Open Codex chat and paste clipboard text.
+4. Optional: `wmailbox flowclip` to copy the full command pack into Android clipboard.
 
 ## 6) Direct Bypass Test (No Aliases)
 

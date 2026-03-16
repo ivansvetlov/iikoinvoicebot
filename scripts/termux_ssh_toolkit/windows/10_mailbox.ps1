@@ -1,5 +1,5 @@
 ﻿param(
-    [ValidateSet("ensure", "plan", "status", "list", "digest", "show", "resolve")]
+    [ValidateSet("ensure", "plan", "status", "list", "digest", "show", "resolve", "prompt", "handoff")]
     [string]$Action = "status",
     [string]$ProjectPath = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path,
     [string]$Text = "",
@@ -102,7 +102,7 @@ function List-Inbox {
     }
 }
 
-function Build-Digest {
+function Build-Digest([switch]$Quiet) {
     $items = Get-ChildItem -LiteralPath $inboxDir -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
     $now = (Get-Date).ToString("s")
 
@@ -115,7 +115,9 @@ Generated: $now
 Новых задач нет.
 "@
         [System.IO.File]::WriteAllText($forCodexPath, $empty, [System.Text.UTF8Encoding]::new($true))
-        Write-Output "[ok] digest updated: $forCodexPath"
+        if (-not $Quiet) {
+            Write-Output "[ok] digest updated: $forCodexPath"
+        }
         return
     }
 
@@ -141,7 +143,9 @@ Generated: $now
     [void]$sb.AppendLine("Обработай задачи выше по приоритету и подготовь ответ для пользователя.")
 
     [System.IO.File]::WriteAllText($forCodexPath, $sb.ToString(), [System.Text.UTF8Encoding]::new($true))
-    Write-Output "[ok] digest updated: $forCodexPath"
+    if (-not $Quiet) {
+        Write-Output "[ok] digest updated: $forCodexPath"
+    }
 }
 
 function Show-ForCodex {
@@ -150,6 +154,26 @@ function Show-ForCodex {
         return
     }
     Get-Content -LiteralPath $forCodexPath -Raw -Encoding UTF8 | Out-Host
+}
+
+function Build-CodexPrompt {
+    if (-not (Test-Path -LiteralPath $forCodexPath)) {
+        Build-Digest -Quiet
+    }
+
+    return @"
+Прочитай файл ops/mailbox/for_codex.md и выполни задачи из него.
+Если данных недостаточно, задай до 3 уточняющих вопросов.
+В ответе: сначала действия и изменения, затем коротко риски и следующий шаг.
+"@.Trim()
+}
+
+function Handoff-Codex {
+    Build-Digest -Quiet
+    $prompt = Build-CodexPrompt
+    $promptPath = Join-Path $outboxDir "codex_prompt_latest.txt"
+    [System.IO.File]::WriteAllText($promptPath, $prompt, [System.Text.UTF8Encoding]::new($true))
+    Write-Output $prompt
 }
 
 function Resolve-Items([string[]]$names) {
@@ -179,4 +203,6 @@ switch ($Action) {
     "digest" { Build-Digest; break }
     "show" { Show-ForCodex; break }
     "resolve" { Resolve-Items -names $Items; break }
+    "prompt" { Build-CodexPrompt | Write-Output; break }
+    "handoff" { Handoff-Codex; break }
 }

@@ -336,6 +336,12 @@ switch ($cmd) {
             "show" {
                 & $mailboxTool -Action show -ProjectPath $ProjectPath
             }
+            "prompt" {
+                & $mailboxTool -Action prompt -ProjectPath $ProjectPath
+            }
+            "handoff" {
+                & $mailboxTool -Action handoff -ProjectPath $ProjectPath
+            }
             "resolve" {
                 if ($CommandArgs.Count -lt 2) {
                     throw "Использование: wmailbox resolve <file1.md> [file2.md ...]"
@@ -347,7 +353,7 @@ switch ($cmd) {
                 & $mailboxTool -Action resolve -ProjectPath $ProjectPath -Items $items
             }
             default {
-                throw "Использование: wmailbox [ensure|status|list|digest|show|resolve]"
+                throw "Использование: wmailbox [ensure|status|list|digest|show|prompt|handoff|resolve]"
             }
         }
         $exitCode = Get-LastCodeOrZero
