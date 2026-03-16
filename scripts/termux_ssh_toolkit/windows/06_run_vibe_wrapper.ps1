@@ -350,7 +350,25 @@ function Invoke-DirectApiAsk([string]$promptText) {
     }
     $jsonBody = $bodyObj | ConvertTo-Json -Depth 6 -Compress
     $jsonUtf8 = [System.Text.Encoding]::UTF8.GetBytes($jsonBody)
-    $response = Invoke-RestMethod -Method Post -Uri "https://api.mistral.ai/v1/chat/completions" -Headers @{ Authorization = "Bearer $apiKey" } -Body $jsonUtf8 -ContentType "application/json; charset=utf-8" -TimeoutSec 45
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    try {
+        $client.Timeout = [TimeSpan]::FromSeconds(45)
+        $req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, "https://api.mistral.ai/v1/chat/completions")
+        $req.Headers.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $apiKey)
+        $req.Content = [System.Net.Http.ByteArrayContent]::new($jsonUtf8)
+        $req.Content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/json; charset=utf-8")
+
+        $resp = $client.SendAsync($req).GetAwaiter().GetResult()
+        $respBody = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if (-not $resp.IsSuccessStatusCode) {
+            throw "Mistral API error: HTTP $([int]$resp.StatusCode) - $respBody"
+        }
+        $response = $respBody | ConvertFrom-Json
+    } finally {
+        $client.Dispose()
+        $handler.Dispose()
+    }
     $answer = $response.choices[0].message.content
     if ($null -eq $answer) {
         $answer = ""
