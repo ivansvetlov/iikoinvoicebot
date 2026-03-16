@@ -660,6 +660,127 @@ FLOW
   esac
 }
 
+_wphone_require_tmux() {
+  if command -v tmux >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "[info] tmux not found in Termux, installing..."
+  if ! pkg install -y tmux >/dev/null; then
+    echo "[error] failed to install tmux via pkg"
+    return 1
+  fi
+  if ! command -v tmux >/dev/null 2>&1; then
+    echo "[error] tmux install completed but binary is missing"
+    return 1
+  fi
+}
+
+_wphone_ensure_session() {
+  local session_name="\${1:-\${WPHONE_SESSION:-main}}"
+  _wphone_require_tmux || return 1
+  if ! tmux has-session -t "\$session_name" 2>/dev/null; then
+    tmux new-session -d -s "\$session_name" "bash --login" || return 1
+    tmux set-option -t "\$session_name" remain-on-exit on >/dev/null 2>&1 || true
+  fi
+}
+
+wphone() {
+  local sub="\${1:-help}"
+  shift || true
+  local session_name="\${WPHONE_SESSION:-main}"
+
+  case "\$sub" in
+    help|-h|--help)
+      cat <<'WPHONE_HELP'
+Usage: wphone <command>
+
+Commands:
+  wphone session [name]   Show/set default tmux session name (default: main)
+  wphone init             Ensure tmux is installed and session exists
+  wphone ls               List tmux sessions
+  wphone attach           Attach to default session
+  wphone run "<cmd>"      Send command + Enter to session
+  wphone send "<text>"    Send literal text (without Enter)
+  wphone paste            Send Android clipboard text + Enter
+  wphone capture [lines]  Print last lines from session pane (default: 120)
+WPHONE_HELP
+      ;;
+    session)
+      if [ \$# -eq 0 ]; then
+        echo "wphone session: \$session_name"
+        return 0
+      fi
+      export WPHONE_SESSION="\$1"
+      echo "[ok] default wphone session set: \$WPHONE_SESSION"
+      ;;
+    init)
+      _wphone_ensure_session "\$session_name" || return 1
+      echo "[ok] phone tmux session ready: \$session_name"
+      echo "Attach with: wphone attach"
+      ;;
+    list|ls)
+      _wphone_require_tmux || return 1
+      tmux ls 2>/dev/null || echo "[info] no tmux sessions yet. Run: wphone init"
+      ;;
+    attach)
+      _wphone_ensure_session "\$session_name" || return 1
+      tmux attach -t "\$session_name"
+      ;;
+    run)
+      if [ \$# -eq 0 ]; then
+        echo "Usage: wphone run <command>"
+        return 1
+      fi
+      local cmd="\$*"
+      _wphone_ensure_session "\$session_name" || return 1
+      tmux send-keys -t "\$session_name" -l "\$cmd"
+      tmux send-keys -t "\$session_name" C-m
+      echo "[ok] sent+enter to \$session_name"
+      ;;
+    send)
+      if [ \$# -eq 0 ]; then
+        echo "Usage: wphone send <text>"
+        return 1
+      fi
+      local txt="\$*"
+      _wphone_ensure_session "\$session_name" || return 1
+      tmux send-keys -t "\$session_name" -l "\$txt"
+      echo "[ok] sent text to \$session_name"
+      ;;
+    paste)
+      if ! command -v termux-clipboard-get >/dev/null 2>&1; then
+        echo "[warn] termux-clipboard-get not found. Install termux-api package and Termux:API app."
+        return 1
+      fi
+      local clip
+      clip="\$(termux-clipboard-get)"
+      if [ -z "\$clip" ]; then
+        echo "[warn] Android clipboard is empty."
+        return 1
+      fi
+      _wphone_ensure_session "\$session_name" || return 1
+      tmux send-keys -t "\$session_name" -l "\$clip"
+      tmux send-keys -t "\$session_name" C-m
+      echo "[ok] sent clipboard to \$session_name"
+      ;;
+    capture)
+      local lines="\${1:-120}"
+      case "\$lines" in
+        ''|*[!0-9]*)
+          echo "Usage: wphone capture [lines:int]"
+          return 1
+          ;;
+      esac
+      _wphone_ensure_session "\$session_name" || return 1
+      tmux capture-pane -p -S "-\$lines" -t "\$session_name"
+      ;;
+    *)
+      echo "Usage: wphone [help|session|init|ls|attach|run|send|paste|capture]"
+      return 1
+      ;;
+  esac
+}
+
 waider() {
   wcmd "\\\$env:Path='\$WINDEV_UV_BIN;' + \\\$env:Path; Set-Location '\$WINDEV_PROJECT_WIN'; aider"
 }

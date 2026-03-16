@@ -108,6 +108,12 @@ Mailbox flow:
 3. Open Codex chat and paste clipboard text
 4. Optional: `wmailbox flowclip` to copy the full command pack
 
+Phone terminal control (local tmux in Termux):
+1. `wphone init`
+2. `wphone run "git status -sb"`
+3. `wphone capture 80`
+4. `wphone attach` (optional)
+
 Inside Windows shell (`MiBookPro`), install wrappers once:
 
 ```powershell

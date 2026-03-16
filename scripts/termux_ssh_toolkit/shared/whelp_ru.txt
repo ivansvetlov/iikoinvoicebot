@@ -23,6 +23,8 @@
     Положить задачу из телефона в ops/mailbox/inbox.
   wmailbox [status|list|digest|show|prompt|handoff|codexclip|flow|flowclip|resolve]
     Управление mailbox, включая автоподготовку prompt и копирование в буфер Android.
+  wphone [help|session|init|ls|attach|run|send|paste|capture]
+    Локальное управление tmux-сессией в Termux (для сквозного phone-terminal потока).
   wgo
     Войти в Windows PowerShell (папка пользователя).
   wenter

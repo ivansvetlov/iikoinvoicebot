@@ -164,6 +164,12 @@ Mailbox handoff:
 3. Open Codex chat and paste clipboard text.
 4. Optional: `wmailbox flowclip` to copy the full command pack into Android clipboard.
 
+Phone terminal control (local Termux tmux):
+1. `wphone init`
+2. `wphone run "git status -sb"`
+3. `wphone capture 80`
+4. `wphone attach` (optional interactive attach)
+
 ## 6) Direct Bypass Test (No Aliases)
 
 If wrapper/alias behavior is suspicious, run this exact command from Termux:
