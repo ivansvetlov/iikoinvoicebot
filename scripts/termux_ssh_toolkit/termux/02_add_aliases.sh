@@ -623,6 +623,48 @@ wmailbox() {
       fi
       printf '%s\n' "\$reply"
       ;;
+    watch)
+      local interval="\${1:-5}"
+      case "\$interval" in
+        ''|*[!0-9]*)
+          echo "Usage: wmailbox watch [interval_seconds:int]"
+          return 1
+          ;;
+      esac
+      if [ "\$interval" -lt 1 ]; then
+        interval=1
+      fi
+      echo "[watch] polling ops/mailbox/for_termux.md every \${interval}s (Ctrl+C to stop)"
+      local last_sig=""
+      local initialized=0
+      while true; do
+        local current_reply=""
+        if current_reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null)"; then
+          :
+        else
+          current_reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
+        fi
+        local current_sig
+        current_sig="\$(printf '%s' "\$current_reply" | cksum)"
+        if [ "\$initialized" -eq 0 ]; then
+          initialized=1
+          last_sig="\$current_sig"
+        elif [ "\$current_sig" != "\$last_sig" ]; then
+          last_sig="\$current_sig"
+          echo
+          echo "----- [\$(date '+%Y-%m-%d %H:%M:%S')] mailbox update -----"
+          printf '%s\n' "\$current_reply"
+          if command -v termux-clipboard-set >/dev/null 2>&1; then
+            printf '%s' "\$current_reply" | termux-clipboard-set
+            echo "[watch] reply copied to Android clipboard."
+          fi
+          if command -v termux-notification >/dev/null 2>&1; then
+            termux-notification --title "Mailbox update" --content "New reply in for_termux.md" >/dev/null 2>&1 || true
+          fi
+        fi
+        sleep "\$interval"
+      done
+      ;;
     codexclip)
       local prompt
       local default_prompt
@@ -679,7 +721,7 @@ FLOW
       _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action resolve -Items @('\$joined' -split \"','\")"
       ;;
     *)
-      echo "Usage: wmailbox [ensure|status|list|digest|show|termux|pull|pullclip|prompt|handoff|codexclip|flow|flowclip|resolve]"
+      echo "Usage: wmailbox [ensure|status|list|digest|show|termux|pull|pullclip|watch|prompt|handoff|codexclip|flow|flowclip|resolve]"
       return 1
       ;;
   esac

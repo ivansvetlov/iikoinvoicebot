@@ -164,6 +164,7 @@ Mailbox handoff:
 3. Open Codex chat and paste clipboard text.
 4. Optional: `wmailbox flowclip` to copy the full command pack into Android clipboard.
 5. Pull answer back to phone: `wmailbox pull` (or `wmailbox pullclip` to copy into clipboard).
+6. Auto-mode for new answers: `wmailbox watch` (stays in loop, copies updates to clipboard).
 
 Phone terminal control (local Termux tmux):
 1. `wphone init`

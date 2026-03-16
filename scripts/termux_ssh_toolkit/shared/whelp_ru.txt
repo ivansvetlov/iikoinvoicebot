@@ -21,7 +21,7 @@
     Сначала wrefresh, потом wgo.
   wplan "<текст задачи>"
     Положить задачу из телефона в ops/mailbox/inbox.
-  wmailbox [status|list|digest|show|termux|pull|pullclip|prompt|handoff|codexclip|flow|flowclip|resolve]
+  wmailbox [status|list|digest|show|termux|pull|pullclip|watch|prompt|handoff|codexclip|flow|flowclip|resolve]
     Управление mailbox: prompt для Codex + получение ответа на телефон + clipboard.
     Подробно по подкомандам см. блок "wmailbox подробно" ниже.
   wphone [help|session|init|ls|attach|run|send|paste|capture]
@@ -112,6 +112,7 @@ Mailbox-цикл (телефон -> Codex):
 Ответ на телефон из mailbox:
   1) wmailbox pull
   2) или wmailbox pullclip (ответ + копирование в буфер Android)
+  3) для автоподхвата новых ответов: wmailbox watch
 
 Phone-terminal цикл (без UI-автоклика):
   1) wphone init
@@ -142,6 +143,9 @@ wmailbox подробно:
     Показать ответ для телефона из ops/mailbox/for_termux.md.
   wmailbox pullclip
     Показать ответ для телефона и копировать его в Android clipboard.
+  wmailbox watch [interval_seconds]
+    Следить за for_termux.md в цикле, при изменении печатать новый ответ,
+    копировать его в буфер и (если доступно) показывать уведомление.
   wmailbox resolve <file1.md> [file2.md ...]
     Переместить обработанные inbox-файлы в processed.
 

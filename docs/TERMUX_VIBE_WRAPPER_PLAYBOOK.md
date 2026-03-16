@@ -108,6 +108,7 @@ Mailbox flow:
 3. Open Codex chat and paste clipboard text
 4. Optional: `wmailbox flowclip` to copy the full command pack
 5. Pull answer to phone: `wmailbox pull` (or `wmailbox pullclip`)
+6. Auto-track new answers: `wmailbox watch`
 
 Phone terminal control (local tmux in Termux):
 1. `wphone init`
