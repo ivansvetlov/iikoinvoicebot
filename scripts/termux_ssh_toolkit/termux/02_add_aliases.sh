@@ -606,22 +606,12 @@ wmailbox() {
       ;;
     pullclip)
       local reply
-      local is_valid=0
-      if reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null)"; then
-        if [ -z "\$reply" ] || [[ "\$reply" == "[warn] file not found:"* ]]; then
-          reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
-        fi
+      local pull_file="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}/for_termux_pullclip.md"
+      if _wssh_base "\$WINDEV_ALIAS" "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(\$false); Get-Content -Raw -Encoding UTF8 '\$WINDEV_PROJECT_WIN\\\\ops\\\\mailbox\\\\for_termux.md'\"" > "\$pull_file" 2>/dev/null; then
+        reply="\$(cat "\$pull_file" 2>/dev/null || true)"
       else
-        reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
-      fi
-      if [[ "\$reply" == *"# Termux Mailbox"* ]]; then
-        is_valid=1
-      fi
-      if [ "\$is_valid" -eq 0 ]; then
-        local fallback_file="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}/for_termux_pullclip.md"
-        if _wssh_base "\$WINDEV_ALIAS" "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"Get-Content -Raw -Encoding UTF8 '\$WINDEV_PROJECT_WIN\\\\ops\\\\mailbox\\\\for_termux.md'\"" > "\$fallback_file" 2>/dev/null; then
-          reply="\$(cat "\$fallback_file" 2>/dev/null || true)"
-        fi
+        echo "[warn] failed to fetch for_termux.md via ssh."
+        return 1
       fi
       if [ -z "\$reply" ]; then
         echo "[warn] no termux reply found in mailbox."
