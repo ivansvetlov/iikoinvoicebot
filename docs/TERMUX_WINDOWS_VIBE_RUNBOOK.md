@@ -165,6 +165,13 @@ Mailbox handoff:
 4. Optional: `wmailbox flowclip` to copy the full command pack into Android clipboard.
 5. Pull answer back to phone: `wmailbox pull` (or `wmailbox pullclip` to copy into clipboard).
 6. Auto-mode for new answers: `wmailbox watch` (stays in loop, copies updates to clipboard).
+7. Local simulation of reply (for practice): `wmailbox reply "<text>"`.
+
+Tutorial mode (practice by scenarios):
+1. `wtutor quick` — short end-to-end loop.
+2. `wtutor mailbox` — mailbox command practice.
+3. `wtutor phone` — tmux control practice.
+4. `wtutor duplex` — two-session watch/reply practice.
 
 Phone terminal control (local Termux tmux):
 1. `wphone init`

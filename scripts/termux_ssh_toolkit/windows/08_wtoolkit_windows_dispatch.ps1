@@ -342,6 +342,13 @@ switch ($cmd) {
             "pull" {
                 & $mailboxTool -Action termux -ProjectPath $ProjectPath
             }
+            "reply" {
+                if ($CommandArgs.Count -lt 2) {
+                    throw "Использование: wmailbox reply <текст ответа>"
+                }
+                $replyText = [string]::Join(" ", $CommandArgs[1..($CommandArgs.Count - 1)])
+                & $mailboxTool -Action reply -ProjectPath $ProjectPath -Source "windows" -Text $replyText
+            }
             "prompt" {
                 & $mailboxTool -Action prompt -ProjectPath $ProjectPath
             }
@@ -359,7 +366,7 @@ switch ($cmd) {
                 & $mailboxTool -Action resolve -ProjectPath $ProjectPath -Items $items
             }
             default {
-                throw "Использование: wmailbox [ensure|status|list|digest|show|termux|pull|prompt|handoff|resolve]"
+                throw "Использование: wmailbox [ensure|status|list|digest|show|termux|pull|reply|prompt|handoff|resolve]"
             }
         }
         $exitCode = Get-LastCodeOrZero

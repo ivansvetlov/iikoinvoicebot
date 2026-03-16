@@ -109,6 +109,13 @@ Mailbox flow:
 4. Optional: `wmailbox flowclip` to copy the full command pack
 5. Pull answer to phone: `wmailbox pull` (or `wmailbox pullclip`)
 6. Auto-track new answers: `wmailbox watch`
+7. Simulate inbound answer (for tests): `wmailbox reply "<text>"`
+
+Tutorial mode:
+1. `wtutor quick`
+2. `wtutor mailbox`
+3. `wtutor phone`
+4. `wtutor duplex`
 
 Phone terminal control (local tmux in Termux):
 1. `wphone init`

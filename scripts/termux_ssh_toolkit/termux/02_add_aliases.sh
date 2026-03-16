@@ -623,6 +623,20 @@ wmailbox() {
       fi
       printf '%s\n' "\$reply"
       ;;
+    reply)
+      if [ \$# -eq 0 ]; then
+        echo "Usage: wmailbox reply <text>"
+        return 1
+      fi
+      if ! command -v base64 >/dev/null 2>&1; then
+        echo "base64 command not found in Termux"
+        return 1
+      fi
+      local reply_msg="\$*"
+      local reply_b64
+      reply_b64="\$(printf '%s' "\$reply_msg" | base64 | tr -d '\r\n')"
+      _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action reply -Source 'termux' -Text ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$reply_b64')))"
+      ;;
     watch)
       local interval="\${1:-5}"
       case "\$interval" in
@@ -721,7 +735,7 @@ FLOW
       _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action resolve -Items @('\$joined' -split \"','\")"
       ;;
     *)
-      echo "Usage: wmailbox [ensure|status|list|digest|show|termux|pull|pullclip|watch|prompt|handoff|codexclip|flow|flowclip|resolve]"
+      echo "Usage: wmailbox [ensure|status|list|digest|show|termux|pull|pullclip|reply|watch|prompt|handoff|codexclip|flow|flowclip|resolve]"
       return 1
       ;;
   esac
@@ -843,6 +857,67 @@ WPHONE_HELP
       ;;
     *)
       echo "Usage: wphone [help|session|init|ls|attach|run|send|paste|capture]"
+      return 1
+      ;;
+  esac
+}
+
+wtutor() {
+  local topic="\${1:-quick}"
+  case "\$topic" in
+    quick)
+      cat <<'WTUTOR_QUICK'
+Практика (быстрый цикл):
+  1) wplan "проверка цикла"
+  2) wmailbox codexclip
+  3) вставь prompt в Codex
+  4) wmailbox watch
+  5) когда ответ появится -> он напечатается и попадет в буфер
+WTUTOR_QUICK
+      ;;
+    mailbox)
+      cat <<'WTUTOR_MAILBOX'
+Практика mailbox:
+  1) wmailbox status
+  2) wmailbox list
+  3) wmailbox digest
+  4) wmailbox show
+  5) wmailbox reply "Тестовый ответ для телефона"
+  6) wmailbox pullclip
+
+Ожидаемо:
+  - reply обновляет ops/mailbox/for_termux.md
+  - pullclip печатает текст и копирует его в Android clipboard
+WTUTOR_MAILBOX
+      ;;
+    phone)
+      cat <<'WTUTOR_PHONE'
+Практика phone-terminal:
+  1) wphone init
+  2) wphone run "echo PHONE_OK"
+  3) wphone run "git status -sb"
+  4) wphone capture 80
+
+Ожидаемо:
+  - capture показывает PHONE_OK
+  - ниже в capture виден вывод git status
+WTUTOR_PHONE
+      ;;
+    duplex)
+      cat <<'WTUTOR_DUPLEX'
+Практика duplex (2 сессии Termux):
+  Сессия A:
+    wmailbox watch
+  Сессия B:
+    wmailbox reply "Привет из mailbox reply"
+
+Ожидаемо в сессии A:
+  - новое сообщение выводится автоматически
+  - текст копируется в буфер (если termux-api + Termux:API установлены)
+WTUTOR_DUPLEX
+      ;;
+    *)
+      echo "Usage: wtutor [quick|mailbox|phone|duplex]"
       return 1
       ;;
   esac

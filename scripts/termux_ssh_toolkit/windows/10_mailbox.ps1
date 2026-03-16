@@ -1,5 +1,5 @@
 ﻿param(
-    [ValidateSet("ensure", "plan", "status", "list", "digest", "show", "termux", "resolve", "prompt", "handoff")]
+    [ValidateSet("ensure", "plan", "status", "list", "digest", "show", "termux", "reply", "resolve", "prompt", "handoff")]
     [string]$Action = "status",
     [string]$ProjectPath = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path,
     [string]$Text = "",
@@ -164,6 +164,35 @@ function Show-ForTermux {
     Get-Content -LiteralPath $forTermuxPath -Raw -Encoding UTF8 | Out-Host
 }
 
+function Publish-ForTermux([string]$replyText, [string]$src) {
+    if ([string]::IsNullOrWhiteSpace($replyText)) {
+        throw "Text is required for reply action."
+    }
+
+    $safeSrc = ($src -replace "[^a-zA-Z0-9_-]", "_")
+    if ([string]::IsNullOrWhiteSpace($safeSrc)) {
+        $safeSrc = "windows"
+    }
+
+    $now = (Get-Date).ToString("s")
+    $body = @"
+# Termux Mailbox
+
+Generated: $now
+Source: $safeSrc
+
+$replyText
+"@
+    [System.IO.File]::WriteAllText($forTermuxPath, $body, [System.Text.UTF8Encoding]::new($true))
+
+    $stamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
+    $logPath = Join-Path $outboxDir "$stamp-$safeSrc-termux.md"
+    [System.IO.File]::WriteAllText($logPath, $body, [System.Text.UTF8Encoding]::new($true))
+
+    Write-Output "[ok] termux reply updated: $forTermuxPath"
+    Write-Output "[ok] outbox log: $logPath"
+}
+
 function Build-CodexPrompt {
     if (-not (Test-Path -LiteralPath $forCodexPath)) {
         Build-Digest -Quiet
@@ -211,6 +240,7 @@ switch ($Action) {
     "digest" { Build-Digest; break }
     "show" { Show-ForCodex; break }
     "termux" { Show-ForTermux; break }
+    "reply" { Publish-ForTermux -replyText $Text -src $Source; break }
     "resolve" { Resolve-Items -names $Items; break }
     "prompt" { Build-CodexPrompt | Write-Output; break }
     "handoff" { Handoff-Codex; break }

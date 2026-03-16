@@ -21,12 +21,14 @@
     Сначала wrefresh, потом wgo.
   wplan "<текст задачи>"
     Положить задачу из телефона в ops/mailbox/inbox.
-  wmailbox [status|list|digest|show|termux|pull|pullclip|watch|prompt|handoff|codexclip|flow|flowclip|resolve]
+  wmailbox [status|list|digest|show|termux|pull|pullclip|reply|watch|prompt|handoff|codexclip|flow|flowclip|resolve]
     Управление mailbox: prompt для Codex + получение ответа на телефон + clipboard.
     Подробно по подкомандам см. блок "wmailbox подробно" ниже.
   wphone [help|session|init|ls|attach|run|send|paste|capture]
     Локальное управление tmux-сессией в Termux (для сквозного phone-terminal потока).
     Подробно по подкомандам см. блок "wphone подробно" ниже.
+  wtutor [quick|mailbox|phone|duplex]
+    Пошаговые практические сценарии с ожидаемым результатом.
   wgo
     Войти в Windows PowerShell (папка пользователя).
   wenter
@@ -120,6 +122,9 @@ Phone-terminal цикл (без UI-автоклика):
   3) wphone capture 80
   4) при необходимости: wphone attach
 
+Учебный старт (если хочешь пройти руками):
+  wtutor quick
+
 wmailbox подробно:
   wmailbox status
     Показать счетчики mailbox (сколько задач во входящих/обработанных).
@@ -143,6 +148,8 @@ wmailbox подробно:
     Показать ответ для телефона из ops/mailbox/for_termux.md.
   wmailbox pullclip
     Показать ответ для телефона и копировать его в Android clipboard.
+  wmailbox reply "<text>"
+    Записать новый ответ в ops/mailbox/for_termux.md (полезно для теста watch/duplex).
   wmailbox watch [interval_seconds]
     Следить за for_termux.md в цикле, при изменении печатать новый ответ,
     копировать его в буфер и (если доступно) показывать уведомление.
@@ -166,6 +173,16 @@ wphone подробно:
     Снять последние строки экрана tmux (по умолчанию: 120).
   wphone paste
     Вставить Android clipboard в tmux и нажать Enter.
+
+wtutor подробно:
+  wtutor quick
+    Короткий end-to-end цикл: задача -> prompt -> watch -> ответ.
+  wtutor mailbox
+    Практика mailbox-команд (status/list/digest/reply/pullclip).
+  wtutor phone
+    Практика управления tmux-сессией через wphone.
+  wtutor duplex
+    Практика в 2 Termux-сессиях: watch в одной, reply в другой.
 
 Важно про clipboard в Termux:
   Для termux-clipboard-set/get нужны одновременно:
