@@ -593,6 +593,12 @@ try: cand=s.encode('latin1', 'ignore').decode('utf-8', 'ignore'); \
 except Exception: cand=s; \
 best = cand if score(cand) > score(best) else best; \
 print(best, end='')" 2>/dev/null || printf '%s' "\$decoded_text")"
+        elif command -v iconv >/dev/null 2>&1; then
+          local iconv_try
+          iconv_try="\$(printf '%s' "\$decoded_text" | iconv -f ISO-8859-1 -t UTF-8 2>/dev/null || true)"
+          if [ -n "\$iconv_try" ]; then
+            decoded_text="\$iconv_try"
+          fi
         fi
         printf '%s\n' "\$decoded_text"
       else
