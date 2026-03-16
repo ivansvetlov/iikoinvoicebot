@@ -606,10 +606,22 @@ wmailbox() {
       ;;
     pullclip)
       local reply
+      local is_valid=0
       if reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null)"; then
-        :
+        if [ -z "\$reply" ] || [[ "\$reply" == "[warn] file not found:"* ]]; then
+          reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
+        fi
       else
         reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
+      fi
+      if [[ "\$reply" == *"# Termux Mailbox"* ]]; then
+        is_valid=1
+      fi
+      if [ "\$is_valid" -eq 0 ]; then
+        local fallback_file="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}/for_termux_pullclip.md"
+        if _wssh_base "\$WINDEV_ALIAS" "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"Get-Content -Raw -Encoding UTF8 '\$WINDEV_PROJECT_WIN\\\\ops\\\\mailbox\\\\for_termux.md'\"" > "\$fallback_file" 2>/dev/null; then
+          reply="\$(cat "\$fallback_file" 2>/dev/null || true)"
+        fi
       fi
       if [ -z "\$reply" ]; then
         echo "[warn] no termux reply found in mailbox."
@@ -653,10 +665,22 @@ wmailbox() {
       local initialized=0
       while true; do
         local current_reply=""
+        local is_valid=0
         if current_reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null)"; then
-          :
+          if [ -z "\$current_reply" ] || [[ "\$current_reply" == "[warn] file not found:"* ]]; then
+            current_reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
+          fi
         else
           current_reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
+        fi
+        if [[ "\$current_reply" == *"# Termux Mailbox"* ]]; then
+          is_valid=1
+        fi
+        if [ "\$is_valid" -eq 0 ]; then
+          local fallback_file="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}/for_termux_watch.md"
+          if _wssh_base "\$WINDEV_ALIAS" "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"Get-Content -Raw -Encoding UTF8 '\$WINDEV_PROJECT_WIN\\\\ops\\\\mailbox\\\\for_termux.md'\"" > "\$fallback_file" 2>/dev/null; then
+            current_reply="\$(cat "\$fallback_file" 2>/dev/null || true)"
+          fi
         fi
         local current_sig
         current_sig="\$(printf '%s' "\$current_reply" | cksum)"

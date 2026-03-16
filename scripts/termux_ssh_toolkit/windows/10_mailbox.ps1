@@ -153,7 +153,7 @@ function Show-ForCodex {
         Write-Output "[warn] file not found: $forCodexPath"
         return
     }
-    Get-Content -LiteralPath $forCodexPath -Raw -Encoding UTF8 | Out-Host
+    Get-Content -LiteralPath $forCodexPath -Raw -Encoding UTF8 | Write-Output
 }
 
 function Show-ForTermux {
@@ -161,7 +161,7 @@ function Show-ForTermux {
         Write-Output "[warn] file not found: $forTermuxPath"
         return
     }
-    Get-Content -LiteralPath $forTermuxPath -Raw -Encoding UTF8 | Out-Host
+    Get-Content -LiteralPath $forTermuxPath -Raw -Encoding UTF8 | Write-Output
 }
 
 function Publish-ForTermux([string]$replyText, [string]$src) {
