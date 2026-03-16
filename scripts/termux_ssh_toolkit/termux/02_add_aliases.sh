@@ -606,7 +606,7 @@ wmailbox() {
       ;;
     pullclip)
       local reply
-      local clip_mode="${1:-body}"
+      local clip_mode="\${1:-body}"
       local clip_text=""
       local pull_file="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}/for_termux_pullclip.md"
       if _wssh_base "\$WINDEV_ALIAS" "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(\$false); Get-Content -Raw -Encoding UTF8 '\$WINDEV_PROJECT_WIN\\\\ops\\\\mailbox\\\\for_termux.md'\"" > "\$pull_file" 2>/dev/null; then
