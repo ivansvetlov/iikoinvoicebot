@@ -1118,7 +1118,7 @@ Clipboard shortcuts:
     Copy one command to Android clipboard.
   cat <<'EOF' | wclip
     Copy multi-line command block to Android clipboard.
-EOF
+EXTRA
     return 0
   fi
 
