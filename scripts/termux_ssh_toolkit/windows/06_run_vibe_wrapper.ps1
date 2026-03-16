@@ -349,7 +349,9 @@ function Invoke-DirectApiAsk([string]$promptText) {
     if ($null -eq $answer) {
         $answer = ""
     }
-    Write-Output "$answer"
+    # Emit ASCII-safe text to avoid mojibake in SSH/PowerShell transport.
+    $safeAnswer = [regex]::Replace([string]$answer, '[^\u0009\u000A\u000D\u0020-\u007E]', '?')
+    Write-Output "$safeAnswer"
 }
 
 function Read-FileSnippet([string]$path, [int]$maxChars = 5000) {
