@@ -772,6 +772,25 @@ FLOW
   esac
 }
 
+wclip() {
+  if ! command -v termux-clipboard-set >/dev/null 2>&1; then
+    echo "[warn] termux-clipboard-set not found. Install termux-api package/app."
+    return 1
+  fi
+  local payload=""
+  if [ \$# -gt 0 ]; then
+    payload="\$*"
+  else
+    payload="\$(cat)"
+  fi
+  if [ -z "\$payload" ]; then
+    echo "[warn] empty payload, nothing copied."
+    return 1
+  fi
+  printf '%s' "\$payload" | termux-clipboard-set
+  echo "[ok] copied to Android clipboard."
+}
+
 _wphone_require_tmux() {
   if command -v tmux >/dev/null 2>&1; then
     return 0
