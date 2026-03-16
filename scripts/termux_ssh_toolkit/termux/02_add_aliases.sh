@@ -794,6 +794,10 @@ wclip() {
   echo "[ok] copied to Android clipboard."
 }
 
+wpaste() {
+  wmailbox pullclip "\$@"
+}
+
 _wphone_require_tmux() {
   if command -v tmux >/dev/null 2>&1; then
     return 0
