@@ -163,6 +163,7 @@ Mailbox handoff:
 2. `wmailbox codexclip`
 3. Open Codex chat and paste clipboard text.
 4. Optional: `wmailbox flowclip` to copy the full command pack into Android clipboard.
+5. Pull answer back to phone: `wmailbox pull` (or `wmailbox pullclip` to copy into clipboard).
 
 Phone terminal control (local Termux tmux):
 1. `wphone init`
@@ -176,7 +177,7 @@ Practical next plan (what we do now):
 2. Lock phone terminal control (`wphone run/capture`) for daily routines.
    Done criteria: from phone we can run `git pull`, `wstatus`, `wtest` and capture output without interactive attach.
 3. Add mailbox return path for answers (`for_termux.md` + `wmailbox` read action).
-   Done criteria: answer can be pulled on phone in one command without opening files manually.
+   Done criteria: answer can be pulled on phone in one command without opening files manually. (Implemented: `wmailbox pull` / `wmailbox pullclip`)
 4. Add safe automation presets (incident/recovery/release packs with confirmations).
    Done criteria: one command runs a validated sequence with clear stop points on failures.
 

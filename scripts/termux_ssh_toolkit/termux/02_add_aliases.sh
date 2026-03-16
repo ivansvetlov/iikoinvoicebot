@@ -598,6 +598,31 @@ wmailbox() {
     ensure|status|list|digest|show|prompt|handoff)
       _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action '\$action'"
       ;;
+    termux|pull)
+      if ! _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null; then
+        # Backward-compatible path if "termux" action is absent on remote script.
+        _wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { Write-Output '[warn] file not found: .\\\\ops\\\\mailbox\\\\for_termux.md' }"
+      fi
+      ;;
+    pullclip)
+      local reply
+      if reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null)"; then
+        :
+      else
+        reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
+      fi
+      if [ -z "\$reply" ]; then
+        echo "[warn] no termux reply found in mailbox."
+        return 1
+      fi
+      if command -v termux-clipboard-set >/dev/null 2>&1; then
+        printf '%s' "\$reply" | termux-clipboard-set
+        echo "[ok] Termux mailbox reply copied to Android clipboard."
+      else
+        echo "[warn] termux-clipboard-set not found. Install termux-api package/app."
+      fi
+      printf '%s\n' "\$reply"
+      ;;
     codexclip)
       local prompt
       local default_prompt
@@ -654,7 +679,7 @@ FLOW
       _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action resolve -Items @('\$joined' -split \"','\")"
       ;;
     *)
-      echo "Usage: wmailbox [ensure|status|list|digest|show|prompt|handoff|codexclip|flow|flowclip|resolve]"
+      echo "Usage: wmailbox [ensure|status|list|digest|show|termux|pull|pullclip|prompt|handoff|codexclip|flow|flowclip|resolve]"
       return 1
       ;;
   esac

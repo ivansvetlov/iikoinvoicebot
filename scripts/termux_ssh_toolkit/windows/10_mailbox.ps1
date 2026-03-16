@@ -1,5 +1,5 @@
 ﻿param(
-    [ValidateSet("ensure", "plan", "status", "list", "digest", "show", "resolve", "prompt", "handoff")]
+    [ValidateSet("ensure", "plan", "status", "list", "digest", "show", "termux", "resolve", "prompt", "handoff")]
     [string]$Action = "status",
     [string]$ProjectPath = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path,
     [string]$Text = "",
@@ -156,6 +156,14 @@ function Show-ForCodex {
     Get-Content -LiteralPath $forCodexPath -Raw -Encoding UTF8 | Out-Host
 }
 
+function Show-ForTermux {
+    if (-not (Test-Path -LiteralPath $forTermuxPath)) {
+        Write-Output "[warn] file not found: $forTermuxPath"
+        return
+    }
+    Get-Content -LiteralPath $forTermuxPath -Raw -Encoding UTF8 | Out-Host
+}
+
 function Build-CodexPrompt {
     if (-not (Test-Path -LiteralPath $forCodexPath)) {
         Build-Digest -Quiet
@@ -202,6 +210,7 @@ switch ($Action) {
     "list" { List-Inbox; break }
     "digest" { Build-Digest; break }
     "show" { Show-ForCodex; break }
+    "termux" { Show-ForTermux; break }
     "resolve" { Resolve-Items -names $Items; break }
     "prompt" { Build-CodexPrompt | Write-Output; break }
     "handoff" { Handoff-Codex; break }

@@ -107,6 +107,7 @@ Mailbox flow:
 2. Build ready prompt + copy to Android clipboard: `wmailbox codexclip`
 3. Open Codex chat and paste clipboard text
 4. Optional: `wmailbox flowclip` to copy the full command pack
+5. Pull answer to phone: `wmailbox pull` (or `wmailbox pullclip`)
 
 Phone terminal control (local tmux in Termux):
 1. `wphone init`
@@ -118,6 +119,7 @@ Practical next plan:
 1. Stabilize `wplan -> wmailbox codexclip -> paste`.
 2. Use `wphone run/capture` for repeated dev commands from phone.
 3. Add one-command answer pull from mailbox to phone.
+   Status: implemented via `wmailbox pull` / `wmailbox pullclip`.
 4. Promote stable presets into day-to-day wrappers.
 
 Inside Windows shell (`MiBookPro`), install wrappers once:

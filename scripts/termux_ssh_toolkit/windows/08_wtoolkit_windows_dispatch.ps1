@@ -336,6 +336,12 @@ switch ($cmd) {
             "show" {
                 & $mailboxTool -Action show -ProjectPath $ProjectPath
             }
+            "termux" {
+                & $mailboxTool -Action termux -ProjectPath $ProjectPath
+            }
+            "pull" {
+                & $mailboxTool -Action termux -ProjectPath $ProjectPath
+            }
             "prompt" {
                 & $mailboxTool -Action prompt -ProjectPath $ProjectPath
             }
@@ -353,7 +359,7 @@ switch ($cmd) {
                 & $mailboxTool -Action resolve -ProjectPath $ProjectPath -Items $items
             }
             default {
-                throw "Использование: wmailbox [ensure|status|list|digest|show|prompt|handoff|resolve]"
+                throw "Использование: wmailbox [ensure|status|list|digest|show|termux|pull|prompt|handoff|resolve]"
             }
         }
         $exitCode = Get-LastCodeOrZero

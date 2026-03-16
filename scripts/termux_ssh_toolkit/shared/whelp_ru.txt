@@ -21,8 +21,8 @@
     Сначала wrefresh, потом wgo.
   wplan "<текст задачи>"
     Положить задачу из телефона в ops/mailbox/inbox.
-  wmailbox [status|list|digest|show|prompt|handoff|codexclip|flow|flowclip|resolve]
-    Управление mailbox, включая автоподготовку prompt и копирование в буфер Android.
+  wmailbox [status|list|digest|show|termux|pull|pullclip|prompt|handoff|codexclip|flow|flowclip|resolve]
+    Управление mailbox: prompt для Codex + получение ответа на телефон + clipboard.
   wphone [help|session|init|ls|attach|run|send|paste|capture]
     Локальное управление tmux-сессией в Termux (для сквозного phone-terminal потока).
   wgo
@@ -106,6 +106,10 @@ Mailbox-цикл (телефон -> Codex):
   2) wmailbox codexclip
   3) открыть чат Codex и вставить prompt из буфера
   4) опционально: wmailbox flowclip (копирует всю пачку команд)
+
+Ответ на телефон из mailbox:
+  1) wmailbox pull
+  2) или wmailbox pullclip (ответ + копирование в буфер Android)
 
 Phone-terminal цикл (без UI-автоклика):
   1) wphone init
