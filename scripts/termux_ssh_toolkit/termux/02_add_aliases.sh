@@ -574,7 +574,7 @@ wvibe() {
     local api_raw
     api_raw="\$(_wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode api_ask "\${force_args[@]}" -TaskBase64 "\$task_b64")"
     local api_b64
-    api_b64="\$(printf '%s\n' "\$api_raw" | sed -n 's/.*__WVIBE_B64__://p' | tr -d '\r' | tr -cd 'A-Za-z0-9+/=\n')"
+    api_b64="\$(printf '%s\n' "\$api_raw" | awk '/__WVIBE_B64_BEGIN__/{flag=1;next}/__WVIBE_B64_END__/{flag=0}flag' | tr -d '\r\n' | tr -cd 'A-Za-z0-9+/=')"
     if [ -n "\$api_b64" ]; then
       local decoded_text
       if decoded_text="\$(printf '%s' "\$api_b64" | base64 -d 2>/dev/null)"; then

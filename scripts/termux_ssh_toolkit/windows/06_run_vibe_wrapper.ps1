@@ -357,7 +357,9 @@ function Invoke-DirectApiAsk([string]$promptText) {
     }
     $answerText = [string]$answer
     $answerB64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($answerText))
-    Write-Output "__WVIBE_B64__:$answerB64"
+    Write-Output "__WVIBE_B64_BEGIN__"
+    Write-Output $answerB64
+    Write-Output "__WVIBE_B64_END__"
 }
 
 function Read-FileSnippet([string]$path, [int]$maxChars = 5000) {
