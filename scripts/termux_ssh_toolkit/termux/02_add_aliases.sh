@@ -576,11 +576,20 @@ wvibe() {
     local api_b64
     api_b64="\$(printf '%s\n' "\$api_raw" | sed -n 's/.*__WVIBE_B64__://p' | tr -d '\r' | tr -cd 'A-Za-z0-9+/=\n')"
     if [ -n "\$api_b64" ]; then
-      if ! printf '%s' "\$api_b64" | base64 -d; then
+      local decoded_text
+      if decoded_text="\$(printf '%s' "\$api_b64" | base64 -d 2>/dev/null)"; then
+        # Auto-fix common UTF-8 mojibake pattern like "Ð.../Ñ..."
+        if printf '%s' "\$decoded_text" | grep -q '[ÐÑ]'; then
+          if command -v python >/dev/null 2>&1; then
+            decoded_text="\$(printf '%s' "\$decoded_text" | python -c "import sys; s=sys.stdin.read(); \
+try: print(s.encode('latin1').decode('utf-8'), end='') \
+except Exception: print(s, end='')" 2>/dev/null || printf '%s' "\$decoded_text")"
+          fi
+        fi
+        printf '%s\n' "\$decoded_text"
+      else
         echo "[warn] failed to decode api response, fallback to raw output."
         printf '%s\n' "\$api_raw"
-      else
-        printf '\n'
       fi
     else
       printf '%s\n' "\$api_raw"
