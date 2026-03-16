@@ -78,6 +78,9 @@ _wssh_base() {
     -o ControlMaster=no \
     -o ConnectTimeout=5 \
     -o ConnectionAttempts=1 \
+    -o BatchMode=yes \
+    -o NumberOfPasswordPrompts=0 \
+    -o StrictHostKeyChecking=accept-new \
     -o PreferredAuthentications=publickey \
     -o PubkeyAuthentication=yes \
     -o IdentitiesOnly=yes \
