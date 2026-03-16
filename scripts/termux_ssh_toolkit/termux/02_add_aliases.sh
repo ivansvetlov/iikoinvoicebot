@@ -606,6 +606,8 @@ wmailbox() {
       ;;
     pullclip)
       local reply
+      local clip_mode="${1:-body}"
+      local clip_text=""
       local pull_file="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}/for_termux_pullclip.md"
       if _wssh_base "\$WINDEV_ALIAS" "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(\$false); Get-Content -Raw -Encoding UTF8 '\$WINDEV_PROJECT_WIN\\\\ops\\\\mailbox\\\\for_termux.md'\"" > "\$pull_file" 2>/dev/null; then
         reply="\$(cat "\$pull_file" 2>/dev/null || true)"
@@ -617,13 +619,28 @@ wmailbox() {
         echo "[warn] no termux reply found in mailbox."
         return 1
       fi
+      case "\$clip_mode" in
+        body)
+          clip_text="\$(printf '%s' "\$reply" | awk 'f{print} /^Source:[[:space:]].*$/{f=1}' | sed '/./,\$!d')"
+          if [ -z "\$clip_text" ]; then
+            clip_text="\$reply"
+          fi
+          ;;
+        full)
+          clip_text="\$reply"
+          ;;
+        *)
+          echo "Usage: wmailbox pullclip [body|full]"
+          return 1
+          ;;
+      esac
       if command -v termux-clipboard-set >/dev/null 2>&1; then
-        printf '%s' "\$reply" | termux-clipboard-set
-        echo "[ok] Termux mailbox reply copied to Android clipboard."
+        printf '%s' "\$clip_text" | termux-clipboard-set
+        echo "[ok] Termux mailbox reply copied to Android clipboard (\$clip_mode)."
       else
         echo "[warn] termux-clipboard-set not found. Install termux-api package/app."
       fi
-      printf '%s\n' "\$reply"
+      printf '%s\n' "\$clip_text"
       ;;
     reply)
       if [ \$# -eq 0 ]; then
