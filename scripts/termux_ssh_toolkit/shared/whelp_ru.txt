@@ -23,8 +23,10 @@
     Положить задачу из телефона в ops/mailbox/inbox.
   wmailbox [status|list|digest|show|termux|pull|pullclip|prompt|handoff|codexclip|flow|flowclip|resolve]
     Управление mailbox: prompt для Codex + получение ответа на телефон + clipboard.
+    Подробно по подкомандам см. блок "wmailbox подробно" ниже.
   wphone [help|session|init|ls|attach|run|send|paste|capture]
     Локальное управление tmux-сессией в Termux (для сквозного phone-terminal потока).
+    Подробно по подкомандам см. блок "wphone подробно" ниже.
   wgo
     Войти в Windows PowerShell (папка пользователя).
   wenter
@@ -116,6 +118,55 @@ Phone-terminal цикл (без UI-автоклика):
   2) wphone run "команда"
   3) wphone capture 80
   4) при необходимости: wphone attach
+
+wmailbox подробно:
+  wmailbox status
+    Показать счетчики mailbox (сколько задач во входящих/обработанных).
+  wmailbox list
+    Показать список файлов задач в inbox.
+  wmailbox digest
+    Собрать общий файл задач для Codex: ops/mailbox/for_codex.md.
+  wmailbox show
+    Показать содержимое ops/mailbox/for_codex.md.
+  wmailbox prompt
+    Показать короткий готовый prompt для Codex.
+  wmailbox handoff
+    Обновить digest + вывести готовый prompt (для отправки в Codex).
+  wmailbox codexclip
+    То же, что handoff, и сразу копировать prompt в Android clipboard.
+  wmailbox flow
+    Показать мини-пачку команд для цикла "телефон -> Codex".
+  wmailbox flowclip
+    Скопировать эту мини-пачку в Android clipboard.
+  wmailbox termux / wmailbox pull
+    Показать ответ для телефона из ops/mailbox/for_termux.md.
+  wmailbox pullclip
+    Показать ответ для телефона и копировать его в Android clipboard.
+  wmailbox resolve <file1.md> [file2.md ...]
+    Переместить обработанные inbox-файлы в processed.
+
+wphone подробно:
+  wphone session [name]
+    Показать/сменить имя tmux-сессии (по умолчанию: main).
+  wphone init
+    Установить tmux (если нет) и создать сессию.
+  wphone ls
+    Показать tmux-сессии.
+  wphone attach
+    Подключиться к текущей tmux-сессии.
+  wphone run "<cmd>"
+    Отправить команду в tmux и нажать Enter.
+  wphone send "<text>"
+    Отправить текст без Enter.
+  wphone capture [lines]
+    Снять последние строки экрана tmux (по умолчанию: 120).
+  wphone paste
+    Вставить Android clipboard в tmux и нажать Enter.
+
+Важно про clipboard в Termux:
+  Для termux-clipboard-set/get нужны одновременно:
+  1) пакет: pkg install termux-api
+  2) Android-приложение: Termux:API
 
 Если не работает:
   1) command not found -> source ~/.bashrc
