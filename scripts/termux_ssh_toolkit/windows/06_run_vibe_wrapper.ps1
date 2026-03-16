@@ -307,12 +307,12 @@ function Get-ActiveModelName {
         if ($m.Success) {
             $name = $m.Groups[1].Value
             if ($name -eq "devstral-2") {
-                return "mistral-small-latest"
+                return "labs-leanstral-2603"
             }
             return $name
         }
     }
-    return "mistral-small-latest"
+    return "labs-leanstral-2603"
 }
 
 function Invoke-DirectApiAsk([string]$promptText) {
