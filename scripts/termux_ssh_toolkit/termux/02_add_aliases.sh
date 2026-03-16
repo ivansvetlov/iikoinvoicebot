@@ -90,13 +90,27 @@ _wssh_base() {
 _wps() {
   local cmd="\$*"
   local utf8_prelude='[Console]::InputEncoding=[System.Text.UTF8Encoding]::new(\$false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(\$false); \$OutputEncoding=[Console]::OutputEncoding; chcp 65001 > \$null;'
-  _wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "\$utf8_prelude \$cmd"
+  local full_cmd="\$utf8_prelude \$cmd"
+  if command -v iconv > /dev/null 2>&1 && command -v base64 > /dev/null 2>&1; then
+    local encoded
+    encoded="\$(printf '%s' "\$full_cmd" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\r\n')"
+    _wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand "\$encoded"
+  else
+    _wssh_base "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "\$full_cmd"
+  fi
 }
 
 _wps_tty() {
   local cmd="\$*"
   local utf8_prelude='[Console]::InputEncoding=[System.Text.UTF8Encoding]::new(\$false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(\$false); \$OutputEncoding=[Console]::OutputEncoding; chcp 65001 > \$null;'
-  _wssh_base -tt "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "\$utf8_prelude \$cmd"
+  local full_cmd="\$utf8_prelude \$cmd"
+  if command -v iconv > /dev/null 2>&1 && command -v base64 > /dev/null 2>&1; then
+    local encoded
+    encoded="\$(printf '%s' "\$full_cmd" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\r\n')"
+    _wssh_base -tt "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand "\$encoded"
+  else
+    _wssh_base -tt "\$WINDEV_ALIAS" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "\$full_cmd"
+  fi
 }
 
 _confirm() {
