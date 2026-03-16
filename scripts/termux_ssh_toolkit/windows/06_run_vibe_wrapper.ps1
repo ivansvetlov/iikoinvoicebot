@@ -305,7 +305,11 @@ function Get-ActiveModelName {
         $rawCfg = Get-Content -LiteralPath $cfgPath -Raw -Encoding UTF8
         $m = [regex]::Match($rawCfg, '(?m)^\s*active_model\s*=\s*"([^"]+)"\s*$')
         if ($m.Success) {
-            return $m.Groups[1].Value
+            $name = $m.Groups[1].Value
+            if ($name -eq "devstral-2") {
+                return "mistral-small-latest"
+            }
+            return $name
         }
     }
     return "mistral-small-latest"
