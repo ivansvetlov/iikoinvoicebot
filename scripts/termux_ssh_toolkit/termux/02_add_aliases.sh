@@ -76,6 +76,9 @@ export WINDEV_TERMUX_REPO="$TERMUX_REPO"
 _wssh_base() {
   ssh \
     -o ControlMaster=no \
+    -o BatchMode=yes \
+    -o NumberOfPasswordPrompts=0 \
+    -o StrictHostKeyChecking=accept-new \
     -o ConnectTimeout=5 \
     -o ConnectionAttempts=1 \
     -o PreferredAuthentications=publickey \
