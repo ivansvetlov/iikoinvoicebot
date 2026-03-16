@@ -571,7 +571,18 @@ wvibe() {
   elif [ "\$mode" = "ask" ]; then
     _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode ask "\${force_args[@]}" -TaskBase64 "\$task_b64"
   elif [ "\$mode" = "api_ask" ]; then
-    _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode api_ask "\${force_args[@]}" -TaskBase64 "\$task_b64"
+    local api_raw
+    api_raw="\$(_wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode api_ask "\${force_args[@]}" -TaskBase64 "\$task_b64")"
+    local first_line
+    first_line="\$(printf '%s\n' "\$api_raw" | head -n 1)"
+    if [[ "\$first_line" == __WVIBE_B64__:* ]]; then
+      local api_b64
+      api_b64="\${first_line#__WVIBE_B64__:}"
+      printf '%s' "\$api_b64" | base64 -d
+      printf '\n'
+    else
+      printf '%s\n' "\$api_raw"
+    fi
   else
     local start_args=(-Mode start)
     if [ "\$skip_bootstrap" -eq 1 ]; then
