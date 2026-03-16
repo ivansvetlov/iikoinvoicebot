@@ -647,7 +647,9 @@ wmailbox() {
     pullclip)
       local reply
       if reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null)"; then
-        :
+        if [ -z "\$reply" ]; then
+          reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
+        fi
       else
         reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
       fi
@@ -694,7 +696,9 @@ wmailbox() {
       while true; do
         local current_reply=""
         if current_reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null)"; then
-          :
+          if [ -z "\$current_reply" ]; then
+            current_reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
+          fi
         else
           current_reply="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; if (Test-Path '.\\\\ops\\\\mailbox\\\\for_termux.md') { Get-Content '.\\\\ops\\\\mailbox\\\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
         fi
