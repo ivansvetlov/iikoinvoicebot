@@ -1,5 +1,5 @@
 ﻿param(
-    [ValidateSet("ensure", "plan", "status", "list", "digest", "show", "termux", "reply", "resolve", "prompt", "handoff")]
+    [ValidateSet("ensure", "plan", "status", "list", "digest", "show", "termux", "reply", "resolve", "prompt", "handoff", "inbox")]
     [string]$Action = "status",
     [string]$ProjectPath = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path,
     [string]$Text = "",
@@ -23,6 +23,7 @@ $mailRoot = Join-Path $ProjectPath "ops\mailbox"
 $inboxDir = Join-Path $mailRoot "inbox"
 $processedDir = Join-Path $mailRoot "processed"
 $outboxDir = Join-Path $mailRoot "outbox"
+$latestInboxPath = Join-Path $inboxDir "LATEST.md"
 $forCodexPath = Join-Path $mailRoot "for_codex.md"
 $forTermuxPath = Join-Path $mailRoot "for_termux.md"
 
@@ -193,6 +194,38 @@ $replyText
     Write-Output "[ok] outbox log: $logPath"
 }
 
+function Publish-InboxItem([string]$inboxText, [string]$src) {
+    if ([string]::IsNullOrWhiteSpace($inboxText)) {
+        throw "Text is required for inbox action."
+    }
+
+    $safeSrc = ($src -replace "[^a-zA-Z0-9_-]", "_")
+    if ([string]::IsNullOrWhiteSpace($safeSrc)) {
+        $safeSrc = "termux"
+    }
+
+    $now = (Get-Date).ToString("s")
+    $stamp = (Get-Date).ToString("yyyyMMdd-HHmmss-fff")
+    $fileName = "$stamp-$safeSrc-reply.md"
+    $path = Join-Path $inboxDir $fileName
+
+    $body = @"
+# Termux Reply
+
+- created_at: $now
+- source: $safeSrc
+- status: new
+
+## Reply
+$inboxText
+"@
+
+    [System.IO.File]::WriteAllText($path, $body, [System.Text.UTF8Encoding]::new($true))
+    [System.IO.File]::WriteAllText($latestInboxPath, $body, [System.Text.UTF8Encoding]::new($true))
+    Write-Output "[ok] inbox item created: $path"
+    Write-Output "[ok] inbox latest updated: $latestInboxPath"
+}
+
 function Build-CodexPrompt {
     if (-not (Test-Path -LiteralPath $forCodexPath)) {
         Build-Digest -Quiet
@@ -241,6 +274,7 @@ switch ($Action) {
     "show" { Show-ForCodex; break }
     "termux" { Show-ForTermux; break }
     "reply" { Publish-ForTermux -replyText $Text -src $Source; break }
+    "inbox" { Publish-InboxItem -inboxText $Text -src $Source; break }
     "resolve" { Resolve-Items -names $Items; break }
     "prompt" { Build-CodexPrompt | Write-Output; break }
     "handoff" { Handoff-Codex; break }

@@ -685,12 +685,45 @@ wplan() {
   _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action plan -Source 'termux' -Text ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$msg_b64')))"
 }
 
+_wmailbox_push_text() {
+  local text_payload="\${1:-}"
+  local src_tag="\${2:-termux}"
+  if [ -z "\$text_payload" ]; then
+    echo "[warn] empty text payload for mailbox inbox."
+    return 1
+  fi
+  if ! command -v base64 >/dev/null 2>&1; then
+    echo "base64 command not found in Termux"
+    return 1
+  fi
+  local text_b64
+  text_b64="\$(printf '%s' "\$text_payload" | base64 | tr -d '\r\n')"
+  _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action inbox -Source '\$src_tag' -Text ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$text_b64')))"
+}
+
 wmailbox() {
   local action="\${1:-status}"
   shift || true
   case "\$action" in
     ensure|status|list|digest|show|prompt|handoff)
       _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action '\$action'"
+      ;;
+    inbox|push)
+      local inbox_text=""
+      if [ \$# -gt 0 ]; then
+        inbox_text="\$*"
+      else
+        inbox_text="\$(cat)"
+      fi
+      _wmailbox_push_text "\$inbox_text" "termux"
+      ;;
+    pushlast)
+      local last_file="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}/wrunbox_last.txt"
+      if [ ! -f "\$last_file" ]; then
+        echo "[warn] no last runbox output found: \$last_file"
+        return 1
+      fi
+      _wmailbox_push_text "\$(cat "\$last_file")" "termux"
       ;;
     termux|pull)
       if ! _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null; then
@@ -860,10 +893,46 @@ FLOW
       _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action resolve -Items @('\$joined' -split \"','\")"
       ;;
     *)
-      echo "Usage: wmailbox [ensure|status|list|digest|show|termux|pull|pullclip|reply|watch|prompt|handoff|codexclip|flow|flowclip|resolve]"
+      echo "Usage: wmailbox [ensure|status|list|digest|show|termux|pull|pullclip|reply|watch|prompt|handoff|codexclip|flow|flowclip|resolve|inbox|push|pushlast]"
       return 1
       ;;
   esac
+}
+
+wrunbox() {
+  if [ \$# -eq 0 ]; then
+    echo "Usage: wrunbox <command>"
+    return 1
+  fi
+  local cmd="\$*"
+  local out_file="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}/wrunbox_last.txt"
+  local ts
+  ts="\$(date '+%Y-%m-%d %H:%M:%S')"
+
+  echo "[runbox] \$cmd"
+  { eval "\$cmd"; } > "\$out_file" 2>&1
+  local rc=\$?
+  cat "\$out_file"
+
+  local cwd
+  cwd="\$PWD"
+  local report
+  report=\$(cat <<EOF
+\`\`\`text
+[runbox]
+time: \$ts
+cwd: \$cwd
+command: \$cmd
+exit_code: \$rc
+
+output:
+\$(cat "\$out_file")
+\`\`\`
+EOF
+)
+  _wmailbox_push_text "\$report" "termux-runbox" >/dev/null || true
+  echo "[ok] run output pushed to ops/mailbox/inbox/LATEST.md"
+  return \$rc
 }
 
 wclip() {
