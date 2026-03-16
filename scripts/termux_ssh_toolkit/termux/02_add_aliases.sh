@@ -705,7 +705,22 @@ wrun() {
 
 # Unified help source: shared files used by both Termux and Windows wrappers.
 _whelp_shared_dir() {
-  echo "\$WINDEV_TERMUX_REPO/scripts/termux_ssh_toolkit/shared"
+  local default_repo="\${WINDEV_TERMUX_REPO:-\$HOME/iikoinvoicebot}"
+  local candidate
+
+  for candidate in \
+    "\${WINDEV_TERMUX_REPO:-}/scripts/termux_ssh_toolkit/shared" \
+    "\$default_repo/scripts/termux_ssh_toolkit/shared" \
+    "\$HOME/iikoinvoicebot/scripts/termux_ssh_toolkit/shared" \
+    "\$PWD/scripts/termux_ssh_toolkit/shared"
+  do
+    if [ -n "\$candidate" ] && [ -f "\$candidate/whelp_ru.txt" ]; then
+      echo "\$candidate"
+      return 0
+    fi
+  done
+
+  echo "\$default_repo/scripts/termux_ssh_toolkit/shared"
 }
 
 wsets() {
