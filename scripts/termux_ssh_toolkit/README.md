@@ -82,3 +82,23 @@ Termux:
 wsetip <tailscale_ip_from_windows_script>
 wssh
 ```
+
+## Stable mailbox clipboard flow (2026-03-16)
+
+Use these commands for phone-first command packs:
+
+```bash
+wmailbox reply "<text>"
+wpaste
+wpaste full
+```
+
+Clipboard helpers:
+
+```bash
+wclip "echo test"
+cat <<'EOF' | wclip
+cd ~/iikoinvoicebot
+git status -sb
+EOF
+```
