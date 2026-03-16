@@ -466,6 +466,7 @@ wvibe() {
   local mcp_cmd=0
   local skip_bootstrap=0
   local force_cleanup=0
+  local ask_backend="${WINDEV_WVIBE_ASK_BACKEND:-api}"
 
   while [ \$# -gt 0 ]; do
     case "\$1" in
@@ -475,6 +476,11 @@ wvibe() {
         ;;
       ask|text)
         mode="ask"
+        shift
+        ;;
+      cliask)
+        mode="ask"
+        ask_backend="cli"
         shift
         ;;
       api)
@@ -557,6 +563,9 @@ wvibe() {
   local task="\$*"
   local task_b64
   task_b64="\$(printf '%s' "\$task" | base64 | tr -d '\r\n')"
+  if [ "\$mode" = "ask" ] && [ "\$ask_backend" = "api" ]; then
+    mode="api_ask"
+  fi
   if [ "\$mcp_cmd" -eq 1 ]; then
     _wssh_base "\$WINDEV_ALIAS" powershell "\${common_args[@]}" -Mode mcp_cmd "\${force_args[@]}" -TaskBase64 "\$task_b64"
   elif [ "\$mode" = "ask" ]; then
