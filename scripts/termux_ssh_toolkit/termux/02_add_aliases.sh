@@ -677,7 +677,12 @@ wmailbox() {
       local reply_msg="\$*"
       local reply_b64
       reply_b64="\$(printf '%s' "\$reply_msg" | base64 | tr -d '\r\n')"
-      _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action reply -Source 'termux' -Text ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$reply_b64')))"
+      if _wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action reply -Source 'termux' -Text ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('\$reply_b64')))" >/dev/null; then
+        echo "[ok] mailbox reply stored."
+      else
+        echo "[error] failed to write mailbox reply."
+        return 1
+      fi
       ;;
     watch)
       local interval="\${1:-5}"
