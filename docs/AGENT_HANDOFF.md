@@ -257,3 +257,40 @@
 - Quick check:
   - `powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\11_tailscale_phone_link.ps1`
   - `powershell -ExecutionPolicy Bypass -File .\scripts\termux_ssh_toolkit\windows\03_show_connection_info.ps1`
+
+## 21) Termux mailbox + encoding hardening (2026-03-17, from dump sync)
+- Files/docs:
+  - added `docs/TERMUX_MAILBOX_STABLE_WORKFLOW_2026-03-16.md`;
+  - updated `docs/TERMUX_VIBE_WRAPPER_PLAYBOOK.md` and `docs/TERMUX_WINDOWS_VIBE_RUNBOOK.md` with `wmailbox`/clipboard/tutor/phone flows;
+  - wrapper behavior reflected in `scripts/termux_ssh_toolkit/termux/02_add_aliases.sh` and `scripts/termux_ssh_toolkit/windows/06_run_vibe_wrapper.ps1`.
+- Behavior:
+  - stabilized mailbox return path (`wmailbox pull` / `wmailbox pullclip`, aliases `wpaste`, `wclip`);
+  - fixed recurring mojibake class by enforcing UTF-8 prelude for remote PowerShell sessions (`InputEncoding/OutputEncoding` + `chcp 65001`) and keeping command transport base64-safe;
+  - documented non-interactive SSH defaults for stable pullclip path (`BatchMode`, `NumberOfPasswordPrompts=0`, `StrictHostKeyChecking=accept-new`);
+  - captured `wvibe api` model fallback rule: when active model is unavailable (e.g., `devstral-2`), wrapper falls back to `labs-leanstral-2603`;
+  - `scripts/termux_ssh_toolkit/windows/06_run_vibe_wrapper.ps1` now auto-normalizes legacy invalid `active_model="devstral-2"` in `%USERPROFILE%\.vibe\config.toml` to `labs-leanstral-2603` before wrapper start/reconnect flow.
+- Quick check:
+  - in Termux: `source ~/.bashrc`, then `whelp`, `wmailbox pullclip`, `wvibe doctor`;
+  - optional API check: `wvibe api "Reply exactly: OK"` (if `MISTRAL_API_KEY` is configured).
+
+## 22) Strict delivery policy for command blocks (2026-03-17)
+- Files:
+  - updated `docs/AGENTS.md`, `docs/TERMUX_MAILBOX_STABLE_WORKFLOW_2026-03-16.md`, `docs/TERMUX_WINDOWS_VIBE_RUNBOOK.md`, `docs/TERMUX_VIBE_WRAPPER_PLAYBOOK.md`, `VIBE.md`.
+- Behavior:
+  - executable command blocks for operator are delivered via mailbox channel only;
+  - chat is reserved for context, decisions, status, and results (without runnable command packs).
+
+## 23) Termux alias installer EOF fix (2026-03-17)
+- File:
+  - updated `scripts/termux_ssh_toolkit/termux/02_add_aliases.sh`.
+- Behavior:
+  - fixed heredoc delimiter collision in `.bashrc` block generation (`EOF` -> unique `__WINDEV_BASH_BLOCK__`);
+  - prevents truncated `~/.bashrc` toolkit block and errors like `delimited by end-of-file` / `unexpected EOF` after `source ~/.bashrc`.
+
+## 24) `whelp` source unification (2026-03-17)
+- Files:
+  - updated `scripts/termux_ssh_toolkit/shared/whelp_ru.txt`;
+  - updated `scripts/termux_ssh_toolkit/termux/02_add_aliases.sh`.
+- Behavior:
+  - `whelp` content is now sourced from one shared file for both Termux and Windows dispatcher paths;
+  - moved clipboard shortcuts section into shared `whelp_ru.txt` and removed Termux-only appended block, so help output is consistent across entrypoints.

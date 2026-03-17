@@ -31,6 +31,7 @@ This document fixes the current operational baseline for phone workflow.
 - Agent sends command groups as ready-to-paste blocks.
 - User pulls block with `wpaste` and pastes into Termux.
 - Blocks for execution contain commands only (no explanations in the block).
+- Strict policy: executable command blocks are delivered only via mailbox; chat messages contain status/explanations/results only.
 
 ## Recovery Commands
 

@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/bash
+﻿#!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
 # Usage:
@@ -64,7 +64,7 @@ Host $HOST_ALIAS
 $SSH_BLOCK_END
 EOF
 
-cat >> "$BASHRC" <<EOF
+cat >> "$BASHRC" <<__WINDEV_BASH_BLOCK__
 $BASH_BLOCK_BEGIN
 export WINDEV_ALIAS="$HOST_ALIAS"
 export WINDEV_USER="$WIN_USER"
@@ -124,7 +124,7 @@ _wps_tty() {
 }
 
 _confirm() {
-  local prompt="\${1:-Продолжить?}"
+  local prompt="\${1:-РџСЂРѕРґРѕР»Р¶РёС‚СЊ?}"
   read -r -p "\$prompt [y/N]: " ans
   case "\$ans" in
     y|Y|yes|YES) return 0 ;;
@@ -134,34 +134,34 @@ _confirm() {
 
 wsets() {
   cat <<'SETS'
-НАБОРЫ КОМАНД (готовые сценарии)
+РќРђР‘РћР Р« РљРћРњРђРќР” (РіРѕС‚РѕРІС‹Рµ СЃС†РµРЅР°СЂРёРё)
 
-1) Начало дня:
+1) РќР°С‡Р°Р»Рѕ РґРЅСЏ:
    wps
    wstatus
    wdevstatus
 
-2) Запуск всего стека:
+2) Р—Р°РїСѓСЃРє РІСЃРµРіРѕ СЃС‚РµРєР°:
    wstart all
    wps
    wtail backend
 
-3) После правок в коде:
+3) РџРѕСЃР»Рµ РїСЂР°РІРѕРє РІ РєРѕРґРµ:
    wtest
    wrestart all
    wsmoke
 
-4) Деплой-проход:
+4) Р”РµРїР»РѕР№-РїСЂРѕС…РѕРґ:
    wdeploy --dry-run
    wdeploy --yes
 
-5) Аварийный режим:
+5) РђРІР°СЂРёР№РЅС‹Р№ СЂРµР¶РёРј:
    wrun incident
 
-6) Восстановление:
+6) Р’РѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёРµ:
    wrun recover
 
-7) Релизный прогон:
+7) Р РµР»РёР·РЅС‹Р№ РїСЂРѕРіРѕРЅ:
    wrun release
 SETS
 }
@@ -176,124 +176,124 @@ whelp() {
   esac
 
   cat <<'HELP'
-ТЕЛЕФОН -> ПК: ПОЛНЫЙ СПРАВОЧНИК
+РўР•Р›Р•Р¤РћРќ -> РџРљ: РџРћР›РќР«Р™ РЎРџР РђР’РћР§РќРРљ
 
-Что это:
-  Ты в Termux на телефоне.
-  Любая команда w* выполняется на Windows-ПК по SSH.
+Р§С‚Рѕ СЌС‚Рѕ:
+  РўС‹ РІ Termux РЅР° С‚РµР»РµС„РѕРЅРµ.
+  Р›СЋР±Р°СЏ РєРѕРјР°РЅРґР° w* РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ РЅР° Windows-РџРљ РїРѕ SSH.
 
-Быстрый старт (минимум):
+Р‘С‹СЃС‚СЂС‹Р№ СЃС‚Р°СЂС‚ (РјРёРЅРёРјСѓРј):
   1) wstatus
   2) wtest
   3) wdeploy --yes
   4) wtail worker
 
-СВЯЗЬ И БАЗА:
+РЎР’РЇР—Р¬ Р Р‘РђР—Рђ:
   whelp
-    Полная справка (этот экран).
+    РџРѕР»РЅР°СЏ СЃРїСЂР°РІРєР° (СЌС‚РѕС‚ СЌРєСЂР°РЅ).
   whelp sets
-    Только готовые наборы команд.
+    РўРѕР»СЊРєРѕ РіРѕС‚РѕРІС‹Рµ РЅР°Р±РѕСЂС‹ РєРѕРјР°РЅРґ.
   wrefresh
-    Обновить toolkit: cd repo -> git pull -> install.sh -> source ~/.bashrc
+    РћР±РЅРѕРІРёС‚СЊ toolkit: cd repo -> git pull -> install.sh -> source ~/.bashrc
   wstartgo
-    Сразу сделать wrefresh и потом открыть wgo.
+    РЎСЂР°Р·Сѓ СЃРґРµР»Р°С‚СЊ wrefresh Рё РїРѕС‚РѕРј РѕС‚РєСЂС‹С‚СЊ wgo.
   wfixssh
-    Локально чинит SSH-права/сокеты в Termux.
-  wsetip <ip_пк>
-    Обновить IP в ~/.ssh/config для alias.
+    Р›РѕРєР°Р»СЊРЅРѕ С‡РёРЅРёС‚ SSH-РїСЂР°РІР°/СЃРѕРєРµС‚С‹ РІ Termux.
+  wsetip <ip_РїРє>
+    РћР±РЅРѕРІРёС‚СЊ IP РІ ~/.ssh/config РґР»СЏ alias.
   wssh
-    Открыть обычную SSH-сессию на ПК.
-  wcmd "<PowerShell-команда>"
-    Выполнить одну команду на ПК.
-    Пример: wcmd "Get-Date"
+    РћС‚РєСЂС‹С‚СЊ РѕР±С‹С‡РЅСѓСЋ SSH-СЃРµСЃСЃРёСЋ РЅР° РџРљ.
+  wcmd "<PowerShell-РєРѕРјР°РЅРґР°>"
+    Р’С‹РїРѕР»РЅРёС‚СЊ РѕРґРЅСѓ РєРѕРјР°РЅРґСѓ РЅР° РџРљ.
+    РџСЂРёРјРµСЂ: wcmd "Get-Date"
 
-ПРОЕКТ И GIT:
+РџР РћР•РљРў Р GIT:
   wproj
-    Показать путь проекта на ПК.
+    РџРѕРєР°Р·Р°С‚СЊ РїСѓС‚СЊ РїСЂРѕРµРєС‚Р° РЅР° РџРљ.
   wstatus
-    git status -sb + текущая ветка.
+    git status -sb + С‚РµРєСѓС‰Р°СЏ РІРµС‚РєР°.
   wpull
-    Безопасно обновить ветку: git pull --ff-only.
+    Р‘РµР·РѕРїР°СЃРЅРѕ РѕР±РЅРѕРІРёС‚СЊ РІРµС‚РєСѓ: git pull --ff-only.
 
-СЕРВИСЫ (backend/worker/bot):
+РЎР•Р Р’РРЎР« (backend/worker/bot):
   wstart [all|backend|worker|bot]
-    Запустить сервис(ы).
+    Р—Р°РїСѓСЃС‚РёС‚СЊ СЃРµСЂРІРёСЃ(С‹).
   wstop [all|backend|worker|bot]
-    Остановить сервис(ы).
+    РћСЃС‚Р°РЅРѕРІРёС‚СЊ СЃРµСЂРІРёСЃ(С‹).
   wrestart [all|backend|worker|bot]
-    Перезапустить сервис(ы).
+    РџРµСЂРµР·Р°РїСѓСЃС‚РёС‚СЊ СЃРµСЂРІРёСЃ(С‹).
   wps
-    Показать up/down + pid по всем сервисам.
+    РџРѕРєР°Р·Р°С‚СЊ up/down + pid РїРѕ РІСЃРµРј СЃРµСЂРІРёСЃР°Рј.
 
-ЛОГИ И ДИАГНОСТИКА:
+Р›РћР“Р Р Р”РРђР“РќРћРЎРўРРљРђ:
   wtail [backend|worker|bot|file.log]
-    Смотреть live-лог.
-    Примеры:
+    РЎРјРѕС‚СЂРµС‚СЊ live-Р»РѕРі.
+    РџСЂРёРјРµСЂС‹:
       wtail worker
       wtail backend
       wtail backend.out.log
   wlogs [...]
-    То же самое, алиас к wtail.
+    РўРѕ Р¶Рµ СЃР°РјРѕРµ, Р°Р»РёР°СЃ Рє wtail.
   wdevstatus
-    Проверка dev-окружения.
+    РџСЂРѕРІРµСЂРєР° dev-РѕРєСЂСѓР¶РµРЅРёСЏ.
   wmetrics
-    Отчет по метрикам (окно 60 минут).
+    РћС‚С‡РµС‚ РїРѕ РјРµС‚СЂРёРєР°Рј (РѕРєРЅРѕ 60 РјРёРЅСѓС‚).
   wsmoke
-    Быстрая проверка: dev_status + /health + /metrics/summary.
+    Р‘С‹СЃС‚СЂР°СЏ РїСЂРѕРІРµСЂРєР°: dev_status + /health + /metrics/summary.
   wdiag
-    Один экран: host + git + services + smoke.
+    РћРґРёРЅ СЌРєСЂР°РЅ: host + git + services + smoke.
 
-ТЕСТЫ И ДЕПЛОЙ:
+РўР•РЎРўР« Р Р”Р•РџР›РћР™:
   wtest
-    Запуск unittest.
+    Р—Р°РїСѓСЃРє unittest.
   wdeploy [--dry-run] [--yes]
-    Рабочий цикл:
+    Р Р°Р±РѕС‡РёР№ С†РёРєР»:
       1) pull
       2) test
       3) restart all
       4) smoke
-    --dry-run: только показать план.
-    --yes: выполнить без вопроса.
+    --dry-run: С‚РѕР»СЊРєРѕ РїРѕРєР°Р·Р°С‚СЊ РїР»Р°РЅ.
+    --yes: РІС‹РїРѕР»РЅРёС‚СЊ Р±РµР· РІРѕРїСЂРѕСЃР°.
 
-АГЕНТЫ:
+РђР“Р•РќРўР«:
   wvibe
-    Старт Vibe с автопрогревом контекста (чтение ключевых docs).
+    РЎС‚Р°СЂС‚ Vibe СЃ Р°РІС‚РѕРїСЂРѕРіСЂРµРІРѕРј РєРѕРЅС‚РµРєСЃС‚Р° (С‡С‚РµРЅРёРµ РєР»СЋС‡РµРІС‹С… docs).
   wvibe reconnect
-    Продолжить последнюю сессию после обрыва.
+    РџСЂРѕРґРѕР»Р¶РёС‚СЊ РїРѕСЃР»РµРґРЅСЋСЋ СЃРµСЃСЃРёСЋ РїРѕСЃР»Рµ РѕР±СЂС‹РІР°.
   wvibe --no-bootstrap
-    Старт без автопрогрева.
-  wvibe mcp "<команда>"
-    Выполнить точную команду через MCP bridge и вернуть stdout/stderr/exit_code.
-  wvibe "<задача>"
-    Старт с автопрогревом + сразу задача.
+    РЎС‚Р°СЂС‚ Р±РµР· Р°РІС‚РѕРїСЂРѕРіСЂРµРІР°.
+  wvibe mcp "<РєРѕРјР°РЅРґР°>"
+    Р’С‹РїРѕР»РЅРёС‚СЊ С‚РѕС‡РЅСѓСЋ РєРѕРјР°РЅРґСѓ С‡РµСЂРµР· MCP bridge Рё РІРµСЂРЅСѓС‚СЊ stdout/stderr/exit_code.
+  wvibe "<Р·Р°РґР°С‡Р°>"
+    РЎС‚Р°СЂС‚ СЃ Р°РІС‚РѕРїСЂРѕРіСЂРµРІРѕРј + СЃСЂР°Р·Сѓ Р·Р°РґР°С‡Р°.
   wreconnect
-    Короткая команда, то же самое что wvibe reconnect.
-  wmcp "<команда>"
-    Короткая команда, то же самое что wvibe mcp "<команда>".
+    РљРѕСЂРѕС‚РєР°СЏ РєРѕРјР°РЅРґР°, С‚Рѕ Р¶Рµ СЃР°РјРѕРµ С‡С‚Рѕ wvibe reconnect.
+  wmcp "<РєРѕРјР°РЅРґР°>"
+    РљРѕСЂРѕС‚РєР°СЏ РєРѕРјР°РЅРґР°, С‚Рѕ Р¶Рµ СЃР°РјРѕРµ С‡С‚Рѕ wvibe mcp "<РєРѕРјР°РЅРґР°>".
   waider
-    Запустить aider в проекте (если установлен).
+    Р—Р°РїСѓСЃС‚РёС‚СЊ aider РІ РїСЂРѕРµРєС‚Рµ (РµСЃР»Рё СѓСЃС‚Р°РЅРѕРІР»РµРЅ).
 
-ГОТОВЫЕ СЦЕНАРИИ:
+Р“РћРўРћР’Р«Р• РЎР¦Р•РќРђР РР:
   wrun monitor
-    Статус + метрики.
+    РЎС‚Р°С‚СѓСЃ + РјРµС‚СЂРёРєРё.
   wrun incident
-    Полная диагностика + live-лог worker.
+    РџРѕР»РЅР°СЏ РґРёР°РіРЅРѕСЃС‚РёРєР° + live-Р»РѕРі worker.
   wrun recover
-    Перезапуск всего + smoke + status.
+    РџРµСЂРµР·Р°РїСѓСЃРє РІСЃРµРіРѕ + smoke + status.
   wrun release
-    Статус + deploy-цикл.
+    РЎС‚Р°С‚СѓСЃ + deploy-С†РёРєР».
 
-ЕСЛИ НЕ РАБОТАЕТ:
+Р•РЎР›Р РќР• Р РђР‘РћРўРђР•Рў:
   1) "command not found: whelp"
-     Выполни: source ~/.bashrc
+     Р’С‹РїРѕР»РЅРё: source ~/.bashrc
   2) SSH timeout
-     Обнови IP: wsetip <новый_ip_пк>
-     Проверь порт: ncat <ip_пк> 22
-     Потом: ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes <user>@<ip_пк>
-  3) Ключ просит пароль
-     Запусти: wfixssh
+     РћР±РЅРѕРІРё IP: wsetip <РЅРѕРІС‹Р№_ip_РїРє>
+     РџСЂРѕРІРµСЂСЊ РїРѕСЂС‚: ncat <ip_РїРє> 22
+     РџРѕС‚РѕРј: ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes <user>@<ip_РїРє>
+  3) РљР»СЋС‡ РїСЂРѕСЃРёС‚ РїР°СЂРѕР»СЊ
+     Р—Р°РїСѓСЃС‚Рё: wfixssh
 
-Для сценариев одной командой:
+Р”Р»СЏ СЃС†РµРЅР°СЂРёРµРІ РѕРґРЅРѕР№ РєРѕРјР°РЅРґРѕР№:
   whelp sets
 HELP
 }
@@ -611,7 +611,7 @@ wvibe() {
         fi
         if [ -n "\$pybin" ]; then
           decoded_text="\$(printf '%s' "\$decoded_text" | "\$pybin" -c "import re,sys; s=sys.stdin.read(); \
-def score(t): return len(re.findall(r'[А-Яа-яЁё]', t)); \
+def score(t): return len(re.findall(r'[Рђ-РЇР°-СЏРЃС‘]', t)); \
 best=s; \
 try: cand=s.encode('latin1', 'ignore').decode('utf-8', 'ignore'); \
 except Exception: cand=s; \
@@ -840,7 +840,7 @@ wmailbox() {
     codexclip)
       local prompt
       local default_prompt
-      default_prompt=\$'Прочитай файл ops/mailbox/for_codex.md и выполни задачи из него.\nЕсли данных недостаточно, задай до 3 уточняющих вопросов.\nВ ответе: сначала действия и изменения, затем коротко риски и следующий шаг.'
+      default_prompt="Read ops/mailbox/for_codex.md and execute the tasks from it. If context is insufficient, ask up to 3 clarifying questions. In the answer: actions and changes first, then short risks and next step."
       if prompt="\$(_wps "Set-Location '\$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\\\scripts\\\\termux_ssh_toolkit\\\\windows\\\\10_mailbox.ps1' -ProjectPath '\$WINDEV_PROJECT_WIN' -Action handoff" 2>/dev/null)"; then
         :
       else
@@ -861,14 +861,16 @@ wmailbox() {
       ;;
     flow)
       cat <<'FLOW'
-wplan "<что сделать>"
+wplan "<С‡С‚Рѕ СЃРґРµР»Р°С‚СЊ>"
 wmailbox codexclip
-# затем открой Codex и вставь prompt из буфера
+# Р·Р°С‚РµРј РѕС‚РєСЂРѕР№ Codex Рё РІСЃС‚Р°РІСЊ prompt РёР· Р±СѓС„РµСЂР°
 FLOW
       ;;
     flowclip)
       local flow_text
-      flow_text=\$'wplan "<что сделать>"\nwmailbox codexclip\n# затем открой Codex и вставь prompt из буфера'
+      flow_text="wplan \"<what to do>\"
+wmailbox codexclip
+# then open Codex and paste the prompt from clipboard"
       if command -v termux-clipboard-set >/dev/null 2>&1; then
         printf '%s' "\$flow_text" | termux-clipboard-set
         echo "[ok] Command pack copied to Android clipboard."
@@ -917,22 +919,44 @@ wrunbox() {
   local cwd
   cwd="\$PWD"
   local report
-  report=\$(cat <<EOF
-\`\`\`text
-[runbox]
+  report="[runbox]
 time: \$ts
 cwd: \$cwd
 command: \$cmd
 exit_code: \$rc
 
 output:
-\$(cat "\$out_file")
-\`\`\`
-EOF
-)
+\$(cat "\$out_file")"
   _wmailbox_push_text "\$report" "termux-runbox" >/dev/null || true
   echo "[ok] run output pushed to ops/mailbox/inbox/LATEST.md"
   return \$rc
+}
+
+wring() {
+  local cmd_file="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}/wring_cmd.sh"
+  local out_file="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}/wring_out.log"
+  local run_rc=0
+
+  if ! wmailbox termux > "\$cmd_file"; then
+    echo "[error] failed to fetch command block from mailbox."
+    return 1
+  fi
+  if [ ! -s "\$cmd_file" ]; then
+    echo "[error] mailbox command block is empty."
+    return 1
+  fi
+
+  bash "\$cmd_file" 2>&1 | tee "\$out_file"
+  run_rc=\${PIPESTATUS[0]}
+
+  if cat "\$out_file" | wmailbox inbox; then
+    echo "[ok] wring output pushed to inbox."
+  else
+    echo "[error] failed to push wring output to inbox."
+    return 70
+  fi
+
+  return "\$run_rc"
 }
 
 wclip() {
@@ -1084,53 +1108,53 @@ wtutor() {
   case "\$topic" in
     quick)
       cat <<'WTUTOR_QUICK'
-Практика (быстрый цикл):
-  1) wplan "проверка цикла"
+РџСЂР°РєС‚РёРєР° (Р±С‹СЃС‚СЂС‹Р№ С†РёРєР»):
+  1) wplan "РїСЂРѕРІРµСЂРєР° С†РёРєР»Р°"
   2) wmailbox codexclip
-  3) вставь prompt в Codex
+  3) РІСЃС‚Р°РІСЊ prompt РІ Codex
   4) wmailbox watch
-  5) когда ответ появится -> он напечатается и попадет в буфер
+  5) РєРѕРіРґР° РѕС‚РІРµС‚ РїРѕСЏРІРёС‚СЃСЏ -> РѕРЅ РЅР°РїРµС‡Р°С‚Р°РµС‚СЃСЏ Рё РїРѕРїР°РґРµС‚ РІ Р±СѓС„РµСЂ
 WTUTOR_QUICK
       ;;
     mailbox)
       cat <<'WTUTOR_MAILBOX'
-Практика mailbox:
+РџСЂР°РєС‚РёРєР° mailbox:
   1) wmailbox status
   2) wmailbox list
   3) wmailbox digest
   4) wmailbox show
-  5) wmailbox reply "Тестовый ответ для телефона"
+  5) wmailbox reply "РўРµСЃС‚РѕРІС‹Р№ РѕС‚РІРµС‚ РґР»СЏ С‚РµР»РµС„РѕРЅР°"
   6) wmailbox pullclip
 
-Ожидаемо:
-  - reply обновляет ops/mailbox/for_termux.md
-  - pullclip печатает текст и копирует его в Android clipboard
+РћР¶РёРґР°РµРјРѕ:
+  - reply РѕР±РЅРѕРІР»СЏРµС‚ ops/mailbox/for_termux.md
+  - pullclip РїРµС‡Р°С‚Р°РµС‚ С‚РµРєСЃС‚ Рё РєРѕРїРёСЂСѓРµС‚ РµРіРѕ РІ Android clipboard
 WTUTOR_MAILBOX
       ;;
     phone)
       cat <<'WTUTOR_PHONE'
-Практика phone-terminal:
+РџСЂР°РєС‚РёРєР° phone-terminal:
   1) wphone init
   2) wphone run "echo PHONE_OK"
   3) wphone run "git status -sb"
   4) wphone capture 80
 
-Ожидаемо:
-  - capture показывает PHONE_OK
-  - ниже в capture виден вывод git status
+РћР¶РёРґР°РµРјРѕ:
+  - capture РїРѕРєР°Р·С‹РІР°РµС‚ PHONE_OK
+  - РЅРёР¶Рµ РІ capture РІРёРґРµРЅ РІС‹РІРѕРґ git status
 WTUTOR_PHONE
       ;;
     duplex)
       cat <<'WTUTOR_DUPLEX'
-Практика duplex (2 сессии Termux):
-  Сессия A:
+РџСЂР°РєС‚РёРєР° duplex (2 СЃРµСЃСЃРёРё Termux):
+  РЎРµСЃСЃРёСЏ A:
     wmailbox watch
-  Сессия B:
-    wmailbox reply "Привет из mailbox reply"
+  РЎРµСЃСЃРёСЏ B:
+    wmailbox reply "РџСЂРёРІРµС‚ РёР· mailbox reply"
 
-Ожидаемо в сессии A:
-  - новое сообщение выводится автоматически
-  - текст копируется в буфер (если termux-api + Termux:API установлены)
+РћР¶РёРґР°РµРјРѕ РІ СЃРµСЃСЃРёРё A:
+  - РЅРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ РІС‹РІРѕРґРёС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё
+  - С‚РµРєСЃС‚ РєРѕРїРёСЂСѓРµС‚СЃСЏ РІ Р±СѓС„РµСЂ (РµСЃР»Рё termux-api + Termux:API СѓСЃС‚Р°РЅРѕРІР»РµРЅС‹)
 WTUTOR_DUPLEX
       ;;
     *)
@@ -1187,7 +1211,7 @@ wdeploy() {
   fi
 
   if [ "\$force_yes" -ne 1 ]; then
-    _confirm "Запустить deploy-цикл?" || return 1
+    _confirm "Р—Р°РїСѓСЃС‚РёС‚СЊ deploy-С†РёРєР»?" || return 1
   fi
 
   wpull || return 1
@@ -1250,7 +1274,7 @@ wsets() {
     cat "\$sets_file"
     return 0
   fi
-  echo "Файл наборов команд не найден: \$sets_file"
+  echo "Р¤Р°Р№Р» РЅР°Р±РѕСЂРѕРІ РєРѕРјР°РЅРґ РЅРµ РЅР°Р№РґРµРЅ: \$sets_file"
 }
 
 whelp() {
@@ -1267,31 +1291,20 @@ whelp() {
 
   if [ -f "\$help_file" ]; then
     cat "\$help_file"
-    cat <<'EXTRA'
-
-Clipboard shortcuts:
-  wpaste
-    Pull mailbox reply to Android clipboard (body mode).
-  wpaste full
-    Pull full mailbox reply with header/meta.
-  wclip "<cmd>"
-    Copy one command to Android clipboard.
-  cat <<'EOF' | wclip
-    Copy multi-line command block to Android clipboard.
-EXTRA
     return 0
   fi
 
-  echo "Файл справки не найден: \$help_file"
+  echo "Р¤Р°Р№Р» СЃРїСЂР°РІРєРё РЅРµ РЅР°Р№РґРµРЅ: \$help_file"
 }
 
 wh() {
   whelp "\$@"
 }
 $BASH_BLOCK_END
-EOF
+__WINDEV_BASH_BLOCK__
 
 echo
 echo "Toolkit installed."
 echo "Run: source ~/.bashrc"
 echo "Run: whelp"
+

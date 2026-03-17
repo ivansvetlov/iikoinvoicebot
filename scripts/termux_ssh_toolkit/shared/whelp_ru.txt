@@ -115,6 +115,8 @@ Mailbox-цикл (телефон -> Codex):
   1) wmailbox pull
   2) или wmailbox pullclip (ответ + копирование в буфер Android)
   3) для автоподхвата новых ответов: wmailbox watch
+  4) сокращенный алиас: wpaste (то же что wmailbox pullclip)
+  5) полная версия с заголовком/мета: wpaste full
 
 Phone-terminal цикл (без UI-автоклика):
   1) wphone init
@@ -150,6 +152,10 @@ wmailbox подробно:
     Показать ответ для телефона и копировать его в Android clipboard.
   wmailbox reply "<text>"
     Записать новый ответ в ops/mailbox/for_termux.md (полезно для теста watch/duplex).
+  wmailbox inbox "<text>"
+    Положить результат из Termux в ops/mailbox/inbox (для чтения Codex).
+  wmailbox pushlast
+    Отправить последний сохраненный вывод wrunbox в inbox.
   wmailbox watch [interval_seconds]
     Следить за for_termux.md в цикле, при изменении печатать новый ответ,
     копировать его в буфер и (если доступно) показывать уведомление.
@@ -184,10 +190,29 @@ wtutor подробно:
   wtutor duplex
     Практика в 2 Termux-сессиях: watch в одной, reply в другой.
 
+Кольцо "Codex -> Termux -> Codex":
+  1) Codex кладет блок в mailbox for_termux.
+  2) Телефон: wpaste (или wpaste full) -> вставить в Termux и выполнить.
+  3) Termux отправляет результат обратно:
+     - wmailbox inbox "<результат>" (вручную), или
+     - wrunbox "<команда>" / wmailbox pushlast (авто-путь).
+     - wring (взять блок из for_termux, выполнить, отправить полный лог в inbox).
+  4) Codex читает inbox и продолжает шаги.
+
 Важно про clipboard в Termux:
   Для termux-clipboard-set/get нужны одновременно:
   1) пакет: pkg install termux-api
   2) Android-приложение: Termux:API
+
+Clipboard shortcuts:
+  wpaste
+    Pull mailbox reply to Android clipboard (body mode).
+  wpaste full
+    Pull full mailbox reply with header/meta.
+  wclip "<cmd>"
+    Copy one command to Android clipboard.
+  cat <<'EOF' | wclip
+    Copy multi-line command block to Android clipboard.
 
 Если не работает:
   1) command not found -> source ~/.bashrc

@@ -12,6 +12,7 @@ Use this when you want predictable results and fast recovery.
 3. Use exact path: `C:\Users\MiBookPro\.local\bin`
 4. After Termux reinstall, re-add the new phone SSH key on Windows.
 5. For phone workflow, prefer `wvibe ask ...` over interactive `wvibe` if TTY is unstable.
+6. For operator flow, executable command blocks must be delivered through mailbox (`wmailbox`/`wpaste`), not directly in chat.
 
 ## 1) Windows One-Time Setup
 

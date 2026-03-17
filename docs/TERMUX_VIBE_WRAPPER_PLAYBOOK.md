@@ -111,6 +111,10 @@ Mailbox flow:
 6. Auto-track new answers: `wmailbox watch`
 7. Simulate inbound answer (for tests): `wmailbox reply "<text>"`
 
+Policy lock:
+- Executable command blocks are published only through mailbox artifacts.
+- Chat text is for context, decisions, and results; not for direct command execution blocks.
+
 Tutorial mode:
 1. `wtutor quick`
 2. `wtutor mailbox`

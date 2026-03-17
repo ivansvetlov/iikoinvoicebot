@@ -324,6 +324,43 @@ function Get-ActiveModelName {
     return "labs-leanstral-2603"
 }
 
+function Ensure-CompatibleActiveModel {
+    $cfgPath = Join-Path $env:USERPROFILE ".vibe\config.toml"
+    if (-not (Test-Path -LiteralPath $cfgPath)) {
+        return
+    }
+
+    $rawCfg = Get-Content -LiteralPath $cfgPath -Raw -Encoding UTF8
+    if (-not $rawCfg) {
+        return
+    }
+
+    $m = [regex]::Match($rawCfg, '(?m)^\s*active_model\s*=\s*"([^"]+)"\s*$')
+    if (-not $m.Success) {
+        return
+    }
+
+    $current = $m.Groups[1].Value
+    $fallback = "labs-leanstral-2603"
+    $legacyInvalid = @("devstral-2")
+    if ($legacyInvalid -notcontains $current) {
+        return
+    }
+
+    $updated = [regex]::Replace(
+        $rawCfg,
+        '(?m)^(\s*active_model\s*=\s*")[^"]+(".*)$',
+        '${1}' + $fallback + '${2}',
+        1
+    )
+    if ($updated -ne $rawCfg) {
+        [System.IO.File]::WriteAllText($cfgPath, $updated, [System.Text.UTF8Encoding]::new($false))
+        Write-Host "[info] active_model '$current' is legacy/invalid; switched to '$fallback' in $cfgPath"
+    }
+}
+
+Ensure-CompatibleActiveModel
+
 function Invoke-DirectApiAsk([string]$promptText) {
     if ([string]::IsNullOrWhiteSpace($promptText)) {
         throw "Task is required for api_ask mode."
