@@ -1,4 +1,4 @@
-﻿# Handoff: что сделано в проекте и где смотреть (для следующего агента)
+# Handoff: что сделано в проекте и где смотреть (для следующего агента)
 
 > Цель этого файла — чтобы новый агент/разработчик за 10–15 минут понял текущее состояние проекта, решения и где искать причины ошибок.
 
@@ -294,3 +294,199 @@
 - Behavior:
   - `whelp` content is now sourced from one shared file for both Termux and Windows dispatcher paths;
   - moved clipboard shortcuts section into shared `whelp_ru.txt` and removed Termux-only appended block, so help output is consistent across entrypoints.
+
+## 25) Termux toolkit bootstrap refactor: ~/.bashrc в†’ ~/.config/windev/toolkit.sh (2026-03-18)
+
+### Root cause: heredoc EOF collision + monolithic block
+
+**Problem:** 
+- `02_add_aliases.sh` embedded 1300+ lines of functions in `~/.bashrc` via single heredoc with delimiter `__WINDEV_BASH_BLOCK__`
+- If any line in the block matched or contained the delimiter, heredoc terminated early в†’ `~/.bashrc` left with unclosed blocks в†’ `unexpected EOF` on `source ~/.bashrc`
+- No syntax validation before installation
+- Reinstall could leave broken state (idempotency not guaranteed)
+- Functions executed at source time (no silent loading)
+
+**Impact:**
+- Users report: "source ~/.bashrc gives: unexpected EOF"
+- Repeated toolkit reinstall leaves `~/.bashrc` corrupted
+- Debugging difficult (error could be anywhere in 1300-line heredoc)
+
+### Solution: Atomic, separate-file architecture
+
+**New structure:**
+```
+~/.bashrc (minimal bootstrap, ~15 lines)
+  в†“ sources
+~/.config/windev/toolkit.sh (generated, validated, atomic)
+```
+
+**How it works:**
+1. `02_add_aliases_v2.sh` reads `scripts/termux_ssh_toolkit/shared/toolkit_functions.sh` template
+2. Substitutes variables (`{{WIN_HOST}}`, `{{WIN_USER}}`, etc.)
+3. Writes to temp file
+4. Validates with `bash -n temp_toolkit`
+5. Creates backup of existing toolkit
+6. **Atomically moves** temp в†’ `~/.config/windev/toolkit.sh`
+7. Updates `~/.bashrc` with minimal bootstrap (if not present)
+
+**Files changed/added:**
+- Added `scripts/termux_ssh_toolkit/shared/toolkit_functions.sh` (template for all toolkit functions)
+- Added `scripts/termux_ssh_toolkit/termux/02_add_aliases_v2.sh` (new atomic installer)
+- Updated `scripts/termux_ssh_toolkit/termux/install.sh` (calls v2 by default, fallback to --legacy)
+- Updated `~/.bashrc` bootstrap (minimal sourcing of toolkit.sh)
+- Added `docs/BASHRC_REFACTOR_GUIDE.md` (migration guide for operators)
+- Deprecated `scripts/termux_ssh_toolkit/termux/02_add_aliases.sh` (still works with --legacy flag)
+
+### Behavior changes
+
+**For user (operator):**
+
+Before:
+```bash
+bash scripts/termux_ssh_toolkit/termux/install.sh ...
+# Installs 1300 lines directly into ~/.bashrc
+# Risk: ~/.bashrc left broken if heredoc delimiter collision
+```
+
+After:
+```bash
+bash scripts/termux_ssh_toolkit/termux/install.sh ...
+# Installs toolkit atomically to ~/.config/windev/toolkit.sh
+# Bootstrap sourcing added to ~/.bashrc (if not present)
+# Syntax checked before installation
+# Safe to rerun multiple times
+```
+
+**For developers:**
+
+- Toolkit functions are now in separate file (easy to review, syntax-check, test)
+- Bootstrap is minimal (~15 lines, no hidden blocks)
+- Can validate before installation: `bash -n ~/.config/windev/toolkit.sh`
+- Easy to revert: `cp ~/.config/windev/toolkit.sh.bak ~/.config/windev/toolkit.sh`
+
+**For wring specifically:**
+
+Improved to explicitly separate command exit code from mailbox push status:
+
+```bash
+# Old: mixed concerns, ambiguous return code
+if cat "$out_file" | wmailbox inbox; then
+  echo "[ok] wring output pushed to inbox."
+else
+  echo "[error] failed to push wring output to inbox."
+  return 70  # arbitrary code
+fi
+return "$run_rc"  # which status do we actually care about?
+
+# New: clear separation, explicit status
+if cat "$out_file" | wmailbox inbox; then
+  echo "[ok] wring: command exit code $run_rc, output pushed to inbox."
+else
+  echo "[error] wring: command exit code $run_rc, failed to push output to inbox."
+fi
+return "$run_rc"  # always return command's exit code
+```
+
+### Quick check (validation)
+
+For operator:
+```bash
+# 1) New install
+bash scripts/termux_ssh_toolkit/termux/install.sh --win-host 192.168.1.100 --skip-keygen
+
+# 2) Source and verify no output/errors
+source ~/.bashrc
+# (should produce no output)
+
+# 3) Check functions available
+command -v wmailbox whelp wstatus wrunbox wring
+# (all should exist)
+
+# 4) Verify whelp works
+whelp | head -20
+
+# 5) Idempotency: rerun 2-3 times
+bash scripts/termux_ssh_toolkit/termux/install.sh --win-host 192.168.1.100 --skip-keygen
+source ~/.bashrc
+# (should be stable each time)
+
+# 6) E2E mailbox
+wmailbox status
+```
+
+For developer:
+```bash
+# 1) Syntax validation
+bash -n ~/.bashrc
+bash -n ~/.config/windev/toolkit.sh
+
+# 2) Template expansion (check substitutions)
+head -20 ~/.config/windev/toolkit.sh
+# Should show actual IPs/usernames, not {{placeholders}}
+
+# 3) Version tracking
+cat ~/.config/windev/.version
+# Should show install timestamp and host info
+```
+
+### Remaining risks & mitigation
+
+**Risk 1: Old ~/.bashrc with 1300-line block not cleaned up**
+- Mitigation: `02_add_aliases_v2.sh` explicitly removes old block before adding bootstrap
+
+**Risk 2: ~/.config/windev/ inaccessible (XDG_CONFIG_HOME mismatch)**
+- Mitigation: Bootstrap uses `${XDG_CONFIG_HOME:-$HOME/.config}`, respects env var
+
+**Risk 3: No backup if reinstall fails**
+- Mitigation: `02_add_aliases_v2.sh` creates `.bak` files before overwriting
+
+**Risk 4: Operator doesn't know how to debug if toolkit.sh broken**
+- Mitigation: `docs/BASHRC_REFACTOR_GUIDE.md` includes troubleshooting section + recovery steps
+
+### Migration path (for existing users)
+
+Users with old installations:
+```bash
+cd ~/iikoinvoicebot
+git pull --ff-only
+
+bash scripts/termux_ssh_toolkit/termux/install.sh \
+  --win-user MiBookPro \
+  --win-host 192.168.1.100 \
+  --skip-keygen
+
+source ~/.bashrc
+whelp  # test
+```
+
+Automatic:
+- Old monolithic block is removed
+- New bootstrap is added
+- toolkit.sh is generated and validated
+- Backups created in case of rollback
+
+### Documentation updated
+
+- Added `docs/BASHRC_REFACTOR_GUIDE.md` (operator migration + troubleshooting)
+- Updated `docs/AGENT_HANDOFF.md` (this section)
+- Updated `docs/TERMUX_MAILBOX_STABLE_WORKFLOW_2026-03-16.md` (reference to new architecture)
+- Updated `docs/TERMUX_WINDOWS_VIBE_RUNBOOK.md` (installer v2 notes)
+- Updated `docs/TERMUX_VIBE_WRAPPER_PLAYBOOK.md` (toolkit.sh location)
+- Updated `scripts/termux_ssh_toolkit/README.md` (architecture overview)
+
+---
+
+### Implementation checklist
+
+- [x] Create `toolkit_functions.sh` template
+- [x] Create `02_add_aliases_v2.sh` (atomic installer)
+- [x] Update `install.sh` (call v2 by default)
+- [x] Create `BASHRC_REFACTOR_GUIDE.md`
+- [x] Update this section in `AGENT_HANDOFF.md`
+- [ ] Migrate repo files (copy templates to actual location)
+- [ ] Test syntax: `bash -n toolkit.sh`
+- [ ] Test idempotency (rerun install 2-3 times)
+- [ ] Test e2e (wmailbox, whelp, wstatus)
+- [ ] Document any edge cases encountered
+
+
