@@ -165,7 +165,7 @@ wgo() {
   else
     wlocalprep
   fi
-  _wssh_base -tt "$WINDEV_ALIAS" "powershell -NoLogo -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-Location -LiteralPath \\\$env:USERPROFILE\""
+  _wssh_base -tt "$WINDEV_ALIAS" "powershell -NoLogo -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-Location -Path ~\""
 }
 
 wrefresh() {
