@@ -476,6 +476,101 @@ wreconnect() {
   wvibe reconnect "$@"
 }
 
+wvshell() {
+  local with_bootstrap=0
+  local enable_mcp=0
+  local ask_turns="${WINDEV_WVSHELL_TURNS:-8}"
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --bootstrap|--with-bootstrap)
+        with_bootstrap=1
+        shift
+        ;;
+      --mcp)
+        enable_mcp=1
+        shift
+        ;;
+      --turns)
+        ask_turns="${2:-}"
+        shift 2
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  case "$ask_turns" in
+    ''|*[!0-9]*)
+      ask_turns=8
+      ;;
+  esac
+  if [ "$ask_turns" -lt 1 ]; then ask_turns=1; fi
+  if [ "$ask_turns" -gt 24 ]; then ask_turns=24; fi
+
+  local project_ps="${WINDEV_PROJECT_WIN//\\//}"
+  local uv_bin_ps="${WINDEV_UV_BIN//\\//}"
+  local shell_ps1="$project_ps/scripts/termux_ssh_toolkit/windows/09_wvibe_light_shell.ps1"
+  local args=(-NoLogo -NoProfile -ExecutionPolicy Bypass -File "$shell_ps1" -ProjectPath "$project_ps" -UvBinPath "$uv_bin_ps" -AskMaxTurns "$ask_turns")
+  if [ "$with_bootstrap" -eq 1 ]; then
+    args+=(-WithBootstrap)
+  fi
+  if [ "$enable_mcp" -eq 1 ]; then
+    args+=(-EnableMcp)
+  fi
+
+  if [ $# -gt 0 ]; then
+    _wssh_base "$WINDEV_ALIAS" powershell "${args[@]}" -Task "$*"
+  else
+    _wssh_base -tt "$WINDEV_ALIAS" powershell "${args[@]}"
+  fi
+}
+
+wtutor() {
+  local topic="${1:-quick}"
+  case "$topic" in
+    quick)
+      cat <<'WTUTOR_QUICK'
+Quick loop:
+  1) wplan "check pipeline"
+  2) wmailbox codexclip
+  3) paste prompt into Codex
+  4) wmailbox watch
+WTUTOR_QUICK
+      ;;
+    mailbox)
+      cat <<'WTUTOR_MAILBOX'
+Mailbox practice:
+  1) wmailbox status
+  2) wmailbox list
+  3) wmailbox digest
+  4) wmailbox reply "test reply"
+  5) wmailbox pullclip
+WTUTOR_MAILBOX
+      ;;
+    phone)
+      cat <<'WTUTOR_PHONE'
+Phone/tmux practice:
+  1) wphone init
+  2) wphone run "echo PHONE_OK"
+  3) wphone capture 80
+WTUTOR_PHONE
+      ;;
+    duplex)
+      cat <<'WTUTOR_DUPLEX'
+Duplex practice (2 Termux sessions):
+  Session A: wmailbox watch
+  Session B: wmailbox reply "hello from B"
+WTUTOR_DUPLEX
+      ;;
+    *)
+      echo "Usage: wtutor [quick|mailbox|phone|duplex]"
+      return 1
+      ;;
+  esac
+}
+
 waider() {
   wcmd "Set-Location '$WINDEV_PROJECT_WIN'; aider"
 }
