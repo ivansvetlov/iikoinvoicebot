@@ -435,6 +435,30 @@ function Get-WebErrorBody([System.Exception]$exception) {
     }
 }
 
+function Get-CyrillicScore([string]$text) {
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return 0
+    }
+    return [regex]::Matches($text, '[\u0400-\u04FF]').Count
+}
+
+function Repair-PossibleMojibake([string]$text) {
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $text
+    }
+    try {
+        # Common case: UTF-8 bytes decoded as Latin-1, producing "Ð..." / "Ñ..." artifacts.
+        $latin1 = [System.Text.Encoding]::GetEncoding(28591)
+        $candidate = [System.Text.Encoding]::UTF8.GetString($latin1.GetBytes($text))
+        if ((Get-CyrillicScore $candidate) -gt (Get-CyrillicScore $text)) {
+            return $candidate
+        }
+    } catch {
+        # Keep original text on any conversion issue.
+    }
+    return $text
+}
+
 function Invoke-DirectApiAsk([string]$promptText) {
     if ([string]::IsNullOrWhiteSpace($promptText)) {
         throw "Task is required for api_ask mode."
@@ -484,7 +508,7 @@ function Invoke-DirectApiAsk([string]$promptText) {
             if ($null -eq $answer) {
                 $answer = ""
             }
-            $answerText = [string]$answer
+            $answerText = Repair-PossibleMojibake ([string]$answer)
             $answerB64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($answerText))
             Write-Output "__WVIBE_B64_BEGIN__"
             Write-Output $answerB64
