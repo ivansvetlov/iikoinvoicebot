@@ -308,7 +308,46 @@ Quick bootstrap:
 "@
 }
 
+function Test-IsLabsModel([string]$name) {
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        return $false
+    }
+    return $name -match '^(?i)labs[-/]'
+}
+
+function Get-AllowLabsModels {
+    $raw = if ([string]::IsNullOrWhiteSpace($env:WVIBE_ALLOW_LABS)) {
+        [Environment]::GetEnvironmentVariable("WVIBE_ALLOW_LABS", "User")
+    } else {
+        $env:WVIBE_ALLOW_LABS
+    }
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $false
+    }
+    switch -Regex ($raw.Trim()) {
+        "^(?i:1|true|yes|on)$" { return $true }
+        default { return $false }
+    }
+}
+
+function Resolve-FallbackModel {
+    $fallback = if ([string]::IsNullOrWhiteSpace($env:WVIBE_API_FALLBACK_MODEL)) {
+        [Environment]::GetEnvironmentVariable("WVIBE_API_FALLBACK_MODEL", "User")
+    } else {
+        $env:WVIBE_API_FALLBACK_MODEL
+    }
+    if ([string]::IsNullOrWhiteSpace($fallback)) {
+        $fallback = "mistral-small-latest"
+    }
+    if ((Test-IsLabsModel $fallback) -and -not (Get-AllowLabsModels)) {
+        Write-Host "[warn] WVIBE_API_FALLBACK_MODEL '$fallback' points to Labs model; using 'mistral-small-latest'."
+        return "mistral-small-latest"
+    }
+    return $fallback
+}
+
 function Get-ActiveModelName {
+    $defaultModel = Resolve-FallbackModel
     $cfgPath = Join-Path $env:USERPROFILE ".vibe\config.toml"
     if (Test-Path -LiteralPath $cfgPath) {
         $rawCfg = Get-Content -LiteralPath $cfgPath -Raw -Encoding UTF8
@@ -316,12 +355,15 @@ function Get-ActiveModelName {
         if ($m.Success) {
             $name = $m.Groups[1].Value
             if ($name -eq "devstral-2") {
-                return "labs-leanstral-2603"
+                return $defaultModel
+            }
+            if ((Test-IsLabsModel $name) -and -not (Get-AllowLabsModels)) {
+                return $defaultModel
             }
             return $name
         }
     }
-    return "labs-leanstral-2603"
+    return $defaultModel
 }
 
 function Ensure-CompatibleActiveModel {
@@ -341,9 +383,13 @@ function Ensure-CompatibleActiveModel {
     }
 
     $current = $m.Groups[1].Value
-    $fallback = "labs-leanstral-2603"
+    $fallback = Resolve-FallbackModel
     $legacyInvalid = @("devstral-2")
-    if ($legacyInvalid -notcontains $current) {
+    if ($legacyInvalid -contains $current) {
+        # Legacy alias in config should always be migrated.
+    } elseif ((Test-IsLabsModel $current) -and -not (Get-AllowLabsModels)) {
+        # Labs model is configured, but current policy disallows Labs.
+    } else {
         return
     }
 
@@ -360,6 +406,34 @@ function Ensure-CompatibleActiveModel {
 }
 
 Ensure-CompatibleActiveModel
+
+function Get-WebErrorBody([System.Exception]$exception) {
+    if ($null -eq $exception) {
+        return ""
+    }
+    $response = $null
+    if ($exception.PSObject.Properties.Match("Response").Count -gt 0) {
+        $response = $exception.Response
+    }
+    if ($null -eq $response) {
+        return ""
+    }
+    try {
+        $stream = $response.GetResponseStream()
+        if ($null -eq $stream) {
+            return ""
+        }
+        $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8)
+        try {
+            return $reader.ReadToEnd()
+        } finally {
+            $reader.Close()
+            $stream.Close()
+        }
+    } catch {
+        return ""
+    }
+}
 
 function Invoke-DirectApiAsk([string]$promptText) {
     if ([string]::IsNullOrWhiteSpace($promptText)) {
@@ -379,69 +453,60 @@ function Invoke-DirectApiAsk([string]$promptText) {
         throw "MISTRAL_API_KEY is not set."
     }
 
-    $modelName = Get-ActiveModelName
-    $py = Get-Command python -ErrorAction SilentlyContinue
-    if ($null -ne $py) {
-        $promptB64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($promptText))
-        $env:WVIBE_PROMPT_B64 = $promptB64
-        $env:WVIBE_MODEL = $modelName
+    $primaryModel = Get-ActiveModelName
+    $fallbackModel = Resolve-FallbackModel
+    $models = @()
+    foreach ($m in @($primaryModel, $fallbackModel)) {
+        if (-not [string]::IsNullOrWhiteSpace($m) -and ($models -notcontains $m)) {
+            $models += $m
+        }
+    }
+    if ($models -notcontains "mistral-small-latest") {
+        # Keep a stable non-Labs model as universal fallback.
+        $models += "mistral-small-latest"
+    }
+    if ($models.Count -eq 0) {
+        $models = @("mistral-small-latest")
+    }
+
+    $lastError = ""
+    foreach ($modelName in $models) {
         try {
-            $pyCode = @'
-import os, json, base64, urllib.request
-prompt = base64.b64decode(os.environ.get('WVIBE_PROMPT_B64', '')).decode('utf-8', 'replace')
-model = os.environ.get('WVIBE_MODEL', 'mistral-small-latest')
-key = os.environ.get('MISTRAL_API_KEY', '')
-if not key:
-    raise RuntimeError('MISTRAL_API_KEY is empty')
-payload = json.dumps({
-    'model': model,
-    'messages': [{'role': 'user', 'content': prompt}],
-    'max_tokens': 512
-}, ensure_ascii=False).encode('utf-8')
-req = urllib.request.Request(
-    'https://api.mistral.ai/v1/chat/completions',
-    data=payload,
-    headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json; charset=utf-8'},
-    method='POST',
-)
-with urllib.request.urlopen(req, timeout=45) as r:
-    raw = r.read()
-obj = json.loads(raw.decode('utf-8', 'replace'))
-ans = obj['choices'][0]['message']['content']
-if isinstance(ans, list):
-    ans = ''.join((part.get('text', '') if isinstance(part, dict) else str(part)) for part in ans)
-b64 = base64.b64encode(str(ans).encode('utf-8')).decode('ascii')
-print('__WVIBE_B64_BEGIN__')
-print(b64)
-print('__WVIBE_B64_END__')
-'@
-            & $py.Source -c $pyCode
-            if ($LASTEXITCODE -eq 0) {
-                return
+            $bodyObj = @{
+                model      = $modelName
+                messages   = @(@{ role = "user"; content = $promptText })
+                max_tokens = 512
             }
-        } finally {
-            Remove-Item Env:WVIBE_PROMPT_B64 -ErrorAction SilentlyContinue
-            Remove-Item Env:WVIBE_MODEL -ErrorAction SilentlyContinue
+            $jsonBody = $bodyObj | ConvertTo-Json -Depth 6 -Compress
+            $jsonUtf8 = [System.Text.Encoding]::UTF8.GetBytes($jsonBody)
+            $response = Invoke-RestMethod -Method Post -Uri "https://api.mistral.ai/v1/chat/completions" -Headers @{ Authorization = "Bearer $apiKey" } -Body $jsonUtf8 -ContentType "application/json; charset=utf-8" -TimeoutSec 45
+            $answer = $response.choices[0].message.content
+            if ($null -eq $answer) {
+                $answer = ""
+            }
+            $answerText = [string]$answer
+            $answerB64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($answerText))
+            Write-Output "__WVIBE_B64_BEGIN__"
+            Write-Output $answerB64
+            Write-Output "__WVIBE_B64_END__"
+            if ($modelName -ne $primaryModel) {
+                Write-Host "[info] api_ask succeeded with fallback model '$modelName'"
+            }
+            return
+        } catch {
+            $errBody = Get-WebErrorBody $_.Exception
+            if ([string]::IsNullOrWhiteSpace($errBody)) {
+                $lastError = "model '$modelName' failed: $($_.Exception.Message)"
+            } else {
+                $lastError = "model '$modelName' failed: $($_.Exception.Message)`n$errBody"
+            }
+            if ($modelName -ne $models[-1]) {
+                Write-Host "[warn] api_ask failed for model '$modelName', trying fallback..."
+            }
         }
     }
 
-    $bodyObj = @{
-        model      = $modelName
-        messages   = @(@{ role = "user"; content = $promptText })
-        max_tokens = 512
-    }
-    $jsonBody = $bodyObj | ConvertTo-Json -Depth 6 -Compress
-    $jsonUtf8 = [System.Text.Encoding]::UTF8.GetBytes($jsonBody)
-    $response = Invoke-RestMethod -Method Post -Uri "https://api.mistral.ai/v1/chat/completions" -Headers @{ Authorization = "Bearer $apiKey" } -Body $jsonUtf8 -ContentType "application/json; charset=utf-8" -TimeoutSec 45
-    $answer = $response.choices[0].message.content
-    if ($null -eq $answer) {
-        $answer = ""
-    }
-    $answerText = [string]$answer
-    $answerB64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($answerText))
-    Write-Output "__WVIBE_B64_BEGIN__"
-    Write-Output $answerB64
-    Write-Output "__WVIBE_B64_END__"
+    throw "Invoke-DirectApiAsk failed. $lastError"
 }
 
 function Read-FileSnippet([string]$path, [int]$maxChars = 5000) {

@@ -50,6 +50,11 @@ die() {
   exit 1
 }
 
+sed_escape_replacement() {
+  # Escape replacement text for sed s||| to preserve Windows backslashes and '&'.
+  printf '%s' "$1" | sed -e 's/[&|\\]/\\&/g'
+}
+
 # ============================================================================
 # SSH CONFIG SETUP
 # ============================================================================
@@ -116,14 +121,27 @@ install_toolkit_atomically() {
   # Generate toolkit into temp file with variable substitution
   local temp_toolkit
   temp_toolkit="$(mktemp)"
+  local host_alias_esc
+  local win_user_esc
+  local win_host_esc
+  local win_project_esc
+  local win_uv_bin_esc
+  local termux_repo_esc
+
+  host_alias_esc="$(sed_escape_replacement "$HOST_ALIAS")"
+  win_user_esc="$(sed_escape_replacement "$WIN_USER")"
+  win_host_esc="$(sed_escape_replacement "$WIN_HOST")"
+  win_project_esc="$(sed_escape_replacement "$WIN_PROJECT")"
+  win_uv_bin_esc="$(sed_escape_replacement "$WIN_UV_BIN")"
+  termux_repo_esc="$(sed_escape_replacement "$TERMUX_REPO")"
 
   if ! sed \
-    -e "s|{{HOST_ALIAS}}|$HOST_ALIAS|g" \
-    -e "s|{{WIN_USER}}|$WIN_USER|g" \
-    -e "s|{{WIN_HOST}}|$WIN_HOST|g" \
-    -e "s|{{WIN_PROJECT}}|$WIN_PROJECT|g" \
-    -e "s|{{WIN_UV_BIN}}|$WIN_UV_BIN|g" \
-    -e "s|{{TERMUX_REPO}}|$TERMUX_REPO|g" \
+    -e "s|{{HOST_ALIAS}}|$host_alias_esc|g" \
+    -e "s|{{WIN_USER}}|$win_user_esc|g" \
+    -e "s|{{WIN_HOST}}|$win_host_esc|g" \
+    -e "s|{{WIN_PROJECT}}|$win_project_esc|g" \
+    -e "s|{{WIN_UV_BIN}}|$win_uv_bin_esc|g" \
+    -e "s|{{TERMUX_REPO}}|$termux_repo_esc|g" \
     "$TOOLKIT_TEMPLATE" > "$temp_toolkit"; then
     rm -f "$temp_toolkit"
     die "Failed to generate toolkit"

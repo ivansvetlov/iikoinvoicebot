@@ -398,8 +398,12 @@ wvibe() {
     esac
   done
 
-  local wrapper_ps1="$WINDEV_PROJECT_WIN\\scripts\\termux_ssh_toolkit\\windows\\06_run_vibe_wrapper.ps1"
-  local common_args=(-NoLogo -NoProfile -ExecutionPolicy Bypass -File "$wrapper_ps1" -ProjectPath "$WINDEV_PROJECT_WIN" -UvBinPath "$WINDEV_UV_BIN")
+  # Use forward-slash Windows paths for remote ssh argv stability.
+  # Backslashes may be mangled when ssh composes the remote command line.
+  local project_ps="${WINDEV_PROJECT_WIN//\\//}"
+  local uv_bin_ps="${WINDEV_UV_BIN//\\//}"
+  local wrapper_ps1="$project_ps/scripts/termux_ssh_toolkit/windows/06_run_vibe_wrapper.ps1"
+  local common_args=(-NoLogo -NoProfile -ExecutionPolicy Bypass -File "$wrapper_ps1" -ProjectPath "$project_ps" -UvBinPath "$uv_bin_ps")
   local force_args=()
   if [ "$force_cleanup" -eq 1 ]; then
     force_args=(-ForceCleanup)
@@ -609,16 +613,19 @@ _wmailbox_push_text() {
   local text_payload="$1"
   local src_tag="${2:-termux}"
   local text_b64
+  local mailbox_ps1="$WINDEV_PROJECT_WIN\\scripts\\termux_ssh_toolkit\\windows\\10_mailbox.ps1"
   text_b64="$(printf '%s' "$text_payload" | base64 | tr -d '\r\n')"
-  _wps "Set-Location '$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\scripts\\termux_ssh_toolkit\\windows\\10_mailbox.ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action inbox -Source '$src_tag' -Text ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$text_b64')))"
+  _wps "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '$mailbox_ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action inbox -Source '$src_tag' -Text ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$text_b64')))"
 }
 
 wmailbox() {
   local action="${1:-status}"
+  local mailbox_ps1="$WINDEV_PROJECT_WIN\\scripts\\termux_ssh_toolkit\\windows\\10_mailbox.ps1"
+  local for_termux_path="$WINDEV_PROJECT_WIN\\ops\\mailbox\\for_termux.md"
   shift || true
   case "$action" in
     ensure|status|list|digest|show|prompt|handoff)
-      _wps "Set-Location '$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\scripts\\termux_ssh_toolkit\\windows\\10_mailbox.ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action '$action'"
+      _wps "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '$mailbox_ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action '$action'"
       ;;
     inbox|push)
       local inbox_text=""
@@ -638,8 +645,8 @@ wmailbox() {
       _wmailbox_push_text "$(cat "$last_file")" "termux"
       ;;
     termux|pull)
-      if ! _wps "Set-Location '$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\scripts\\termux_ssh_toolkit\\windows\\10_mailbox.ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null; then
-        _wps "Set-Location '$WINDEV_PROJECT_WIN'; if (Test-Path '.\\ops\\mailbox\\for_termux.md') { Get-Content '.\\ops\\mailbox\\for_termux.md' -Raw -Encoding UTF8 } else { Write-Output '[warn] file not found: .\\ops\\mailbox\\for_termux.md' }"
+      if ! _wps "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '$mailbox_ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null; then
+        _wps "if (Test-Path '$for_termux_path') { Get-Content '$for_termux_path' -Raw -Encoding UTF8 } else { Write-Output '[warn] file not found: .\\ops\\mailbox\\for_termux.md' }"
       fi
       ;;
     pullclip)
@@ -647,11 +654,27 @@ wmailbox() {
       local clip_mode="${1:-body}"
       local clip_text=""
       local pull_file="${TMPDIR:-/data/data/com.termux/files/usr/tmp}/for_termux_pullclip.md"
-      if _wssh_base "$WINDEV_ALIAS" "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(\$false); Get-Content -Raw -Encoding UTF8 '$WINDEV_PROJECT_WIN\\ops\\mailbox\\for_termux.md'\"" > "$pull_file" 2>/dev/null; then
+      local fetched_via_ssh=0
+      if _wssh_base "$WINDEV_ALIAS" "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(\$false); Get-Content -Raw -Encoding UTF8 '$for_termux_path'\"" > "$pull_file" 2>/dev/null; then
         reply="$(cat "$pull_file" 2>/dev/null || true)"
-      else
-        echo "[warn] failed to fetch for_termux.md via ssh."
-        return 1
+        fetched_via_ssh=1
+      fi
+      if [ -z "$reply" ] || [[ "$reply" == "[warn] file not found:"* ]]; then
+        if reply="$(_wps "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '$mailbox_ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null)"; then
+          :
+        else
+          reply=""
+        fi
+      fi
+      if [ -z "$reply" ] || [[ "$reply" == "[warn] file not found:"* ]]; then
+        if reply="$(_wps "if (Test-Path '$for_termux_path') { Get-Content '$for_termux_path' -Raw -Encoding UTF8 } else { '' }" 2>/dev/null)"; then
+          :
+        else
+          reply=""
+        fi
+      fi
+      if [ "$fetched_via_ssh" -eq 0 ]; then
+        echo "[warn] pullclip: ssh fetch failed, fallback path used."
       fi
       if [ -z "$reply" ]; then
         echo "[warn] no termux reply found in mailbox."
@@ -692,7 +715,7 @@ wmailbox() {
       local reply_msg="$*"
       local reply_b64
       reply_b64="$(printf '%s' "$reply_msg" | base64 | tr -d '\r\n')"
-      _wps "Set-Location '$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\scripts\\termux_ssh_toolkit\\windows\\10_mailbox.ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action reply -Source 'termux' -Text ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$reply_b64')))"
+      _wps "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '$mailbox_ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action reply -Source 'termux' -Text ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$reply_b64')))"
       ;;
     watch)
       local interval="${1:-5}"
@@ -711,12 +734,12 @@ wmailbox() {
       while true; do
         local current_reply=""
         local is_valid=0
-        if current_reply="$(_wps "Set-Location '$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\scripts\\termux_ssh_toolkit\\windows\\10_mailbox.ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null)"; then
+        if current_reply="$(_wps "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '$mailbox_ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action termux" 2>/dev/null)"; then
           if [ -z "$current_reply" ] || [[ "$current_reply" == "[warn] file not found:"* ]]; then
-            current_reply="$(_wps "Set-Location '$WINDEV_PROJECT_WIN'; if (Test-Path '.\\ops\\mailbox\\for_termux.md') { Get-Content '.\\ops\\mailbox\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
+            current_reply="$(_wps "if (Test-Path '$for_termux_path') { Get-Content '$for_termux_path' -Raw -Encoding UTF8 } else { '' }")"
           fi
         else
-          current_reply="$(_wps "Set-Location '$WINDEV_PROJECT_WIN'; if (Test-Path '.\\ops\\mailbox\\for_termux.md') { Get-Content '.\\ops\\mailbox\\for_termux.md' -Raw -Encoding UTF8 } else { '' }")"
+          current_reply="$(_wps "if (Test-Path '$for_termux_path') { Get-Content '$for_termux_path' -Raw -Encoding UTF8 } else { '' }")"
         fi
         if [[ "$current_reply" == *"# Termux Mailbox"* ]]; then
           is_valid=1
@@ -752,13 +775,13 @@ wmailbox() {
       local prompt
       local default_prompt
       default_prompt="Read ops/mailbox/for_codex.md and execute the tasks from it. If context is insufficient, ask up to 3 clarifying questions. In the answer: actions and changes first, then short risks and next step."
-      if prompt="$(_wps "Set-Location '$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\scripts\\termux_ssh_toolkit\\windows\\10_mailbox.ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action handoff" 2>/dev/null)"; then
+      if prompt="$(_wps "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '$mailbox_ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action handoff" 2>/dev/null)"; then
         :
       else
         prompt=""
       fi
       if [ -z "$prompt" ]; then
-        _wps "Set-Location '$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\scripts\\termux_ssh_toolkit\\windows\\10_mailbox.ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action digest" >/dev/null || return 1
+        _wps "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '$mailbox_ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action digest" >/dev/null || return 1
         prompt="$default_prompt"
       fi
       if command -v termux-clipboard-set >/dev/null 2>&1; then
@@ -802,7 +825,7 @@ wmailbox codexclip
         fi
         joined="$joined$it"
       done
-      _wps "Set-Location '$WINDEV_PROJECT_WIN'; powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '.\\scripts\\termux_ssh_toolkit\\windows\\10_mailbox.ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action resolve -Items @('$joined' -split \"','\")"
+      _wps "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File '$mailbox_ps1' -ProjectPath '$WINDEV_PROJECT_WIN' -Action resolve -Items @('$joined' -split \"','\")"
       ;;
     *)
       echo "Usage: wmailbox [ensure|status|list|digest|show|termux|pull|pullclip|reply|watch|prompt|handoff|codexclip|flow|flowclip|resolve|inbox|push|pushlast]"
@@ -843,16 +866,33 @@ $(cat "$out_file")"
 }
 
 wring() {
+  local raw_file="${TMPDIR:-/data/data/com.termux/files/usr/tmp}/wring_cmd_raw.md"
   local cmd_file="${TMPDIR:-/data/data/com.termux/files/usr/tmp}/wring_cmd.sh"
   local out_file="${TMPDIR:-/data/data/com.termux/files/usr/tmp}/wring_out.log"
   local run_rc=0
   local push_ok=false
 
   # Step 1: Fetch command from mailbox
-  if ! wmailbox termux > "$cmd_file" 2>/dev/null; then
+  if ! wmailbox termux > "$raw_file" 2>/dev/null; then
     echo "[error] wring: failed to fetch command block from mailbox"
     return 1
   fi
+
+  # Extract executable body from mailbox markdown and normalize CRLF.
+  # Supports both full mailbox format and raw command payloads.
+  awk '
+    { sub(/\r$/, "") }
+    {
+      if (!in_body) {
+        if ($0 ~ /^# Termux Mailbox[[:space:]]*$/) next
+        if ($0 ~ /^Generated:[[:space:]]/) next
+        if ($0 ~ /^Source:[[:space:]]/) next
+        if ($0 ~ /^[[:space:]]*$/) next
+        in_body=1
+      }
+      print
+    }
+  ' "$raw_file" > "$cmd_file"
 
   if [ ! -s "$cmd_file" ]; then
     echo "[error] wring: command block is empty"
@@ -861,7 +901,10 @@ wring() {
 
   # Step 2: Execute command
   local cmd_summary
-  cmd_summary=$(head -1 "$cmd_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  cmd_summary="$(awk 'NF {print; exit}' "$cmd_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [ -z "$cmd_summary" ]; then
+    cmd_summary="<empty>"
+  fi
   echo "[wring-exec] Running: $cmd_summary"
   bash "$cmd_file" 2>&1 | tee "$out_file"
   run_rc=${PIPESTATUS[0]}
