@@ -8,7 +8,7 @@ The 4 latest document files from `C:\Users\MiBookPro\Downloads`:
 4. `AAF integration.docx` (2026-03-15 23:26:08)
 
 ## Context sync from `dump_chat`
-- User goal is to route tasks from phone/Termux/Vibe to this environment and keep architecture extensible.
+- User goal is to keep this environment extensible for multiple operator channels and integrations.
 - Preferred workflow is experiments in isolated git branches per direction.
 - Not all ideas should be implemented; only high-value and low-regret ones should enter project backlog.
 

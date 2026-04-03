@@ -54,7 +54,7 @@
 - [ ] HTTPS + webhook на VPS (домен + Let's Encrypt + Nginx)
 - [ ] iiko: маппинг позиций → импорт через CSV/XLSX (альтернатива Playwright)
 - [ ] Быстрый парсер ТОРГ-12 / УПД без LLM (экономия на типовых формах)
-- [ ] Команда /status (показ состояния очереди задач пользователю)
+- [ ] Команда /status (показ состояния очереди задач пользователю; сейчас реализован только статус локальных pending/split-буферов)
 - [ ] Auto-restart воркера и backend (systemd / docker restart policy)
 
 ## Этап 7 — Альтернативный LLM-провайдер (Cloudflare + Gemini)
@@ -80,6 +80,12 @@
 - [x] Define secure secrets policy for demo credentials (no plaintext in tracked docs for non-demo environments): `docs/SECURITY_SECRETS_POLICY.md`.
 - [x] Add smoke auth/health script for RMS REST endpoint and expected response checks (`scripts/iiko_server_smoke.py`, results in `logs/iiko_smoke_last.json`).
 - [ ] Run first end-to-end import test against demo stand and record findings in `docs/DEBUG.md`.
+
+## Stage 9 — Post-rollback stabilization (2026-04-03)
+- [x] Hard rollback: удалить Termux/Vibe/operator toolkit из репозитория.
+- [x] Обновить базовую документацию (`START_HERE`, `ARCHITECTURE`, `AGENT_HANDOFF`, `README`, `DEBUG`) под основной продуктовый контур.
+- [ ] Провести ревизию remaining docs/exp на остаточные ссылки на удаленный operator-пайплайн.
+- [ ] Утвердить минимальный runbook для E2E теста iiko import без внешних оберток.
 
 ## Риски (архитектура и надежность)
 - [x] `P0` Batch flow: исправить обработку `files[]` в worker (`app/tasks.py`), чтобы батч не деградировал до `files[0]`; добавить регрессионный тест.

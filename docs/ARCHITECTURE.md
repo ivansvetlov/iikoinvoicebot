@@ -1,40 +1,35 @@
-﻿# ARCHITECTURE
+# ARCHITECTURE
 
-## Компоненты
-- `app.entrypoints.main` — ASGI backend (FastAPI).
-- `app.entrypoints.worker` — RQ worker.
-- `app.entrypoints.bot` — Telegram bot (polling).
-- `app/api.py` — HTTP endpoints (`/health`, `/process`, `/process-batch`, `/metrics/summary`, webhook).
-- `app/tasks.py` — обработка задач очереди.
-- `app/services/pipeline.py` — основной пайплайн распознавания и загрузки в iiko.
+## Components
+- `app.entrypoints.main` - FastAPI backend.
+- `app.entrypoints.worker` - RQ worker.
+- `app.entrypoints.bot` - Telegram bot.
+- `app/services/pipeline.py` - invoice processing pipeline (OCR/LLM + iiko integration).
+- `app/tasks.py` - queue task execution and result publishing.
 
-## Инфраструктура
-- Redis + RQ для очереди.
-- SQLAlchemy для task store.
-- Логи/метрики/алерты через `app/observability.py`.
-- Деплой-файлы в `deploy/`:
-  - `deploy/deploy/Dockerfile`
-  - `deploy/deploy/docker-compose.yml`
-  - `deploy/deploy/nginx_bot.conf`
-- Конфиги в `config/`:
-  - `config/config/.env.example`
+## Infrastructure
+- Redis + RQ queue.
+- SQLAlchemy task/user state storage.
+- Observability layer: `app/observability.py`.
+- Deployment artifacts in `deploy/`.
 
-## Поток
-1. Bot отправляет файл в backend.
-2. Backend валидирует вход, сохраняет payload и ставит задачу в RQ.
-3. Worker обрабатывает задачу через pipeline.
-4. Результат уходит пользователю и (опционально) в iiko.
+## Request flow
+1. Telegram bot receives file(s).
+2. Backend validates input and enqueues task (`/process`, `/process-batch`).
+3. Worker processes payload through pipeline.
+4. Result is returned to user and optionally sent to iiko.
 
-## Risks
-- `P0`: Batch flow regression. `process-batch` jobs are enqueued, but worker path takes only `files[0]` in `app/tasks.py`; this can silently drop other files from a batch.
-- `P1`: Queue timeout risk. Jobs are enqueued without explicit `job_timeout`; long OCR/LLM/iiko runs may exceed default RQ timeout under load.
-- `P1`: Single worker bottleneck. Current topology is one RQ worker process; queue latency can grow quickly during burst traffic.
-- `P1`: Stateful bot memory model. Runtime state is stored in in-memory dict/set structures in bot manager; horizontal scaling and restart resilience are limited.
-- `P1`: Local credentials storage. iiko credentials are persisted in `data/users.json`; this is a security and operational risk for multi-user or shared hosts.
+## iiko integration track
+- Primary target: iikoServer API import path.
+- Fallback path: existing non-API flow (where enabled by feature flags).
+- Mapping details: `docs/exp/IIKO_SERVER_INCOMING_INVOICE_MAPPING.md`.
 
-## Risk Mitigation Priorities
-1. Fix batch execution path in worker (`files[]` handling, true batch pipeline call).
-2. Set explicit RQ timeouts/retry policy per job type and add dead-letter/failed-job handling.
-3. Introduce worker horizontal scaling profile and queue depth monitoring.
-4. Move bot runtime state and user credentials to durable storage with access controls.
+## Active risks
+- `P1` Worker throughput under burst load.
+- `P1` Bot runtime-state still partly in process memory.
+- `P1` Credentials in local JSON storage need protected replacement.
 
+## Priorities
+1. Finish first end-to-end import on RMS demo stand.
+2. Move bot state to durable storage.
+3. Migrate credential storage to secure flow.

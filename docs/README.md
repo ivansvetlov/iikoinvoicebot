@@ -7,10 +7,10 @@
   - `app.entrypoints.bot`
 - Документация находится в `docs/`.
 - Файлы деплоя находятся в `deploy/`.
-- Шаблон окружения: `config/config/.env.example`.
+- Шаблон окружения: `config/.env.example`.
 
 ## Быстрый запуск
-1. Скопировать `config/config/.env.example` в `.env` и заполнить значения.
+1. Скопировать `config/.env.example` в `.env` и заполнить значения.
 2. Установить зависимости: `pip install -r requirements.txt`.
 3. Запустить backend: `uvicorn app.entrypoints.main:app --host 127.0.0.1 --port 8000`.
 4. Запустить worker: `python -m app.entrypoints.worker`.
@@ -37,4 +37,3 @@ docker compose -f deploy/deploy/docker-compose.yml up -d --build
 - `docs/exp/BUSINESS_INTEGRATIONS_PLAN.md`
 - `docs/exp/IIKO_STORE_CATALOG.md`
 - `docs/exp/IIKO_RMS_DEMO_PROFILE_2026-03-16.md`
-- `docs/TERMUX_VIBE_WRAPPER_PLAYBOOK.md` (перенос phone/SSH/vibe подхода в другие проекты)

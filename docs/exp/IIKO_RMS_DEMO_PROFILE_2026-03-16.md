@@ -38,8 +38,7 @@
 ## Practical usage in this project
 1. Manual smoke: sign in to `iikoWeb`, verify credentials and locale.
 2. Integration prep: align endpoint behavior with `docs/exp/IIKO_SERVER_INCOMING_INVOICE_MAPPING.md`.
-3. Development flow: use phone loop (`wplan` -> `wmailbox codexclip` -> `wmailbox watch`) for iterative checks while testing integration scripts.
+3. Development flow: use local runbook from `docs/DEBUG.md` for iterative checks while testing integration scripts.
 
 ## Security note
 Credentials in this file are for demo/testing only. Before production usage, move secrets to secure storage and rotate test credentials.
-

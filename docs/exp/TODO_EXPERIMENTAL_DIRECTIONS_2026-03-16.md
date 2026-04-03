@@ -24,9 +24,8 @@ This list is separate from product roadmap TODO because it tracks experimental i
 - [x] Build SSH alias convention and documented host profiles.
 - [x] Add scripted health bundle (`service status + health endpoint + metrics snapshot`).
 - [ ] Pilot DNS automation playbook (Cloudflare API) in non-production environment.
-- [ ] Define secrets policy for automation scripts and agent-executed commands.
-- [x] Add mailbox duplex loop (`wplan/codexclip/pull/watch`) with Android clipboard support.
-- [x] Add local phone terminal control (`wphone`) and practical tutorials (`wtutor`).
+- [x] Define secrets policy for automation scripts and agent-executed commands (`docs/SECURITY_SECRETS_POLICY.md`).
+- [x] Documented rollback of operator-side peripheral tooling from main repo.
 
 ## D5 - Quality Gates for AI Development (`exp/topic-quality-gates-ai-dev`)
 - [ ] Add baseline static checks (formatter/linter/type checks where feasible).
