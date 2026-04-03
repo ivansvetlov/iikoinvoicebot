@@ -60,6 +60,60 @@ function Decode-ApiAskOutput([string]$rawText) {
     }
 }
 
+function Get-ToolkitAliases {
+    $toolkitPath = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\shared\toolkit_functions.sh"
+    if (-not (Test-Path -LiteralPath $toolkitPath)) {
+        return @()
+    }
+
+    $raw = Get-Content -LiteralPath $toolkitPath -Raw -Encoding UTF8
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return @()
+    }
+
+    $seen = @{}
+    $items = New-Object System.Collections.Generic.List[string]
+    $matches = [regex]::Matches($raw, '(?m)^([A-Za-z_][A-Za-z0-9_]*)\(\)\s*\{')
+    foreach ($m in $matches) {
+        $name = $m.Groups[1].Value
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+        if ($name.StartsWith("_")) { continue }
+        if (-not $name.StartsWith("w")) { continue }
+        if ($seen.ContainsKey($name)) { continue }
+        $seen[$name] = $true
+        $items.Add($name) | Out-Null
+    }
+
+    if ($items.Count -eq 0) {
+        return @()
+    }
+    return @($items | Sort-Object)
+}
+
+function Show-ToolkitAliases {
+    $aliases = Get-ToolkitAliases
+    if (-not $aliases -or $aliases.Count -eq 0) {
+        Write-Host "[warn] alias list not found."
+        return
+    }
+    Write-Host "Termux aliases:"
+    foreach ($a in $aliases) {
+        Write-Output $a
+    }
+}
+
+function Test-IsAliasQuery([string]$text) {
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $false
+    }
+    if ($text -match '(?i)\balias(es)?\b') { return $true }
+    if ($text -match 'алиас') { return $true }
+    if ($text -match '(?i)\btermux\b.*\bcommands?\b') { return $true }
+    if ($text -match 'список\s+команд') { return $true }
+    if ($text -match 'какие\s+команд') { return $true }
+    return $false
+}
+
 function Show-LocalHelp {
     @"
 Легкая оболочка Vibe:
@@ -71,6 +125,7 @@ function Show-LocalHelp {
     /mcp on|off  включить/выключить MCP режим
     /mcpcmd ...  выполнить точную команду через MCP
     /backend api|cli  переключить backend для ask-запросов
+    /aliases     показать текущий список w* алиасов (без LLM)
     /turns N     поставить лимит turn'ов для ask (1..24)
     /bootstrap   включить bootstrap на следующий запрос
     /noboot      выключить bootstrap (по умолчанию)
@@ -109,7 +164,8 @@ function Invoke-Ask([string]$text) {
         Mode        = "api_ask"
         Task        = $text
     }
-    if (-not $useBootstrap) {
+    $needsContext = $useBootstrap -or (Test-IsAliasQuery -text $text)
+    if (-not $needsContext) {
         $apiArgs.SkipBootstrap = $true
     }
     $raw = & $wrapperPath @apiArgs | Out-String
@@ -123,6 +179,10 @@ function Invoke-Ask([string]$text) {
 }
 
 if (-not [string]::IsNullOrWhiteSpace($Task)) {
+    if ($Task.Trim() -match '^\/aliases$') {
+        Show-ToolkitAliases
+        exit 0
+    }
     Invoke-Ask -text $Task
     exit $LASTEXITCODE
 }
@@ -182,6 +242,10 @@ while ($true) {
         "^\/backend\s+(api|cli)$" {
             $askBackend = $matches[1].ToLowerInvariant()
             Write-Host "ask backend: $askBackend"
+            continue
+        }
+        "^\/aliases$" {
+            Show-ToolkitAliases
             continue
         }
         "^\/mcpcmd\s+(.+)$" {

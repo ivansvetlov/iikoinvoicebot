@@ -300,6 +300,7 @@ Quick bootstrap:
 1) Read only:
    - docs/START_HERE_NEW_CHAT.md
    - docs/TODO.md
+   - scripts/termux_ssh_toolkit/shared/toolkit_functions.sh (current alias map)
 2) Provide concise status:
    - done
    - in progress
@@ -544,6 +545,36 @@ function Read-FileSnippet([string]$path, [int]$maxChars = 5000) {
     return $raw.Substring(0, $maxChars)
 }
 
+function Get-ToolkitAliasCatalog([int]$maxCount = 200) {
+    $toolkitPath = Join-Path $ProjectPath "scripts\termux_ssh_toolkit\shared\toolkit_functions.sh"
+    if (-not (Test-Path -LiteralPath $toolkitPath)) {
+        return ""
+    }
+    $raw = Get-Content -LiteralPath $toolkitPath -Raw -Encoding UTF8
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return ""
+    }
+
+    $seen = @{}
+    $result = New-Object System.Collections.Generic.List[string]
+    $matches = [regex]::Matches($raw, '(?m)^([A-Za-z_][A-Za-z0-9_]*)\(\)\s*\{')
+    foreach ($m in $matches) {
+        $name = $m.Groups[1].Value
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+        if ($name.StartsWith("_")) { continue }
+        if (-not $name.StartsWith("w")) { continue }
+        if ($seen.ContainsKey($name)) { continue }
+        $seen[$name] = $true
+        $result.Add($name) | Out-Null
+        if ($result.Count -ge $maxCount) { break }
+    }
+
+    if ($result.Count -eq 0) {
+        return ""
+    }
+    return ($result -join ", ")
+}
+
 function Build-ApiAskPrompt([string]$taskText, [switch]$NoBootstrap) {
     if ($NoBootstrap) {
         return $taskText
@@ -552,10 +583,16 @@ function Build-ApiAskPrompt([string]$taskText, [switch]$NoBootstrap) {
     $startHere = Read-FileSnippet -path (Join-Path $ProjectPath "docs\START_HERE_NEW_CHAT.md")
     $todo = Read-FileSnippet -path (Join-Path $ProjectPath "docs\TODO.md")
     $arch = Read-FileSnippet -path (Join-Path $ProjectPath "docs\ARCHITECTURE.md")
+    $aliases = Get-ToolkitAliasCatalog
+    if ([string]::IsNullOrWhiteSpace($aliases)) {
+        $aliases = "<alias catalog unavailable>"
+    }
 
     return @"
 Use project context below to answer the user task.
 Be concise and practical. If context is insufficient, ask up to 3 clarifying questions.
+If the user asks about Termux aliases/commands, prioritize the alias catalog section.
+If user asks to list aliases, output all aliases from the catalog exactly, one per line.
 
 === docs/START_HERE_NEW_CHAT.md (snippet) ===
 $startHere
@@ -565,6 +602,9 @@ $todo
 
 === docs/ARCHITECTURE.md (snippet) ===
 $arch
+
+=== toolkit aliases (generated from toolkit_functions.sh) ===
+$aliases
 
 === User task ===
 $taskText
