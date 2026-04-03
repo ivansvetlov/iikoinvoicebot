@@ -19,7 +19,10 @@ from PIL import Image, ImageFilter, ImageOps
 
 from app.config import settings
 from app.errors import UserFacingError
+from app.iiko.idempotency_store import IikoImportIdempotencyStore
+from app.iiko.incoming_invoice_mapper import IncomingInvoiceMapper
 from app.iiko.playwright_client import IikoPlaywrightClient
+from app.iiko.server_client import IikoServerClient
 from app.parsers.file_text_extractor import FileTextExtractor
 from app.schemas import InvoiceItem, InvoiceParseResult, ProcessResponse
 from app.services.user_store import get_iiko_credentials
@@ -33,6 +36,7 @@ USERS_DIR = REQUESTS_DIR / "users"
 USERS_DIR.mkdir(parents=True, exist_ok=True)
 LLM_COSTS_LOG = Path(__file__).resolve().parents[2] / "logs" / "llm_costs.csv"
 LLM_COSTS_SUMMARY = Path(__file__).resolve().parents[2] / "logs" / "llm_costs_summary.json"
+IIKO_IMPORT_REGISTRY = Path(__file__).resolve().parents[2] / "logs" / "iiko_import_registry.jsonl"
 MAX_TEXT_HINT_CHARS = 12000
 PDF_IMAGE_RESOLUTION = 200
 PDF_SPLIT_HEIGHT_THRESHOLD = 1600
@@ -95,7 +99,20 @@ class InvoicePipelineService:
 
     def __init__(self) -> None:
         """Инициализирует клиент iiko для последующей загрузки."""
-        self._iiko_client = IikoPlaywrightClient()
+        self._iiko_ui_client = IikoPlaywrightClient()
+        self._iiko_server_client = IikoServerClient(
+            base_url=settings.iiko_server_base_url,
+            auth_path=settings.iiko_server_auth_path,
+            import_path=settings.iiko_server_import_path,
+            verify_ssl=settings.iiko_server_verify_ssl,
+        )
+        self._iiko_mapper = IncomingInvoiceMapper(
+            default_store_id=settings.iiko_server_default_store_id,
+            default_supplier_id=settings.iiko_server_default_supplier_id,
+            default_status=settings.iiko_server_default_status,
+            default_conception=settings.iiko_server_default_conception,
+        )
+        self._iiko_idempotency = IikoImportIdempotencyStore(IIKO_IMPORT_REGISTRY)
         self._pricing = {
             "gpt-4o-mini": {"input": 0.30, "output": 1.20},
             "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
@@ -1213,6 +1230,65 @@ class InvoicePipelineService:
 
         return self._dedupe_consecutive_items(items)
 
+    async def _upload_to_iiko(
+        self,
+        *,
+        parsed: InvoiceParseResult,
+        items: list[InvoiceItem],
+        request_id: str,
+        username: str,
+        password: str,
+    ) -> tuple[bool, str | None, str | None]:
+        mode = (settings.iiko_import_mode or "dual").strip().lower()
+        external_key = self._iiko_mapper.build_external_key(parsed, items)
+        if self._iiko_idempotency.exists(external_key):
+            return False, "iiko_duplicate", "Документ уже был импортирован ранее (duplicate blocked)."
+
+        payload = self._iiko_mapper.map_payload(parsed=parsed, items=items, request_id=request_id)
+
+        async def _server_path() -> None:
+            result = await self._iiko_server_client.import_incoming_invoice(
+                payload=payload,
+                username=username,
+                password=password,
+            )
+            if isinstance(result, dict) and result.get("valid") is False:
+                raise RuntimeError(result.get("errorMessage") or "iikoServer validation failed")
+            self._iiko_idempotency.record(
+                external_key=external_key,
+                request_id=request_id,
+                mode="server",
+                details={"status": payload.get("status"), "documentNumber": payload.get("documentNumber")},
+            )
+
+        async def _ui_path() -> None:
+            await self._iiko_ui_client.upload_invoice_items(items, username, password)
+            self._iiko_idempotency.record(
+                external_key=external_key,
+                request_id=request_id,
+                mode="playwright",
+                details={"items": len(items)},
+            )
+
+        if mode == "playwright":
+            await _ui_path()
+            return True, None, None
+        if mode == "server":
+            await _server_path()
+            return True, None, None
+        if mode == "dual":
+            try:
+                await _server_path()
+                return True, None, None
+            except Exception:
+                logger.exception(
+                    "iikoServer import failed, switching to Playwright fallback",
+                    extra={"request_id": request_id},
+                )
+                await _ui_path()
+                return True, None, None
+        raise RuntimeError(f"Unsupported IIKO_IMPORT_MODE: {settings.iiko_import_mode}")
+
     async def process(
         self,
         filename: str,
@@ -1531,14 +1607,29 @@ class InvoicePipelineService:
 
         for attempt in range(3):
             try:
-                await self._iiko_client.upload_invoice_items(items, username, password)
+                uploaded, upload_error_code, upload_message = await self._upload_to_iiko(
+                    parsed=parsed,
+                    items=items,
+                    request_id=request_id,
+                    username=username,
+                    password=password,
+                )
+                if uploaded:
+                    return ProcessResponse(
+                        request_id=request_id,
+                        status="ok",
+                        parsed=parsed,
+                        iiko_uploaded=True,
+                        error_code=None,
+                        message="Позиции загружены в iiko.",
+                    )
                 return ProcessResponse(
                     request_id=request_id,
-                    status="ok",
+                    status="error",
                     parsed=parsed,
-                    iiko_uploaded=True,
-                    error_code=None,
-                    message="Позиции загружены в iiko.",
+                    iiko_uploaded=False,
+                    error_code=upload_error_code or "iiko_upload_failed",
+                    message=upload_message or "Не удалось загрузить позиции в iiko.",
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.exception(
@@ -1673,14 +1764,29 @@ class InvoicePipelineService:
         username, password = creds
         for attempt in range(3):
             try:
-                await self._iiko_client.upload_invoice_items(combined_items, username, password)
+                uploaded, upload_error_code, upload_message = await self._upload_to_iiko(
+                    parsed=parsed,
+                    items=combined_items,
+                    request_id=request_id,
+                    username=username,
+                    password=password,
+                )
+                if uploaded:
+                    return ProcessResponse(
+                        request_id=request_id,
+                        status="ok",
+                        parsed=parsed,
+                        iiko_uploaded=True,
+                        error_code=None,
+                        message="Позиции загружены в iiko.",
+                    )
                 return ProcessResponse(
                     request_id=request_id,
-                    status="ok",
+                    status="error",
                     parsed=parsed,
-                    iiko_uploaded=True,
-                    error_code=None,
-                    message="Позиции загружены в iiko.",
+                    iiko_uploaded=False,
+                    error_code=upload_error_code or "iiko_upload_failed",
+                    message=upload_message or "Не удалось загрузить позиции в iiko.",
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.exception(

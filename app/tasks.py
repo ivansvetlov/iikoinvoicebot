@@ -87,11 +87,10 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
     if request_id:
         mark_processing(request_id)
 
-    if files:
-        filename, file_path = files[0]
-        payload["filename"] = filename
-        payload["file_path"] = file_path
-    if not filename or not file_path:
+    is_batch = bool(files)
+    if is_batch and (not isinstance(files, list) or not files):
+        is_batch = False
+    if not is_batch and (not filename or not file_path):
         result = {
             "status": "error",
             "message": "Пустой payload: нет файла для обработки.",
@@ -115,10 +114,21 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
         )
         return result
 
-    content = Path(file_path).read_bytes()
     pipeline = InvoicePipelineService()
 
     async def _run() -> dict[str, Any]:
+        if is_batch:
+            file_payload: list[tuple[str, bytes]] = []
+            for file_name, path in files:
+                file_payload.append((file_name, Path(path).read_bytes()))
+            return await pipeline.process_batch(
+                file_payload,
+                push_to_iiko=push_to_iiko,
+                user_id=user_id,
+                pdf_mode=pdf_mode,
+                request_id=request_id,
+            )
+        content = Path(file_path).read_bytes()
         return await pipeline.process(
             filename,
             content,

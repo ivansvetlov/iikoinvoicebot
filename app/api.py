@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, Form, UploadFile, Request, Response
 from aiogram.types import Update
 
 from app.config import settings
-from app.queue import get_queue
+from app.queue import enqueue_invoice_task
 from app.db import init_db
 from app.observability import append_metric, configure_logging, summarize_metrics
 from app.schemas import InvoiceParseResult, ProcessResponse
@@ -60,6 +60,14 @@ def _error_response(message: str, exc: Exception | None = None, *, error_code: s
 
 def _duration_ms(start_ts: float) -> float:
     return round((perf_counter() - start_ts) * 1000, 2)
+
+
+def _safe_filename(filename: str | None) -> str:
+    """Normalize untrusted upload filenames to a safe local basename."""
+    candidate = Path(str(filename or "unknown")).name.strip().replace("\x00", "")
+    if not candidate or candidate in {".", ".."}:
+        candidate = "unknown"
+    return candidate[:255]
 
 
 @app.get("/health")
@@ -154,15 +162,16 @@ async def process_invoice(
                 duration_ms=_duration_ms(started),
             )
             return response
-        logger.info("Received file", extra={"file_name": file.filename})
+        safe_filename = _safe_filename(file.filename)
+        logger.info("Received file", extra={"file_name": safe_filename})
         request_id = pipeline._build_request_id(user_id)  # noqa: SLF001
         job_dir = Path(__file__).resolve().parent.parent / "data" / "jobs" / request_id
         job_dir.mkdir(parents=True, exist_ok=True)
-        file_path = job_dir / (file.filename or "unknown")
+        file_path = job_dir / safe_filename
         file_path.write_bytes(content)
         payload = {
             "request_id": request_id,
-            "filename": file.filename or "unknown",
+            "filename": safe_filename,
             "file_path": str(file_path),
             "user_id": user_id,
             "chat_id": int(chat_id) if chat_id else None,
@@ -174,14 +183,19 @@ async def process_invoice(
         payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         create_task(
             request_id=request_id,
-            filename=file.filename or "unknown",
+            filename=safe_filename,
             user_id=user_id,
             chat_id=int(chat_id) if chat_id else None,
             batch=False,
             push_to_iiko=push_to_iiko,
             pdf_mode=pdf_mode,
         )
-        get_queue().enqueue(process_invoice_task, str(payload_path))
+        enqueue_invoice_task(
+            task_func=process_invoice_task,
+            payload_path=str(payload_path),
+            batch=False,
+            push_to_iiko=push_to_iiko,
+        )
         empty = InvoiceParseResult(source_type="unknown", raw_text="", items=[], warnings=[])
         response = ProcessResponse(
             request_id=request_id,
@@ -265,14 +279,14 @@ async def process_batch(
                     duration_ms=_duration_ms(started),
                 )
                 return response
-            batch.append((item.filename or "unknown", content))
+            batch.append((_safe_filename(item.filename), content))
         logger.info("Received batch files", extra={"count": len(batch)})
         request_id = pipeline._build_request_id(user_id)  # noqa: SLF001
         job_dir = Path(__file__).resolve().parent.parent / "data" / "jobs" / request_id
         job_dir.mkdir(parents=True, exist_ok=True)
         file_paths: list[str] = []
         for name, content in batch:
-            path = job_dir / name
+            path = job_dir / _safe_filename(name)
             path.write_bytes(content)
             file_paths.append(str(path))
         payload = {
@@ -296,7 +310,12 @@ async def process_batch(
             push_to_iiko=push_to_iiko,
             pdf_mode=pdf_mode,
         )
-        get_queue().enqueue(process_invoice_task, str(payload_path))
+        enqueue_invoice_task(
+            task_func=process_invoice_task,
+            payload_path=str(payload_path),
+            batch=True,
+            push_to_iiko=push_to_iiko,
+        )
         empty = InvoiceParseResult(source_type="unknown", raw_text="", items=[], warnings=[])
         response = ProcessResponse(
             request_id=request_id,

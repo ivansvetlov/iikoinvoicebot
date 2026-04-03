@@ -27,6 +27,18 @@ class Settings(BaseSettings):
     iiko_password: str = Field(default="", alias="IIKO_PASSWORD")
     iiko_headless: bool = Field(default=True, alias="IIKO_HEADLESS")
     push_to_iiko: bool = Field(default=True, alias="PUSH_TO_IIKO")
+    iiko_import_mode: str = Field(default="dual", alias="IIKO_IMPORT_MODE")
+    iiko_server_base_url: str = Field(default="", alias="IIKO_SERVER_BASE_URL")
+    iiko_server_auth_path: str = Field(default="/resto/api/auth", alias="IIKO_SERVER_AUTH_PATH")
+    iiko_server_import_path: str = Field(
+        default="/resto/api/documents/import/incomingInvoice",
+        alias="IIKO_SERVER_IMPORT_PATH",
+    )
+    iiko_server_verify_ssl: bool = Field(default=False, alias="IIKO_SERVER_VERIFY_SSL")
+    iiko_server_default_store_id: str = Field(default="", alias="IIKO_SERVER_DEFAULT_STORE_ID")
+    iiko_server_default_supplier_id: str = Field(default="", alias="IIKO_SERVER_DEFAULT_SUPPLIER_ID")
+    iiko_server_default_conception: str = Field(default="", alias="IIKO_SERVER_DEFAULT_CONCEPTION")
+    iiko_server_default_status: str = Field(default="NEW", alias="IIKO_SERVER_DEFAULT_STATUS")
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
@@ -54,6 +66,15 @@ class Settings(BaseSettings):
 
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     queue_name: str = Field(default="default", alias="QUEUE_NAME")
+    queue_timeout_single_sec: int = Field(default=900, alias="QUEUE_TIMEOUT_SINGLE_SEC")
+    queue_timeout_batch_sec: int = Field(default=1500, alias="QUEUE_TIMEOUT_BATCH_SEC")
+    queue_timeout_iiko_sec: int = Field(default=2100, alias="QUEUE_TIMEOUT_IIKO_SEC")
+    queue_retry_single_max: int = Field(default=1, alias="QUEUE_RETRY_SINGLE_MAX")
+    queue_retry_batch_max: int = Field(default=1, alias="QUEUE_RETRY_BATCH_MAX")
+    queue_retry_iiko_max: int = Field(default=2, alias="QUEUE_RETRY_IIKO_MAX")
+    queue_retry_intervals_sec: str = Field(default="30,120,300", alias="QUEUE_RETRY_INTERVALS_SEC")
+    queue_result_ttl_sec: int = Field(default=86400, alias="QUEUE_RESULT_TTL_SEC")
+    queue_failure_ttl_sec: int = Field(default=604800, alias="QUEUE_FAILURE_TTL_SEC")
 
     database_url: str = Field(default="sqlite:///./data/app.db", alias="DATABASE_URL")
 

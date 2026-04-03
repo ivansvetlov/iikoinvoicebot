@@ -3,7 +3,7 @@
 Повторяемый локальный сценарий запуска с новой структурой проекта.
 
 ## 1) Подготовка
-1. Скопируйте `config/config/.env.example` в `.env`.
+1. Скопируйте `config/.env.example` в `.env`.
 2. Заполните минимум: `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, `REDIS_URL`.
 3. Установите зависимости:
 ```powershell
@@ -46,4 +46,3 @@ curl "http://127.0.0.1:8000/metrics/summary?window_minutes=60"
 ```powershell
 docker compose -f deploy/deploy/docker-compose.yml up -d --build
 ```
-

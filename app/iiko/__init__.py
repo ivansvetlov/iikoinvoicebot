@@ -1,1 +1,2 @@
-﻿"""Интеграция с iiko через Playwright."""
+"""Integration with iiko via Playwright UI and iikoServer API."""
+
