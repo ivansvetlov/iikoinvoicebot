@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
+import json
+from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from app.schemas import InvoiceItem, InvoiceParseResult
 from app.services.invoice_validator import is_likely_invoice
@@ -201,6 +206,71 @@ class PipelineGarbageGuardTests(unittest.TestCase):
             "Хлеб 8 50 400\n"
         )
         self.assertFalse(service._looks_like_excel_reference_template(text))
+
+
+class PipelineFastParserTests(unittest.TestCase):
+    def test_process_uses_fast_parser_before_llm_for_text_source(self) -> None:
+        service = InvoicePipelineService()
+        raw_text = (
+            "INVOICE #12\n"
+            "1 Item A 120 3 pcs 360\n"
+            "2 Item B 50 4 pcs 200\n"
+            "3 Item C 10 2 pcs 20\n"
+        )
+
+        async def run_case():
+            with patch("app.services.pipeline.FileTextExtractor.extract", return_value=("text", raw_text)):
+                with patch("app.services.pipeline.settings.fast_parser_min_chars", 10):
+                    with patch.object(
+                        service,
+                        "_run_llm_pass",
+                        new=AsyncMock(side_effect=AssertionError("LLM should not be called for fast-parser success")),
+                    ):
+                        return await service.process(
+                            "invoice.txt",
+                            b"stub",
+                            push_to_iiko=False,
+                            user_id="42",
+                            request_id="20260406_120000_000_42",
+                        )
+
+        response = asyncio.run(run_case())
+        self.assertEqual(response.status, "ok")
+        self.assertGreaterEqual(len(response.parsed.items), 2)
+        self.assertIn("fast_parser_used", response.parsed.warnings)
+
+
+class PipelineCostSummaryTests(unittest.TestCase):
+    def test_update_cost_summary_adds_day_and_user_aggregates(self) -> None:
+        service = InvoicePipelineService()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            summary_path = Path(temp_dir) / "llm_costs_summary.json"
+            with patch("app.services.pipeline.LLM_COSTS_SUMMARY", summary_path):
+                with patch.object(service, "_get_usd_rub_rate", return_value=100.0):
+                    service._update_cost_summary(
+                        user_id="42",
+                        request_id="20260406_100000_000_42",
+                        cost={"total_cost_usd": 1.25},
+                    )
+                    service._update_cost_summary(
+                        user_id="42",
+                        request_id="20260406_120000_000_42",
+                        cost={"total_cost_usd": 0.75},
+                    )
+                    service._update_cost_summary(
+                        user_id="99",
+                        request_id="20260407_090000_000_99",
+                        cost={"total_cost_usd": 2.0},
+                    )
+
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["rows"], 3)
+        self.assertAlmostEqual(payload["total_usd"], 4.0, places=6)
+        self.assertEqual(payload["by_day"]["2026-04-06"]["rows"], 2)
+        self.assertEqual(payload["by_day"]["2026-04-07"]["rows"], 1)
+        self.assertEqual(payload["by_user"]["42"]["rows"], 2)
+        self.assertEqual(payload["by_user"]["99"]["rows"], 1)
 
 
 if __name__ == "__main__":

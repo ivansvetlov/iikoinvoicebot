@@ -25,8 +25,14 @@ class Settings(BaseSettings):
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    openai_model_image: str = Field(default="", alias="OPENAI_MODEL_IMAGE")
+    openai_model_image_fallback: str = Field(default="", alias="OPENAI_MODEL_IMAGE_FALLBACK")
 
     enable_pdf_image_fallback: bool = Field(default=True, alias="ENABLE_PDF_IMAGE_FALLBACK")
+    enable_image_ocr_hint: bool = Field(default=True, alias="ENABLE_IMAGE_OCR_HINT")
+    enable_fast_parser_fallback: bool = Field(default=True, alias="ENABLE_FAST_PARSER_FALLBACK")
+    fast_parser_min_chars: int = Field(default=120, alias="FAST_PARSER_MIN_CHARS")
+    fast_parser_min_items: int = Field(default=2, alias="FAST_PARSER_MIN_ITEMS")
     enable_split_mode: bool = Field(default=True, alias="ENABLE_SPLIT_MODE")
     max_upload_mb: int = Field(default=15, alias="MAX_UPLOAD_MB")
     max_files_per_minute: int = Field(default=10, alias="MAX_FILES_PER_MINUTE")

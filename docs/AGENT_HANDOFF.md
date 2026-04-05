@@ -123,6 +123,11 @@
 - Stage 3 в `docs/_md/root/TODO.md` помечен как закрытый по MVP scope.
 - Невыполненные ранее пункты Stage 3 (`гибридный парсер`, `метрики стоимости`) перенесены в `Этап 12 — Post-stage3 optimization backlog`.
 
+## 13) Post-stage3 backlog execution (2026-04-06)
+- В `pipeline.py` добавлен гибридный контур: быстрый `InvoiceParser` для `text/docx/pdf/excel` и fallback в LLM при неуспехе fast-path.
+- Cost summary (`logs/llm_costs_summary.json`) расширен агрегатами `by_day` и `by_user`; обновлён `scripts/llm_costs_rebuild.py`.
+- Для новых сценариев добавлены тесты в `tests/test_invoice_recognition.py` (fast-parser path + cost summary aggregates).
+
 ---
 
 ### Быстрый чек-лист для нового агента

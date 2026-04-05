@@ -21,6 +21,7 @@ from app.config import settings
 from app.errors import UserFacingError
 from app.iiko.playwright_client import IikoPlaywrightClient
 from app.parsers.file_text_extractor import FileTextExtractor
+from app.parsers.invoice_parser import InvoiceParser
 from app.schemas import InvoiceItem, InvoiceParseResult, ProcessResponse
 from app.services.user_store import get_iiko_credentials
 from app.services.invoice_validator import is_likely_invoice
@@ -109,6 +110,17 @@ EXCEL_TEMPLATE_PLACEHOLDER_MARKERS = (
     "договор, заказ-наряд",
     "прописью",
     "вид операции",
+)
+FAST_PARSER_SOURCE_TYPES = {"pdf", "docx", "text", "excel"}
+INVOICE_TEXT_MARKERS = (
+    "наклад",
+    "упд",
+    "торг-12",
+    "1-т",
+    "счет-фактура",
+    "счёт-фактура",
+    "инвойс",
+    "invoice",
 )
 
 
@@ -653,6 +665,12 @@ class InvoicePipelineService:
         normalized = re.sub(r"\s+", " ", normalized)
         return normalized.strip()
 
+    def _looks_like_invoice_text(self, text: str) -> bool:
+        if not text:
+            return False
+        normalized = self._normalize_for_matching(text)
+        return any(token in normalized for token in INVOICE_TEXT_MARKERS)
+
     def _looks_like_receipt_text(self, text: str) -> bool:
         if not text:
             return False
@@ -699,6 +717,51 @@ class InvoicePipelineService:
         placeholder_hits = sum(1 for token in EXCEL_TEMPLATE_PLACEHOLDER_MARKERS if token in normalized)
         estimated_rows = self._estimate_rows(text)
         return form_hits >= 2 and placeholder_hits >= 2 and estimated_rows <= 1
+
+    def _guess_document_type(self, text: str) -> str:
+        normalized = self._normalize_for_matching(text)
+        if self._looks_like_receipt_text(normalized):
+            return "RECEIPT"
+        if "упд" in normalized or "универсальный передаточный документ" in normalized:
+            return "UPD"
+        if "торг-12" in normalized:
+            return "TORG-12"
+        if "1-т" in normalized or "товарно-транспорт" in normalized:
+            return "TTN"
+        if "счет-фактура" in normalized or "счёт-фактура" in normalized or "invoice" in normalized:
+            return "INVOICE"
+        return "OTHER"
+
+    def _try_fast_parse(self, source_type: str, raw_text: str) -> tuple[dict[str, Any], list[InvoiceItem], list[str]] | None:
+        if not getattr(settings, "enable_fast_parser_fallback", True):
+            return None
+        if source_type not in FAST_PARSER_SOURCE_TYPES:
+            return None
+        text = (raw_text or "").strip()
+        min_chars = int(getattr(settings, "fast_parser_min_chars", 120) or 120)
+        if len(text) < max(20, min_chars):
+            return None
+
+        items, parser_warnings = InvoiceParser.parse_items(text)
+        min_items = int(getattr(settings, "fast_parser_min_items", 2) or 2)
+        if len(items) < max(1, min_items):
+            return None
+
+        llm_like_data: dict[str, Any] = {
+            "document_type": self._guess_document_type(text),
+            "has_invoice_keyword": self._looks_like_invoice_text(text),
+            "has_receipt_keyword": self._looks_like_receipt_text(text),
+            "invoice_number": None,
+            "invoice_date": None,
+            "vendor_name": None,
+            "total_amount": None,
+        }
+        parsed_probe = InvoiceParseResult(source_type=source_type, raw_text=raw_text, items=items, warnings=[])
+        if not is_likely_invoice(items, raw_text, parsed_probe, source_type, llm_like_data):
+            return None
+
+        warnings = [*parser_warnings, "fast_parser_used"]
+        return llm_like_data, items, warnings
 
     def _find_header_number_line(self, text: str) -> str | None:
         if not text:
@@ -1218,11 +1281,19 @@ class InvoicePipelineService:
                     handle.write(header + "\n")
                 handle.write(",".join(row) + "\n")
 
-            self._update_cost_summary(cost)
+            self._update_cost_summary(user_id=safe_user, request_id=request_id, cost=cost)
         except Exception:  # noqa: BLE001
             logger.exception("Failed to append LLM cost log", extra={"request_id": request_id})
 
-    def _update_cost_summary(self, cost: dict[str, Any]) -> None:
+    def _request_day(self, request_id: str | None) -> str:
+        if request_id:
+            match = re.match(r"^(?P<date>\d{8})_", request_id)
+            if match:
+                date_raw = match.group("date")
+                return f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
+        return datetime.now().date().isoformat()
+
+    def _update_cost_summary(self, user_id: str, request_id: str, cost: dict[str, Any]) -> None:
         """Обновляет небольшой summary-файл с итогами (без пересчёта всего CSV)."""
 
         try:
@@ -1240,6 +1311,19 @@ class InvoicePipelineService:
             total_usd += added
             rows += 1
 
+            by_day = dict(summary.get("by_day") or {})
+            day_key = self._request_day(request_id)
+            day_bucket = dict(by_day.get(day_key) or {})
+            day_bucket["rows"] = int(day_bucket.get("rows") or 0) + 1
+            day_bucket["total_usd"] = round(float(day_bucket.get("total_usd") or 0.0) + added, 6)
+            by_day[day_key] = day_bucket
+
+            by_user = dict(summary.get("by_user") or {})
+            user_bucket = dict(by_user.get(user_id) or {})
+            user_bucket["rows"] = int(user_bucket.get("rows") or 0) + 1
+            user_bucket["total_usd"] = round(float(user_bucket.get("total_usd") or 0.0) + added, 6)
+            by_user[user_id] = user_bucket
+
             rate = self._get_usd_rub_rate()
             total_rub = round(total_usd * rate, 2) if rate else None
 
@@ -1248,6 +1332,8 @@ class InvoicePipelineService:
                 "total_rub": total_rub,
                 "rate": round(rate, 4) if rate else None,
                 "rows": rows,
+                "by_day": by_day,
+                "by_user": by_user,
                 "updated_at": datetime.now().isoformat(timespec="seconds"),
             }
 
@@ -1572,6 +1658,8 @@ class InvoicePipelineService:
                     ),
                 )
 
+            fast_result = self._try_fast_parse(source_type, raw_text)
+            use_fast_parser = fast_result is not None
             base_prompt = (
                 "You are extracting line items from an invoice. "
                 "Return ONLY the parse_invoice function call. "
@@ -1627,106 +1715,110 @@ class InvoicePipelineService:
 
             prompt = self._build_prompt(base_prompt, text_hint)
 
-            llm_data, items, garbage_reasons = await self._run_llm_pass(
-                prompt, source_type, filename, content, text_hint, user_id, request_id
-            )
-            active_filename = filename
-            active_content = content
-            active_model = None
-
-            if source_type == "image" and used_prepared and (garbage_reasons or not items):
-                raw_data, raw_items, raw_garbage = await self._run_llm_pass(
-                    prompt, source_type, original_filename, original_content, text_hint, user_id, request_id
+            if use_fast_parser:
+                llm_data, items, warnings = fast_result
+                garbage_reasons: list[str] = []
+            else:
+                llm_data, items, garbage_reasons = await self._run_llm_pass(
+                    prompt, source_type, filename, content, text_hint, user_id, request_id
                 )
-                if raw_items and not raw_garbage:
-                    llm_data, items, garbage_reasons = raw_data, raw_items, raw_garbage
-                    active_filename = original_filename
-                    active_content = original_content
+                active_filename = filename
+                active_content = content
+                active_model = None
 
-            if items and self._detect_header_number_leak(items):
-                header_prompt = prompt + " " + HEADER_NUMBER_HINT
-                retry_data, retry_items, retry_garbage = await self._run_llm_pass(
-                    header_prompt,
-                    source_type,
-                    active_filename,
-                    active_content,
-                    text_hint,
-                    user_id,
-                    request_id,
-                    model_override=active_model,
-                )
-                if retry_items and not retry_garbage and not self._detect_header_number_leak(retry_items):
-                    llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
+                if source_type == "image" and used_prepared and (garbage_reasons or not items):
+                    raw_data, raw_items, raw_garbage = await self._run_llm_pass(
+                        prompt, source_type, original_filename, original_content, text_hint, user_id, request_id
+                    )
+                    if raw_items and not raw_garbage:
+                        llm_data, items, garbage_reasons = raw_data, raw_items, raw_garbage
+                        active_filename = original_filename
+                        active_content = original_content
 
-            if items and self._detect_repeated_numeric_columns(items):
-                repeat_prompt = prompt + " " + REPEAT_VALUE_HINT
-                retry_data, retry_items, retry_garbage = await self._run_llm_pass(
-                    repeat_prompt,
-                    source_type,
-                    active_filename,
-                    active_content,
-                    text_hint,
-                    user_id,
-                    request_id,
-                    model_override=active_model,
-                )
-                if retry_items and not retry_garbage and not self._detect_repeated_numeric_columns(retry_items):
-                    llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
+                if items and self._detect_header_number_leak(items):
+                    header_prompt = prompt + " " + HEADER_NUMBER_HINT
+                    retry_data, retry_items, retry_garbage = await self._run_llm_pass(
+                        header_prompt,
+                        source_type,
+                        active_filename,
+                        active_content,
+                        text_hint,
+                        user_id,
+                        request_id,
+                        model_override=active_model,
+                    )
+                    if retry_items and not retry_garbage and not self._detect_header_number_leak(retry_items):
+                        llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
 
-            if items and self._detect_quantity_ignored(items):
-                qty_prompt = prompt + " " + QUANTITY_HINT
-                retry_data, retry_items, retry_garbage = await self._run_llm_pass(
-                    qty_prompt,
-                    source_type,
-                    active_filename,
-                    active_content,
-                    text_hint,
-                    user_id,
-                    request_id,
-                    model_override=active_model,
-                )
-                if retry_items and not retry_garbage and not self._detect_quantity_ignored(retry_items):
-                    llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
+                if items and self._detect_repeated_numeric_columns(items):
+                    repeat_prompt = prompt + " " + REPEAT_VALUE_HINT
+                    retry_data, retry_items, retry_garbage = await self._run_llm_pass(
+                        repeat_prompt,
+                        source_type,
+                        active_filename,
+                        active_content,
+                        text_hint,
+                        user_id,
+                        request_id,
+                        model_override=active_model,
+                    )
+                    if retry_items and not retry_garbage and not self._detect_repeated_numeric_columns(retry_items):
+                        llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
 
-            if items and self._detect_price_qty_mismatch(items):
-                consistency_prompt = prompt + " " + CONSISTENCY_HINT
-                retry_data, retry_items, retry_garbage = await self._run_llm_pass(
-                    consistency_prompt,
-                    source_type,
-                    active_filename,
-                    active_content,
-                    text_hint,
-                    user_id,
-                    request_id,
-                    model_override=active_model,
-                )
-                if retry_items and not retry_garbage and not self._detect_price_qty_mismatch(retry_items):
-                    llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
+                if items and self._detect_quantity_ignored(items):
+                    qty_prompt = prompt + " " + QUANTITY_HINT
+                    retry_data, retry_items, retry_garbage = await self._run_llm_pass(
+                        qty_prompt,
+                        source_type,
+                        active_filename,
+                        active_content,
+                        text_hint,
+                        user_id,
+                        request_id,
+                        model_override=active_model,
+                    )
+                    if retry_items and not retry_garbage and not self._detect_quantity_ignored(retry_items):
+                        llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
 
-            if (
-                source_type == "image"
-                and settings.openai_model_image_fallback
-                and (
-                    self._detect_repeated_numeric_columns(items)
-                    or self._detect_quantity_ignored(items)
-                    or self._detect_price_qty_mismatch(items)
-                )
-            ):
-                fallback_model = settings.openai_model_image_fallback
-                fallback_data, fallback_items, fallback_garbage = await self._run_llm_pass(
-                    prompt,
-                    source_type,
-                    active_filename,
-                    active_content,
-                    text_hint,
-                    user_id,
-                    request_id,
-                    model_override=fallback_model,
-                )
-                if fallback_items and not fallback_garbage:
-                    llm_data, items, garbage_reasons = fallback_data, fallback_items, fallback_garbage
+                if items and self._detect_price_qty_mismatch(items):
+                    consistency_prompt = prompt + " " + CONSISTENCY_HINT
+                    retry_data, retry_items, retry_garbage = await self._run_llm_pass(
+                        consistency_prompt,
+                        source_type,
+                        active_filename,
+                        active_content,
+                        text_hint,
+                        user_id,
+                        request_id,
+                        model_override=active_model,
+                    )
+                    if retry_items and not retry_garbage and not self._detect_price_qty_mismatch(retry_items):
+                        llm_data, items, garbage_reasons = retry_data, retry_items, retry_garbage
 
-            warnings: list[str] = []
+                if (
+                    source_type == "image"
+                    and settings.openai_model_image_fallback
+                    and (
+                        self._detect_repeated_numeric_columns(items)
+                        or self._detect_quantity_ignored(items)
+                        or self._detect_price_qty_mismatch(items)
+                    )
+                ):
+                    fallback_model = settings.openai_model_image_fallback
+                    fallback_data, fallback_items, fallback_garbage = await self._run_llm_pass(
+                        prompt,
+                        source_type,
+                        active_filename,
+                        active_content,
+                        text_hint,
+                        user_id,
+                        request_id,
+                        model_override=fallback_model,
+                    )
+                    if fallback_items and not fallback_garbage:
+                        llm_data, items, garbage_reasons = fallback_data, fallback_items, fallback_garbage
+
+                warnings = []
             if garbage_reasons:
                 raise UserFacingError(
                     "Не удалось корректно распознать таблицу позиций.",
@@ -1738,7 +1830,7 @@ class InvoicePipelineService:
                 )
 
             # PDF fallback: если в PDF мало/нет текста, но режим "accurate", пробуем извлечь по картинкам страниц.
-            if source_type == "pdf" and getattr(settings, "enable_pdf_image_fallback", True):
+            if (not use_fast_parser) and source_type == "pdf" and getattr(settings, "enable_pdf_image_fallback", True):
                 mode = (pdf_mode or "accurate").strip().lower()
                 if mode == "accurate":
                     image_items = await self._extract_items_from_pdf_images(filename, content, expected_rows=0)
