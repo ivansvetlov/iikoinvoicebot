@@ -99,6 +99,21 @@
 
 Проверка: запустить `python bot.py`, отправить 1 файл и убедиться, что появляется явная клавиатура "Обработать/Добавить ещё"; отправить 2 файла — увидеть выбор "Объединить/Раздельно".
 
+## 10) Recognition iteration update (2026-04-05)
+- Файлы:
+  - обновлены `app/services/pipeline.py`, `app/services/invoice_validator.py`, `app/bot/manager.py`, `app/schemas.py`;
+  - добавлены/обновлены проверки в `tests/test_invoice_recognition.py`;
+  - добавлен диагностический скрипт `scripts/diagnose_image.py`.
+- Поведение:
+  - чеки (кассовые/товарные) больше не отсекаются как `not_invoice` при наличии товарных строк;
+  - добавлена явная поддержка `Форма 1-Т` (TTN) по аналогии с `ТОРГ-12` в промпте и нормализации `document_type`;
+  - для Excel-шаблонов без заполненных строк возвращается понятный результат «шаблон распознан» вместо ошибочного `not_invoice`;
+  - добавлены ретраи LLM для truncated output (`max_output_tokens`) и debug snapshots в `tmp/llm_debug`.
+- Git/ветки:
+  - текущий рабочий трек распознавания: `feature/recognition-improvements`;
+  - ветка `exp/topic-mcp-iiko-gateway` признана отдельным контекстом (не для recognition-задач);
+  - статусы и новые этапы (MAX, МойСклад, 1С, коммерциализация) добавлены в `docs/_md/root/TODO.md`.
+
 ---
 
 ### Быстрый чек-лист для нового агента

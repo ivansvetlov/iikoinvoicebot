@@ -118,7 +118,7 @@ class TelegramBotManager:
         user_id = str(message.from_user.id)
         self._reset_user_buffers(user_id)
         if get_iiko_credentials(user_id):
-            await message.answer("Вы уже авторизованы в iiko. Можете отправлять накладные.")
+            await message.answer("Вы уже авторизованы в iiko. Можете отправлять накладные, УПД, счёт-фактуры и чеки.")
             return
         await message.answer("Для работы с iiko нужна авторизация. Введите логин iiko:")
         self._auth_state[user_id] = "await_login"
@@ -203,7 +203,7 @@ class TelegramBotManager:
         state = self._auth_state.get(user_id)
         if not state:
             await message.answer(
-                "Я принимаю фото, PDF или DOCX накладной. "
+                "Я принимаю фото, PDF или DOCX: накладные, УПД, счёт-фактуры и чеки. "
                 "Если нужна авторизация — используйте /start."
             )
             return
@@ -228,11 +228,11 @@ class TelegramBotManager:
             set_iiko_credentials(user_id, login, text)
             self._auth_state.pop(user_id, None)
             self._pending_login.pop(user_id, None)
-            await message.answer("Данные сохранены. Теперь можно отправлять накладные.")
+            await message.answer("Данные сохранены. Теперь можно отправлять накладные, УПД, счёт-фактуры и чеки.")
             self._log_status(user_id, "auth_completed")
             return
         await message.answer(
-            "Я принимаю фото, PDF или DOCX накладной. "
+            "Я принимаю фото, PDF или DOCX: накладные, УПД, счёт-фактуры и чеки. "
             "Если нужна авторизация — используйте /start."
         )
 
@@ -436,7 +436,7 @@ class TelegramBotManager:
                 return
 
         await message.answer(
-            "Я принимаю только фото, PDF или DOCX накладной. "
+            "Я принимаю только фото, PDF или DOCX: накладные, УПД, счёт-фактуры и чеки. "
             "Отправьте файл, и я верну статус обработки."
         )
 
