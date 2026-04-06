@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 from dataclasses import dataclass
@@ -67,6 +68,8 @@ class TelegramBotManager:
         self._split_prompt: dict[str, int] = {}
         self._media_groups: dict[str, dict] = {}
         self._media_group_tasks: dict[str, asyncio.Task] = {}
+        self._split_media_groups: dict[str, dict] = {}
+        self._split_media_group_tasks: dict[str, asyncio.Task] = {}
         self._rate_limits: dict[str, list[datetime]] = {}
         self._recent_hashes: dict[str, dict[str, datetime]] = {}
         self._edit_state: dict[str, EditState] = {}
@@ -250,6 +253,7 @@ class TelegramBotManager:
             return
         self._split_users.add(user_id)
         self._clear_split_dir(user_id)
+        self._clear_split_media_groups(user_id)
         # На старте split очищаем pending, чтобы не смешивать режимы.
         self._clear_pending_dir(user_id)
         self._pending_users.discard(user_id)
@@ -279,6 +283,7 @@ class TelegramBotManager:
             return
         user_id = str(message.from_user.id)
         self._clear_split_dir(user_id)
+        self._clear_split_media_groups(user_id)
         self._split_users.discard(user_id)
         self._split_prompt.pop(user_id, None)
         await message.answer(
@@ -305,8 +310,21 @@ class TelegramBotManager:
             self._log_status(user_id, "rate_limited", event_meta(BOT_RATE_LIMIT))
             return
         if user_id in self._split_users:
-            await self._store_split_file(document, filename or "invoice.bin", user_id)
-            await self._update_split_prompt(message, user_id)
+            if message.media_group_id:
+                file = await self.bot.get_file(document.file_id)
+                data = await self.bot.download_file(file.file_path)
+                content = data.read()
+                await self._add_split_media_group_file(
+                    message,
+                    user_id,
+                    filename or "invoice.bin",
+                    content,
+                )
+            else:
+                is_duplicate = await self._store_split_file(document, filename or "invoice.bin", user_id)
+                if is_duplicate:
+                    await self._notify_soft_duplicate(message, user_id)
+                await self._update_split_prompt(message, user_id)
             self._log_status(user_id, "split_file_added", {"filename": filename})
             return
         if message.media_group_id:
@@ -320,7 +338,9 @@ class TelegramBotManager:
                 content,
             )
             return
-        await self._store_pending_file(document, filename or "invoice.bin", user_id)
+        is_duplicate = await self._store_pending_file(document, filename or "invoice.bin", user_id)
+        if is_duplicate:
+            await self._notify_soft_duplicate(message, user_id)
         self._log_status(user_id, "pending_file_added", {"filename": filename})
         if filename and filename.lower().endswith(".pdf"):
             await self._handle_pdf_mode_choice(message, user_id)
@@ -354,15 +374,22 @@ class TelegramBotManager:
             self._log_status(user_id, "rate_limited", event_meta(BOT_RATE_LIMIT))
             return
         if user_id in self._split_users:
-            # В режиме split просто накапливаем части в буфере. Пользователю важно
-            # понимать, что делать дальше, поэтому после каждого фото показываем
-            # текущий прогресс и напоминаем про /done и /cancel.
             largest = photo_list[-1]
             file = await self.bot.get_file(largest.file_id)
             data = await self.bot.download_file(file.file_path)
             content = data.read()
-            await self._store_split_bytes("invoice_photo.jpg", content, user_id)
-            await self._update_split_prompt(message, user_id)
+            if message.media_group_id:
+                await self._add_split_media_group_file(
+                    message,
+                    user_id,
+                    "invoice_photo.jpg",
+                    content,
+                )
+            else:
+                is_duplicate = await self._store_split_bytes("invoice_photo.jpg", content, user_id)
+                if is_duplicate:
+                    await self._notify_soft_duplicate(message, user_id)
+                await self._update_split_prompt(message, user_id)
 
             self._log_status(user_id, "split_photo_added")
             return
@@ -382,7 +409,9 @@ class TelegramBotManager:
         file = await self.bot.get_file(largest.file_id)
         data = await self.bot.download_file(file.file_path)
         content = data.read()
-        await self._store_pending_bytes("invoice_photo.jpg", content, user_id)
+        is_duplicate = await self._store_pending_bytes("invoice_photo.jpg", content, user_id)
+        if is_duplicate:
+            await self._notify_soft_duplicate(message, user_id)
         self._log_status(user_id, "pending_photo_added")
         await self._handle_pending_choice(message, user_id)
 
@@ -445,23 +474,27 @@ class TelegramBotManager:
             "Отправьте файл, и я верну статус обработки."
         )
 
-    async def _store_split_file(self, document, filename: str, user_id: str) -> None:
+    async def _store_split_file(self, document, filename: str, user_id: str) -> bool:
         file = await self.bot.get_file(document.file_id)
         data = await self.bot.download_file(file.file_path)
         content = data.read()
-        await self._store_split_bytes(filename, content, user_id)
+        return await self._store_split_bytes(filename, content, user_id)
 
-    async def _store_split_bytes(self, filename: str, content: bytes, user_id: str) -> None:
+    async def _store_split_bytes(self, filename: str, content: bytes, user_id: str) -> bool:
+        is_duplicate = self._is_duplicate(user_id, content)
         self._storage.store_split_bytes(user_id=user_id, filename=filename, content=content)
+        return is_duplicate
 
-    async def _store_pending_file(self, document, filename: str, user_id: str) -> None:
+    async def _store_pending_file(self, document, filename: str, user_id: str) -> bool:
         file = await self.bot.get_file(document.file_id)
         data = await self.bot.download_file(file.file_path)
         content = data.read()
-        await self._store_pending_bytes(filename, content, user_id)
+        return await self._store_pending_bytes(filename, content, user_id)
 
-    async def _store_pending_bytes(self, filename: str, content: bytes, user_id: str) -> None:
+    async def _store_pending_bytes(self, filename: str, content: bytes, user_id: str) -> bool:
+        is_duplicate = self._is_duplicate(user_id, content)
         self._storage.store_pending_bytes(user_id=user_id, filename=filename, content=content)
+        return is_duplicate
 
     def _collect_pending_files(self, user_id: str) -> list[tuple[str, bytes]]:
         return self._storage.collect_pending_files(user_id)
@@ -620,8 +653,11 @@ class TelegramBotManager:
                 "files": [],
                 "user_id": user_id,
                 "chat_id": message.chat.id,
+                "message": message,
             }
             self._media_groups[group_id] = entry
+        else:
+            entry["message"] = message
         entry["files"].append((filename, content))
         if group_id not in self._media_group_tasks:
             self._media_group_tasks[group_id] = asyncio.create_task(self._finalize_media_group(group_id))
@@ -640,8 +676,12 @@ class TelegramBotManager:
 
         # Если включен split-режим, то и для альбомов даём выбор объединения.
         if settings.enable_split_mode and user_id:
+            duplicate_count = 0
             for name, content in files:
-                self._storage.store_pending_bytes(user_id=user_id, filename=name, content=content)
+                if await self._store_pending_bytes(name, content, user_id):
+                    duplicate_count += 1
+            if duplicate_count:
+                await self._notify_soft_duplicate_chat(chat_id, user_id, duplicate_count)
             self._pending_users.add(user_id)
             self._pending_chats[user_id] = chat_id
             await self._send_mode_keyboard_to_chat(chat_id, user_id)
@@ -678,6 +718,55 @@ class TelegramBotManager:
             return
         await status_msg.edit_text(self._format_response(result))
         self._log_status(user_id or "unknown", "media_group_batch_done", {"request_id": result.get("request_id")})
+
+    async def _add_split_media_group_file(self, message: Message, user_id: str, filename: str, content: bytes) -> None:
+        group_id = str(message.media_group_id)
+        entry = self._split_media_groups.get(group_id)
+        if entry is None:
+            entry = {
+                "files": [],
+                "user_id": user_id,
+                "message": message,
+            }
+            self._split_media_groups[group_id] = entry
+        else:
+            entry["message"] = message
+        entry["files"].append((filename, content))
+        if group_id not in self._split_media_group_tasks:
+            self._split_media_group_tasks[group_id] = asyncio.create_task(self._finalize_split_media_group(group_id))
+
+    async def _finalize_split_media_group(
+        self,
+        group_id: str,
+        *,
+        debounce_seconds: float = 2.0,
+        update_prompt: bool = True,
+    ) -> None:
+        if debounce_seconds > 0:
+            await asyncio.sleep(debounce_seconds)
+
+        entry = self._split_media_groups.pop(group_id, None)
+        self._split_media_group_tasks.pop(group_id, None)
+        if not entry:
+            return
+
+        files = entry.get("files", [])
+        user_id = entry.get("user_id")
+        message = entry.get("message")
+        if not files or not user_id or message is None:
+            return
+
+        duplicate_count = 0
+        for name, content in files:
+            if await self._store_split_bytes(name, content, user_id):
+                duplicate_count += 1
+
+        if duplicate_count:
+            await self._notify_soft_duplicate(message, user_id, duplicate_count)
+
+        if update_prompt:
+            await self._update_split_prompt(message, user_id)
+        self._log_status(user_id, "split_media_group_added", {"count": len(files), "duplicates": duplicate_count})
 
     async def _send_single_file_keyboard(self, message: Message, user_id: str) -> None:
         """Один файл в pending — показываем кнопку 'Обработать' и 'Ещё файл'."""
@@ -1125,6 +1214,7 @@ class TelegramBotManager:
 
         if data == "split:cancel":
             self._clear_split_dir(user_id)
+            self._clear_split_media_groups(user_id)
             self._split_users.discard(user_id)
             self._split_prompt.pop(user_id, None)
             await query.message.edit_text(
@@ -1164,6 +1254,7 @@ class TelegramBotManager:
         status_message: Message | None = None,
     ) -> None:
         """Отправляет split-части на backend и редактирует статусное сообщение."""
+        await self._flush_split_media_groups(user_id)
         files = self._collect_split_files(user_id)
         if not files:
             if status_message:
@@ -1224,6 +1315,7 @@ class TelegramBotManager:
             return
         finally:
             self._clear_split_dir(user_id)
+            self._clear_split_media_groups(user_id)
             self._split_users.discard(user_id)
             self._split_prompt.pop(user_id, None)
 
@@ -1244,10 +1336,50 @@ class TelegramBotManager:
         )
         return text, keyboard
 
+    @staticmethod
+    def _soft_duplicate_text(duplicate_count: int = 1) -> str:
+        if duplicate_count <= 1:
+            return "Похоже, это дубликат уже отправленного файла. Я добавил его в буфер, проверьте перед отправкой."
+        return (
+            f"Похоже, среди добавленных файлов есть дубликаты ({duplicate_count}). "
+            "Я добавил их в буфер, проверьте перед отправкой."
+        )
+
+    async def _notify_soft_duplicate(self, message: Message, user_id: str, duplicate_count: int = 1) -> None:
+        if duplicate_count <= 0:
+            return
+        await message.answer(self._soft_duplicate_text(duplicate_count))
+        self._log_status(user_id, "soft_duplicate_detected", {"count": duplicate_count})
+
+    async def _notify_soft_duplicate_chat(self, chat_id: int, user_id: str, duplicate_count: int = 1) -> None:
+        if duplicate_count <= 0:
+            return
+        await self.bot.send_message(chat_id, self._soft_duplicate_text(duplicate_count))
+        self._log_status(user_id, "soft_duplicate_detected", {"count": duplicate_count})
+
+    def _clear_split_media_groups(self, user_id: str) -> None:
+        group_ids = [group_id for group_id, entry in self._split_media_groups.items() if entry.get("user_id") == user_id]
+        for group_id in group_ids:
+            self._split_media_groups.pop(group_id, None)
+            task = self._split_media_group_tasks.pop(group_id, None)
+            if task:
+                task.cancel()
+
+    async def _flush_split_media_groups(self, user_id: str) -> None:
+        group_ids = [group_id for group_id, entry in self._split_media_groups.items() if entry.get("user_id") == user_id]
+        for group_id in group_ids:
+            task = self._split_media_group_tasks.pop(group_id, None)
+            if task:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+            await self._finalize_split_media_group(group_id, debounce_seconds=0, update_prompt=False)
+
     def _reset_user_buffers(self, user_id: str) -> None:
         """Очищает pending/split состояния пользователя, чтобы не тянуть старые файлы."""
         self._clear_pending_dir(user_id)
         self._clear_split_dir(user_id)
+        self._clear_split_media_groups(user_id)
         self._pending_users.discard(user_id)
         self._split_users.discard(user_id)
         task = self._pending_tasks.pop(user_id, None)
