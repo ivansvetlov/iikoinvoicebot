@@ -770,11 +770,11 @@ class TelegramBotManager:
 
     async def _send_single_file_keyboard(self, message: Message, user_id: str) -> None:
         """Один файл в pending — показываем кнопку 'Обработать' и 'Ещё файл'."""
-        text = "📄 Файл получен. Что делаем?"
+        text = "📄 Файл получен. Обрабатываем сейчас или оставляем черновик и добавляем ещё?"
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="▶️ Обработать", callback_data="mode:process")],
-                [InlineKeyboardButton(text="📎 Добавить ещё", callback_data="mode:wait")],
+                [InlineKeyboardButton(text="▶️ Обработать сейчас", callback_data="mode:process")],
+                [InlineKeyboardButton(text="🕒 Добавлю ещё позже", callback_data="mode:wait")],
             ]
         )
         sent = await message.answer(text, reply_markup=keyboard)
@@ -787,11 +787,14 @@ class TelegramBotManager:
 
     async def _send_mode_keyboard_to_chat(self, chat_id: int, user_id: str) -> None:
         files = self._collect_pending_files(user_id)
-        text = f"Получено файлов: {len(files)}. Выберите режим:"
+        text = (
+            f"Получено файлов: {len(files)}.\n"
+            "Можно сразу объединить и отправить, либо оставить черновик и добавить ещё."
+        )
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="🔗 Объединить", callback_data="mode:merge")],
-                [InlineKeyboardButton(text="📎 Добавить ещё", callback_data="mode:wait")],
+                [InlineKeyboardButton(text="🟩 Объединить и отправить", callback_data="mode:merge")],
+                [InlineKeyboardButton(text="🕒 Добавлю ещё позже", callback_data="mode:wait")],
             ]
         )
         old_id = self._pending_prompt.get(user_id)
@@ -826,7 +829,10 @@ class TelegramBotManager:
 
         # "Добавить ещё" — просто убираем клавиатуру, ждём следующий файл
         if data == "mode:wait":
-            await query.message.edit_text("Ок, жду ещё файлы. Отправляйте.")
+            await query.message.edit_text(
+                "Черновик сохранён. Отправляйте ещё файлы.\n"
+                "Когда будете готовы — нажмите «🟩 Объединить и отправить»."
+            )
             return
 
         if user_id not in self._pending_users:
