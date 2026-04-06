@@ -157,8 +157,7 @@ worker: OK (workers: ...)
 .venv\Scripts\python.exe scripts\diagnose_request.py 000736_800
 ```
 
-- Для чисто ботовых ошибок используются коды событий (`BOT_BACKEND_UNAVAILABLE`,
-  `BOT_PENDING_TIMEOUT`, `BOT_RATE_LIMIT`, `BOT_NO_PENDING`), которые
-  печатаются в последних строках сообщений. По ним ищем строки в
-  `logs/bot.log`.
-- Полный справочник кодов: `docs/BOT_EVENT_CODES.md`.
+- Для чисто ботовых ошибок пользователю показывается короткий код (4 цифры, формат `Код: 4xxx`).
+  В логах сохраняются и короткий код, и внутренний `BOT_*` код.
+- Поиск делаем по `event_short` или `event_code` в `logs/mailbox/*.jsonl` и `logs/bot.log`.
+- Полный справочник соответствий: `docs/BOT_EVENT_CODES.md`.

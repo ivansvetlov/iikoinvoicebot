@@ -23,7 +23,7 @@ from aiogram.types import (
 )
 
 from app.bot.backend_client import send_batch_to_backend, send_file_to_backend
-from app.bot.event_codes import BOT_BACKEND_UNAVAILABLE, BOT_NO_PENDING, BOT_RATE_LIMIT, with_event_code
+from app.bot.event_codes import BOT_BACKEND_UNAVAILABLE, BOT_NO_PENDING, BOT_RATE_LIMIT, event_meta, with_event_code
 from app.bot.file_storage import PendingSplitStorage
 from app.config import settings
 from app.services.user_store import (
@@ -302,7 +302,7 @@ class TelegramBotManager:
                     BOT_RATE_LIMIT,
                 )
             )
-            self._log_status(user_id, "rate_limited")
+            self._log_status(user_id, "rate_limited", event_meta(BOT_RATE_LIMIT))
             return
         if user_id in self._split_users:
             await self._store_split_file(document, filename or "invoice.bin", user_id)
@@ -351,7 +351,7 @@ class TelegramBotManager:
                     BOT_RATE_LIMIT,
                 )
             )
-            self._log_status(user_id, "rate_limited")
+            self._log_status(user_id, "rate_limited", event_meta(BOT_RATE_LIMIT))
             return
         if user_id in self._split_users:
             # В режиме split просто накапливаем части в буфере. Пользователю важно
@@ -551,7 +551,11 @@ class TelegramBotManager:
                         BOT_BACKEND_UNAVAILABLE,
                     ),
                 )
-                self._log_status(user_id, "backend_error", {"filename": name})
+                self._log_status(
+                    user_id,
+                    "backend_error",
+                    {"filename": name, **event_meta(BOT_BACKEND_UNAVAILABLE)},
+                )
                 return
             await status_msg.edit_text(self._format_response(result))
             self._log_status(user_id, "backend_done", {"request_id": result.get("request_id")})
@@ -577,7 +581,11 @@ class TelegramBotManager:
                         BOT_BACKEND_UNAVAILABLE,
                     ),
                 )
-                self._log_status(user_id, "backend_error", {"filename": name, "index": index})
+                self._log_status(
+                    user_id,
+                    "backend_error",
+                    {"filename": name, "index": index, **event_meta(BOT_BACKEND_UNAVAILABLE)},
+                )
 
     async def _handle_pending_choice(self, message: Message, user_id: str) -> None:
         """Явный UI: после каждого файла показываем кнопки действия."""
@@ -662,7 +670,11 @@ class TelegramBotManager:
                     BOT_BACKEND_UNAVAILABLE,
                 ),
             )
-            self._log_status(user_id or "unknown", "media_group_batch_error")
+            self._log_status(
+                user_id or "unknown",
+                "media_group_batch_error",
+                event_meta(BOT_BACKEND_UNAVAILABLE),
+            )
             return
         await status_msg.edit_text(self._format_response(result))
         self._log_status(user_id or "unknown", "media_group_batch_done", {"request_id": result.get("request_id")})
@@ -735,6 +747,7 @@ class TelegramBotManager:
                     BOT_NO_PENDING,
                 )
             )
+            self._log_status(user_id, "no_pending_on_action", event_meta(BOT_NO_PENDING))
             return
 
         # Отменяем старый таймер, если вдруг остался
@@ -1207,7 +1220,7 @@ class TelegramBotManager:
                     BOT_BACKEND_UNAVAILABLE,
                 ),
             )
-            self._log_status(user_id, "backend_batch_error")
+            self._log_status(user_id, "backend_batch_error", event_meta(BOT_BACKEND_UNAVAILABLE))
             return
         finally:
             self._clear_split_dir(user_id)

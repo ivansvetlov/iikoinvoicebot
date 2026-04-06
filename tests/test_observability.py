@@ -8,14 +8,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.bot.event_codes import BOT_BACKEND_UNAVAILABLE, with_event_code
+from app.bot.event_codes import BOT_BACKEND_UNAVAILABLE, event_short_code, with_event_code
 from app.observability import archive_logs, measure_time, track_metric
 
 
 class BotEventCodesTests(unittest.TestCase):
     def test_with_event_code_appends_code_line(self) -> None:
         text = with_event_code("Ошибка сети", BOT_BACKEND_UNAVAILABLE)
-        self.assertIn("Код события: BOT_BACKEND_UNAVAILABLE", text)
+        self.assertIn("Код: 4501", text)
+
+    def test_event_short_code_mapping(self) -> None:
+        self.assertEqual(event_short_code(BOT_BACKEND_UNAVAILABLE), "4501")
 
 
 class ObservabilityMetricsTests(unittest.TestCase):
