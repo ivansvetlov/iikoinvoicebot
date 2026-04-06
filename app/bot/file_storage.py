@@ -13,6 +13,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +38,19 @@ class PendingSplitStorage:
     def store_split_bytes(self, user_id: str, filename: str, content: bytes) -> None:
         user_dir = self._split_dir / user_id
         user_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        nonce = uuid4().hex[:8]
         safe_name = Path(filename).name
-        target = user_dir / f"{stamp}_{safe_name}"
+        target = user_dir / f"{stamp}_{nonce}_{safe_name}"
         target.write_bytes(content)
 
     def store_pending_bytes(self, user_id: str, filename: str, content: bytes) -> None:
         user_dir = self._pending_dir / user_id
         user_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        nonce = uuid4().hex[:8]
         safe_name = Path(filename).name
-        target = user_dir / f"{stamp}_{safe_name}"
+        target = user_dir / f"{stamp}_{nonce}_{safe_name}"
         target.write_bytes(content)
 
     def collect_pending_files(self, user_id: str) -> list[tuple[str, bytes]]:

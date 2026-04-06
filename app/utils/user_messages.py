@@ -196,4 +196,9 @@ def format_invoice_markdown(
     lines.append(f"📊 Сумма НДС: {round(total_vat, 2)} ₽")
     lines.append(f"💰 ИТОГО с НДС: {round(total_sum, 2)} ₽")
 
+    code = short_request_code(payload.get("request_id"))
+    if code:
+        lines.append("")
+        lines.append(f"Код заявки: {code}")
+
     return "\n".join(lines).strip()

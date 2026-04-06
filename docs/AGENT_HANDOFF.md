@@ -154,6 +154,20 @@
 - Быстрая проверка:
   - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
 
+## 16) Stage 5 UX refinements after live feedback (2026-04-06)
+- Файлы:
+  - обновлены `app/bot/manager.py`, `app/utils/user_messages.py`, `app/bot/file_storage.py`;
+  - добавлен тест `tests/test_user_messages.py`.
+- Поведение:
+  - тексты soft-дедупликации переформулированы в человеко-понятный вид (`среди отправленных фото/файлов есть дубликаты`), без блокировки;
+  - split-подсказка теперь явно объясняет, что это черновик `/split`, как завершить (`✅ Завершить`/`/done`) и как очистить (`✖ Отменить`/`/cancel`);
+  - из split-клавиатуры убрана лишняя кнопка «Добавить ещё» (отправка дополнительных файлов и так работает);
+  - в сообщениях редактирования накладной и ответах отправки в iiko добавлен `Код заявки: HHMMSS_mmm`;
+  - исправлена потенциальная потеря файлов при очень быстрых загрузках с одинаковыми именами: сохранение pending/split теперь с `uuid`-nonce в имени файла.
+- Быстрая проверка:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 tests.test_user_messages -v`
+  - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
+
 ---
 
 ### Быстрый чек-лист для нового агента

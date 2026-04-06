@@ -33,7 +33,7 @@ from app.services.user_store import (
     set_iiko_credentials,
     set_pdf_mode,
 )
-from app.utils.user_messages import format_user_response, format_invoice_markdown
+from app.utils.user_messages import format_user_response, format_invoice_markdown, short_request_code
 
 if TYPE_CHECKING:
     from app.bot.manager import EditState
@@ -1090,9 +1090,11 @@ class TelegramBotManager:
         )
 
     async def _send_to_iiko(self, message: Message, request_id: str) -> None:
+        code = short_request_code(request_id) or request_id
+        code_line = f"\n\nКод заявки: {code}" if code else ""
         payload_path = Path(__file__).resolve().parents[2] / "data" / "jobs" / request_id / "payload.json"
         if not payload_path.exists():
-            await message.edit_text("Не нашёл исходные файлы для отправки.", reply_markup=None)
+            await message.edit_text(f"Не нашёл исходные файлы для отправки.{code_line}", reply_markup=None)
             return
         payload = json.loads(payload_path.read_text(encoding="utf-8"))
         files = payload.get("files")
@@ -1117,7 +1119,7 @@ class TelegramBotManager:
                 )
             else:
                 if not filename or not file_path:
-                    await message.edit_text("Файл не найден для отправки.", reply_markup=None)
+                    await message.edit_text(f"Файл не найден для отправки.{code_line}", reply_markup=None)
                     return
                 result = await send_file_to_backend(
                     self._backend_url,
@@ -1130,13 +1132,13 @@ class TelegramBotManager:
                 )
         except Exception:  # noqa: BLE001
             logger.exception("Failed to send to iiko")
-            await message.edit_text("Не удалось отправить в iiko.", reply_markup=None)
+            await message.edit_text(f"Не удалось отправить в iiko.{code_line}", reply_markup=None)
             return
 
         if result.get("status") == "ok" and result.get("iiko_uploaded"):
-            await message.edit_text("✅ Успешно отправлено в iiko.", reply_markup=None)
+            await message.edit_text(f"✅ Успешно отправлено в iiko.{code_line}", reply_markup=None)
             return
-        await message.edit_text("Не удалось отправить в iiko.", reply_markup=None)
+        await message.edit_text(f"Не удалось отправить в iiko.{code_line}", reply_markup=None)
 
     def _load_request_payload(self, request_id: str) -> dict[str, Any] | None:
         path = Path(__file__).resolve().parents[2] / "logs" / "requests" / f"{request_id}.json"
@@ -1209,7 +1211,10 @@ class TelegramBotManager:
             return
 
         if data == "split:wait":
-            await self._update_split_prompt(query.message, user_id)
+            await query.message.edit_text(
+                "Ок, отправляйте ещё файлы в этот же черновик /split.\n"
+                "Когда закончите — нажмите «✅ Завершить» или введите /done."
+            )
             return
 
         if data == "split:cancel":
@@ -1324,14 +1329,17 @@ class TelegramBotManager:
 
     @staticmethod
     def _build_split_prompt(count: int) -> tuple[str, InlineKeyboardMarkup]:
-        text = f"Добавлено файлов: {count}. Отправляйте части или завершите."
+        text = (
+            f"Черновик /split: добавлено файлов: {count}.\n"
+            "Отправляйте ещё файлы и нажмите «✅ Завершить» для обработки.\n"
+            "Очистить черновик: «✖ Отменить» или /cancel."
+        )
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(text="✖ Отменить", callback_data="split:cancel"),
                     InlineKeyboardButton(text="✅ Завершить", callback_data="split:done"),
                 ],
-                [InlineKeyboardButton(text="➕ Добавить ещё", callback_data="split:wait")],
             ]
         )
         return text, keyboard
@@ -1339,10 +1347,13 @@ class TelegramBotManager:
     @staticmethod
     def _soft_duplicate_text(duplicate_count: int = 1) -> str:
         if duplicate_count <= 1:
-            return "Похоже, это дубликат уже отправленного файла. Я добавил его в буфер, проверьте перед отправкой."
+            return (
+                "Похоже, среди отправленных фото/файлов есть дубликат. "
+                "Я не блокирую его и оставляю в черновике."
+            )
         return (
-            f"Похоже, среди добавленных файлов есть дубликаты ({duplicate_count}). "
-            "Я добавил их в буфер, проверьте перед отправкой."
+            f"Похоже, среди отправленных фото/файлов есть дубликаты ({duplicate_count}). "
+            "Я не блокирую их и оставляю в черновике."
         )
 
     async def _notify_soft_duplicate(self, message: Message, user_id: str, duplicate_count: int = 1) -> None:
