@@ -128,6 +128,21 @@
 - Cost summary (`logs/llm_costs_summary.json`) расширен агрегатами `by_day` и `by_user`; обновлён `scripts/llm_costs_rebuild.py`.
 - Для новых сценариев добавлены тесты в `tests/test_invoice_recognition.py` (fast-parser path + cost summary aggregates).
 
+## 14) Stage 4 reliability & observability closure (2026-04-06)
+- Добавлен единый модуль наблюдаемости `app/observability.py`:
+  - централизованная настройка логов (`configure_logging`) для backend/bot/worker;
+  - алерт-канал `logs/alerts.jsonl` (автоматически пишет ERROR/CRITICAL);
+  - метрики `logs/metrics.jsonl` (`track_metric`, `measure_time`);
+  - архивирование старых логов (`archive_logs`).
+- Точки входа переведены на единый logging: `app/api.py`, `bot.py`, `worker.py`.
+- Добавлен middleware в backend для метрик HTTP времени/статусов (`http_request`).
+- Добавлены метрики воркера (`worker_job`) в `app/tasks.py` (время обработки, статус, error_code).
+- Коды событий бота вынесены в `app/bot/event_codes.py`; справочник добавлен в `docs/BOT_EVENT_CODES.md`.
+- Добавлены скрипты:
+  - `scripts/metrics_report.py` (сводка p50/p95 и ошибок);
+  - `scripts/archive_logs.py` (архивация логов в `logs/archive/`).
+- `docs/DEV_SETUP.md` дополнен повторяемым чек-листом старта для нового разработчика.
+
 ---
 
 ### Быстрый чек-лист для нового агента

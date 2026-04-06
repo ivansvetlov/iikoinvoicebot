@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import sys
-from logging.handlers import RotatingFileHandler
+from time import perf_counter
 from pathlib import Path
 from uuid import uuid4
 
@@ -13,6 +13,7 @@ from fastapi import FastAPI, File, Form, UploadFile, Request, Response
 from aiogram.types import Update
 
 from app.config import settings
+from app.observability import configure_logging, track_metric
 from app.queue import get_queue
 from app.db import init_db
 from app.schemas import InvoiceParseResult, ProcessResponse
@@ -25,15 +26,12 @@ if sys.platform == "win32":
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / "backend.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"),
-    ],
+configure_logging(
+    "backend",
+    level=settings.log_level,
+    max_bytes=settings.log_max_mb * 1024 * 1024,
+    backup_count=settings.log_backup_count,
+    archive_after_days=settings.log_archive_after_days,
 )
 logger = logging.getLogger(__name__)
 
@@ -43,12 +41,40 @@ pipeline = InvoicePipelineService()
 WEBHOOK_PATH = "/telegram/webhook"
 
 
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    started = perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        duration_ms = round((perf_counter() - started) * 1000, 2)
+        track_metric(
+            "http_request",
+            component="backend",
+            method=request.method,
+            path=request.url.path,
+            status_code=status_code,
+            duration_ms=duration_ms,
+        )
+        if status_code >= 500:
+            logger.error(
+                "HTTP 5xx response",
+                extra={"event_code": "API_HTTP_5XX", "path": request.url.path, "status_code": status_code},
+            )
+
+
 def _error_response(message: str, exc: Exception | None = None, *, error_code: str = "api_error") -> ProcessResponse:
     request_id = uuid4().hex
+    client_side_codes = {"file_too_large", "empty_file", "too_many_files"}
     if exc is not None:
         logger.exception("Unhandled error", extra={"request_id": request_id})
+    elif error_code in client_side_codes:
+        logger.warning("Client-side validation error: %s", message, extra={"request_id": request_id, "error_code": error_code})
     else:
-        logger.error("Error response: %s", message, extra={"request_id": request_id})
+        logger.error("Error response: %s", message, extra={"request_id": request_id, "error_code": error_code})
     empty = InvoiceParseResult(source_type="unknown", raw_text="", items=[], warnings=[])
     return ProcessResponse(
         request_id=request_id,

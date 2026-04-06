@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     openai_model_image: str = Field(default="", alias="OPENAI_MODEL_IMAGE")
     openai_model_image_fallback: str = Field(default="", alias="OPENAI_MODEL_IMAGE_FALLBACK")
 
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    log_max_mb: int = Field(default=5, alias="LOG_MAX_MB")
+    log_backup_count: int = Field(default=5, alias="LOG_BACKUP_COUNT")
+    log_archive_after_days: int = Field(default=7, alias="LOG_ARCHIVE_AFTER_DAYS")
+
     enable_pdf_image_fallback: bool = Field(default=True, alias="ENABLE_PDF_IMAGE_FALLBACK")
     enable_image_ocr_hint: bool = Field(default=True, alias="ENABLE_IMAGE_OCR_HINT")
     enable_fast_parser_fallback: bool = Field(default=True, alias="ENABLE_FAST_PARSER_FALLBACK")

@@ -1,18 +1,14 @@
 ﻿"""Entrypoint Telegram-бота для приема накладных."""
 
 import asyncio
-import logging
 import sys
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from app.bot.manager import TelegramBotManager
 from app.config import settings
+from app.observability import LOGS_DIR, configure_logging
 
-LOG_DIR = Path(__file__).resolve().parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / "bot.log"
-LOCK_FILE = LOG_DIR / "bot.lock"
+LOCK_FILE = LOGS_DIR / "bot.lock"
 
 
 def _acquire_lock() -> "open file":
@@ -21,6 +17,7 @@ def _acquire_lock() -> "open file":
     Возвращает открытый файл (держим до завершения процесса).
     Если другой экземпляр уже запущен — завершаем процесс с ошибкой.
     """
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     try:
         import msvcrt  # Windows
 
@@ -58,13 +55,12 @@ def _acquire_lock() -> "open file":
 async def main() -> None:
     """Запускает Telegram-бота через менеджер."""
     lock = _acquire_lock()
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"),
-        ],
+    configure_logging(
+        "bot",
+        level=settings.log_level,
+        max_bytes=settings.log_max_mb * 1024 * 1024,
+        backup_count=settings.log_backup_count,
+        archive_after_days=settings.log_archive_after_days,
     )
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")

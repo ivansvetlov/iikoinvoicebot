@@ -128,9 +128,23 @@ worker: OK (workers: ...)
 - `logs/bot.log` — события бота, статусы отправки/ошибок.
 - `logs/backend.log` — запросы к API, ошибки пайплайна.
 - `logs/worker*.log` — работа воркера, исключения в задачах.
+- `logs/alerts.jsonl` — автоматические алерты по ERROR/CRITICAL (единый канал).
+- `logs/metrics.jsonl` — метрики времени/ошибок (`http_request`, `worker_job`).
 - `logs/llm_costs.csv` — стоимость LLM по заявкам (заполняется после
   успешного вызова LLM, даже если документ не признан накладной).
 - `logs/llm_costs_summary.json` — накопительные итоги по стоимости (USD/RUB).
+
+---
+
+## Операционные скрипты (наблюдаемость)
+
+```bash
+# сводка по метрикам за 24 часа
+.venv\Scripts\python.exe scripts\metrics_report.py --hours 24
+
+# архивирование старых логов
+.venv\Scripts\python.exe scripts\archive_logs.py --days 7
+```
 
 ---
 
@@ -147,3 +161,4 @@ worker: OK (workers: ...)
   `BOT_PENDING_TIMEOUT`, `BOT_RATE_LIMIT`, `BOT_NO_PENDING`), которые
   печатаются в последних строках сообщений. По ним ищем строки в
   `logs/bot.log`.
+- Полный справочник кодов: `docs/BOT_EVENT_CODES.md`.

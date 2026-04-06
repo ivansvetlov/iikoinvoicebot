@@ -166,3 +166,24 @@ curl http://127.0.0.1:8000/health
 - Архитектура и пайплайн: `docs/AGENT_HANDOFF.md`
 - Команды бота и сценарии: `docs/BOT_COMMAND_MATRIX.md`
 - Диагностика по коду заявки: `scripts/diagnose_request.py` + `docs/AGENT_HANDOFF.md`
+
+## 7. Повторяемый сценарий для нового разработчика (чек-лист)
+
+1. Клонировать репозиторий и создать `.env` на основе `.env.example`.
+2. Установить зависимости:
+   - `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`
+3. Проверить, что Redis доступен (`REDIS_URL`), и backend health:
+   - `curl http://127.0.0.1:8000/health`
+4. Поднять стек одной командой:
+   - `.\.venv\Scripts\python.exe scripts\dev_run_all.py`
+5. Проверить состояние сервисов:
+   - `.\.venv\Scripts\python.exe scripts\dev_status.py`
+6. Проверить наблюдаемость:
+   - логи компонентов: `logs/bot.log`, `logs/backend.log`, `logs/worker.log`
+   - алерты: `logs/alerts.jsonl`
+   - метрики: `logs/metrics.jsonl`
+   - отчёт по метрикам: `.\.venv\Scripts\python.exe scripts\metrics_report.py --hours 1`
+7. Прогнать smoke-тесты:
+   - `.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"`
+8. При необходимости архивировать старые логи:
+   - `.\.venv\Scripts\python.exe scripts\archive_logs.py --days 7`

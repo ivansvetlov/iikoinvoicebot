@@ -32,7 +32,7 @@
 Служебные папки в корне:
 - `app/` — код backend-а, пайплайна и интеграций (подробности в `app/README.md`).
 - `scripts/` — дев-скрипты (`diagnose_request.py`, `cleanup_dev_artifacts.py` и т.п.).
-- `docs/` — документация для разработчика/агента (`AGENT_HANDOFF.md`, `DEV_SETUP.md`, `BOT_COMMAND_MATRIX.md`).
+- `docs/` — документация для разработчика/агента (`AGENT_HANDOFF.md`, `DEV_SETUP.md`, `BOT_COMMAND_MATRIX.md`, `BOT_EVENT_CODES.md`).
 - `data/` — рабочие данные (БД, job-директории); не коммитится.
 - `logs/` — runtime-логи; не коммитятся.
 - `tmp/` — временные диагностические файлы; можно очищать.
