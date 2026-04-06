@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
@@ -66,6 +67,9 @@ class PendingSplitStorage:
     def clear_pending_dir(self, user_id: str) -> None:
         self._clear_user_dir(self._pending_dir / user_id)
 
+    def deduplicate_pending_files(self, user_id: str) -> dict[str, int]:
+        return self._deduplicate_user_dir(self._pending_dir / user_id)
+
     def collect_split_files(self, user_id: str) -> list[tuple[str, bytes]]:
         user_dir = self._split_dir / user_id
         if not user_dir.exists():
@@ -78,6 +82,9 @@ class PendingSplitStorage:
 
     def clear_split_dir(self, user_id: str) -> None:
         self._clear_user_dir(self._split_dir / user_id)
+
+    def deduplicate_split_files(self, user_id: str) -> dict[str, int]:
+        return self._deduplicate_user_dir(self._split_dir / user_id)
 
     def cleanup_old(self, hours: int = 12) -> None:
         """Удаляет старые файлы из pending/split."""
@@ -106,4 +113,35 @@ class PendingSplitStorage:
                     item.unlink()
                 except Exception:  # noqa: BLE001
                     logger.exception("Failed to remove file %s", item)
+
+    @staticmethod
+    def _deduplicate_user_dir(path: Path) -> dict[str, int]:
+        if not path.exists():
+            return {"removed": 0, "kept": 0}
+
+        seen_hashes: set[str] = set()
+        removed = 0
+        kept = 0
+
+        for item in sorted(path.glob("*")):
+            if not item.is_file():
+                continue
+            try:
+                digest = hashlib.sha256(item.read_bytes()).hexdigest()
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to hash file %s", item)
+                continue
+
+            if digest in seen_hashes:
+                try:
+                    item.unlink()
+                    removed += 1
+                except Exception:  # noqa: BLE001
+                    logger.exception("Failed to remove duplicate file %s", item)
+                continue
+
+            seen_hashes.add(digest)
+            kept += 1
+
+        return {"removed": removed, "kept": kept}
 

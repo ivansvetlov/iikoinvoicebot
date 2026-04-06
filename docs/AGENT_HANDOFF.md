@@ -187,6 +187,16 @@
   - `.venv\\Scripts\\python.exe -m unittest tests.test_user_messages -v`
   - `.venv\\Scripts\\python.exe scripts\\diagnose_request.py <5-digit-code>`
 
+## 19) Explicit buffer dedup action (2026-04-06)
+- Файлы:
+  - обновлены `app/bot/file_storage.py`, `app/bot/manager.py`, `tests/test_bot_stage5.py`.
+- Поведение:
+  - добавлена явная кнопка `🧹 Удалить дубликаты` в split-черновике и pending-черновике;
+  - удаление дублей теперь управляемо пользователем: показываем, сколько удалено и сколько файлов осталось в черновике;
+  - дубли определяются по содержимому файла (sha256), сохраняется первый экземпляр.
+- Быстрая проверка:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 -v`
+
 ---
 
 ### Быстрый чек-лист для нового агента

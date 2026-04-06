@@ -502,6 +502,9 @@ class TelegramBotManager:
     def _clear_pending_dir(self, user_id: str) -> None:
         self._storage.clear_pending_dir(user_id)
 
+    def _deduplicate_pending_dir(self, user_id: str) -> dict[str, int]:
+        return self._storage.deduplicate_pending_files(user_id)
+
     async def _accept_pending_as_split(
         self,
         message: Message,
@@ -789,11 +792,12 @@ class TelegramBotManager:
         files = self._collect_pending_files(user_id)
         text = (
             f"Получено файлов: {len(files)}.\n"
-            "Можно сразу объединить и отправить, либо оставить черновик и добавить ещё."
+            "Можно сразу объединить и отправить, очистить дубликаты или продолжить добавлять файлы."
         )
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="🟩 Объединить и отправить", callback_data="mode:merge")],
+                [InlineKeyboardButton(text="🧹 Удалить дубликаты", callback_data="mode:dedup")],
                 [InlineKeyboardButton(text="🕒 Добавлю ещё позже", callback_data="mode:wait")],
             ]
         )
@@ -870,6 +874,15 @@ class TelegramBotManager:
                 status_message=query.message,
             )
             self._log_status(user_id, "mode_selected", {"mode": "merge"})
+            return
+        if data == "mode:dedup":
+            stats = self._deduplicate_pending_dir(user_id)
+            await query.message.edit_text(
+                f"Готово. Удалено дубликатов: {stats['removed']}. "
+                f"Файлов в черновике: {stats['kept']}."
+            )
+            await self._handle_pending_choice(query.message, user_id)
+            self._log_status(user_id, "pending_deduplicated", stats)
             return
         await query.message.answer("Неизвестный выбор. Используйте кнопки.")
 
@@ -1222,6 +1235,15 @@ class TelegramBotManager:
                 "Когда закончите — нажмите «✅ Завершить» или введите /done."
             )
             return
+        if data == "split:dedup":
+            stats = self._deduplicate_split_dir(user_id)
+            await query.message.edit_text(
+                f"Готово. Удалено дубликатов: {stats['removed']}. "
+                f"Файлов в черновике: {stats['kept']}."
+            )
+            await self._update_split_prompt(query.message, user_id)
+            self._log_status(user_id, "split_deduplicated", stats)
+            return
 
         if data == "split:cancel":
             self._clear_split_dir(user_id)
@@ -1344,6 +1366,9 @@ class TelegramBotManager:
             inline_keyboard=[
                 [
                     InlineKeyboardButton(text="✖ Отменить", callback_data="split:cancel"),
+                    InlineKeyboardButton(text="🧹 Удалить дубликаты", callback_data="split:dedup"),
+                ],
+                [
                     InlineKeyboardButton(text="✅ Завершить", callback_data="split:done"),
                 ],
             ]
@@ -1410,6 +1435,9 @@ class TelegramBotManager:
 
     def _clear_split_dir(self, user_id: str) -> None:
         self._storage.clear_split_dir(user_id)
+
+    def _deduplicate_split_dir(self, user_id: str) -> dict[str, int]:
+        return self._storage.deduplicate_split_files(user_id)
 
     def _log_status(self, user_id: str, event: str, extra: dict | None = None) -> None:
         payload = {

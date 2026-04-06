@@ -235,6 +235,47 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertTrue(warning_calls)
 
+    async def test_pending_dedup_action_removes_duplicate_files(self) -> None:
+        user_id = "42"
+        content = (FIXTURES_DIR / "duplicate_blob.bin").read_bytes()
+
+        await self.manager._store_pending_bytes("dup-a.bin", content, user_id)
+        await self.manager._store_pending_bytes("dup-b.bin", content, user_id)
+
+        stats = self.manager._deduplicate_pending_dir(user_id)
+
+        self.assertEqual(stats["removed"], 1)
+        self.assertEqual(stats["kept"], 1)
+        self.assertEqual(len(self.manager._collect_pending_files(user_id)), 1)
+
+    async def test_split_dedup_button_removes_duplicates(self) -> None:
+        user_id = "42"
+        content = (FIXTURES_DIR / "duplicate_blob.bin").read_bytes()
+        self.manager._split_users.add(user_id)
+
+        await self.manager._store_split_bytes("dup-a.bin", content, user_id)
+        await self.manager._store_split_bytes("dup-b.bin", content, user_id)
+
+        query_message = SimpleNamespace(
+            chat=SimpleNamespace(id=1001),
+            edit_text=AsyncMock(),
+            answer=AsyncMock(),
+        )
+        query_message.answer.return_value = SimpleNamespace(message_id=7001, chat=query_message.chat)
+        query = SimpleNamespace(
+            from_user=SimpleNamespace(id=42),
+            message=query_message,
+        )
+
+        with patch.object(self.manager, "_update_split_prompt", new=AsyncMock()) as update_split_prompt:
+            await self.manager._handle_split_choice(query, "split:dedup")
+
+        self.assertEqual(len(self.manager._collect_split_files(user_id)), 1)
+        self.assertEqual(update_split_prompt.await_count, 1)
+        self.assertTrue(query_message.edit_text.await_args_list)
+        text = str(query_message.edit_text.await_args_list[0].args[0])
+        self.assertIn("Удалено дубликатов: 1", text)
+
 
 if __name__ == "__main__":
     unittest.main()
