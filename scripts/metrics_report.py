@@ -1,4 +1,4 @@
-"""Печатает сводку по `logs/metrics.jsonl`.
+"""Печатает сводку по `logs/metrics.csv` (или `logs/metrics.jsonl`).
 
 Запуск:
     .venv\\Scripts\\python.exe scripts\\metrics_report.py --hours 24
@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from app.observability import METRICS_LOG
+from app.observability import METRICS_CSV, METRICS_LOG
 
 
 def _parse_ts(value: str | None) -> datetime | None:
@@ -53,13 +54,47 @@ def _load_rows(path: Path, cutoff: datetime | None) -> list[dict[str, Any]]:
     return rows
 
 
+def _load_rows_csv(path: Path, cutoff: datetime | None) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            ts = _parse_ts(row.get("ts"))
+            if cutoff and ts and ts < cutoff:
+                continue
+            payload = dict(row)
+            extra_json = payload.get("extra_json")
+            if extra_json:
+                try:
+                    payload.update(json.loads(extra_json))
+                except Exception:
+                    pass
+            rows.append(payload)
+    return rows
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Show simple metrics summary from logs/metrics.jsonl")
+    parser = argparse.ArgumentParser(description="Show simple metrics summary from logs/metrics.csv or metrics.jsonl")
     parser.add_argument("--hours", type=int, default=24, help="Окно анализа в часах (по умолчанию 24).")
+    parser.add_argument(
+        "--source",
+        choices=("auto", "csv", "jsonl"),
+        default="auto",
+        help="Источник метрик: auto (по умолчанию), csv или jsonl.",
+    )
     args = parser.parse_args()
 
     cutoff = datetime.now() - timedelta(hours=max(1, args.hours))
-    rows = _load_rows(METRICS_LOG, cutoff)
+    if args.source == "csv":
+        rows = _load_rows_csv(METRICS_CSV, cutoff)
+    elif args.source == "jsonl":
+        rows = _load_rows(METRICS_LOG, cutoff)
+    else:
+        rows = _load_rows_csv(METRICS_CSV, cutoff)
+        if not rows:
+            rows = _load_rows(METRICS_LOG, cutoff)
     if not rows:
         print("No metrics rows found for selected time window.")
         return 0

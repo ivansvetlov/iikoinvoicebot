@@ -180,8 +180,8 @@ curl http://127.0.0.1:8000/health
    - `.\.venv\Scripts\python.exe scripts\dev_status.py`
 6. Проверить наблюдаемость:
    - логи компонентов: `logs/bot.log`, `logs/backend.log`, `logs/worker.log`
-   - алерты: `logs/alerts.jsonl`
-   - метрики: `logs/metrics.jsonl`
+   - алерты: `logs/alerts.jsonl` или `logs/alerts.csv`
+   - метрики: `logs/metrics.jsonl` или `logs/metrics.csv`
    - отчёт по метрикам: `.\.venv\Scripts\python.exe scripts\metrics_report.py --hours 1`
 7. Прогнать smoke-тесты:
    - `.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"`

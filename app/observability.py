@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import gzip
 import json
 import logging
@@ -15,10 +16,39 @@ from typing import Any, Iterator
 
 LOGS_DIR = Path(__file__).resolve().parents[1] / "logs"
 ALERTS_LOG = LOGS_DIR / "alerts.jsonl"
+ALERTS_CSV = LOGS_DIR / "alerts.csv"
 METRICS_LOG = LOGS_DIR / "metrics.jsonl"
+METRICS_CSV = LOGS_DIR / "metrics.csv"
 ARCHIVE_DIR = LOGS_DIR / "archive"
 
 _DEFAULT_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+ALERTS_CSV_HEADER = [
+    "ts",
+    "component",
+    "level",
+    "logger",
+    "message",
+    "event_code",
+    "event_short",
+    "request_id",
+    "extra_json",
+]
+METRICS_CSV_HEADER = [
+    "ts",
+    "event",
+    "component",
+    "status",
+    "error_code",
+    "status_code",
+    "duration_ms",
+    "request_id",
+    "user_id",
+    "path",
+    "method",
+    "batch",
+    "error_type",
+    "extra_json",
+]
 
 
 class AlertFileHandler(logging.Handler):
@@ -36,6 +66,7 @@ class AlertFileHandler(logging.Handler):
             "logger": record.name,
             "message": record.getMessage(),
             "event_code": getattr(record, "event_code", None),
+            "event_short": getattr(record, "event_short", None),
             "request_id": getattr(record, "request_id", None),
         }
         try:
@@ -43,6 +74,7 @@ class AlertFileHandler(logging.Handler):
             with ALERTS_LOG.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False))
                 handle.write("\n")
+            _append_csv_row(ALERTS_CSV, ALERTS_CSV_HEADER, payload)
         except Exception:
             # Не падаем из-за проблем с вторичным логом.
             return
@@ -110,6 +142,7 @@ def track_metric(event: str, **fields: Any) -> None:
         with METRICS_LOG.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False, default=str))
             handle.write("\n")
+        _append_csv_row(METRICS_CSV, METRICS_CSV_HEADER, payload)
     except Exception:
         return
 
@@ -169,7 +202,14 @@ def archive_logs(*, older_than_days: int = 7) -> dict[str, int]:
 
 def _is_archivable_log(path: Path) -> bool:
     name = path.name.lower()
-    if name in {"llm_costs.csv", "llm_costs_summary.json", "metrics.jsonl", "alerts.jsonl"}:
+    if name in {
+        "llm_costs.csv",
+        "llm_costs_summary.json",
+        "metrics.jsonl",
+        "metrics.csv",
+        "alerts.jsonl",
+        "alerts.csv",
+    }:
         return False
     if name.endswith(".log"):
         return True
@@ -180,3 +220,17 @@ def _is_archivable_log(path: Path) -> bool:
     if name.endswith(".csv"):
         return True
     return False
+
+
+def _append_csv_row(path: Path, header: list[str], payload: dict[str, Any]) -> None:
+    known = {key: payload.get(key) for key in header if key != "extra_json"}
+    extra = {key: value for key, value in payload.items() if key not in known}
+    known["extra_json"] = json.dumps(extra, ensure_ascii=False, default=str) if extra else ""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    need_header = not path.exists() or path.stat().st_size == 0
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=header)
+        if need_header:
+            writer.writeheader()
+        writer.writerow(known)

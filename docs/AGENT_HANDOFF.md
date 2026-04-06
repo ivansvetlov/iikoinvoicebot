@@ -131,8 +131,8 @@
 ## 14) Stage 4 reliability & observability closure (2026-04-06)
 - Добавлен единый модуль наблюдаемости `app/observability.py`:
   - централизованная настройка логов (`configure_logging`) для backend/bot/worker;
-  - алерт-канал `logs/alerts.jsonl` (автоматически пишет ERROR/CRITICAL);
-  - метрики `logs/metrics.jsonl` (`track_metric`, `measure_time`);
+  - алерт-канал `logs/alerts.jsonl` + `logs/alerts.csv` (автоматически пишет ERROR/CRITICAL);
+  - метрики `logs/metrics.jsonl` + `logs/metrics.csv` (`track_metric`, `measure_time`);
   - архивирование старых логов (`archive_logs`).
 - Точки входа переведены на единый logging: `app/api.py`, `bot.py`, `worker.py`.
 - Добавлен middleware в backend для метрик HTTP времени/статусов (`http_request`).

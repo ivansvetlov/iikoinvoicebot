@@ -128,8 +128,8 @@ worker: OK (workers: ...)
 - `logs/bot.log` — события бота, статусы отправки/ошибок.
 - `logs/backend.log` — запросы к API, ошибки пайплайна.
 - `logs/worker*.log` — работа воркера, исключения в задачах.
-- `logs/alerts.jsonl` — автоматические алерты по ERROR/CRITICAL (единый канал).
-- `logs/metrics.jsonl` — метрики времени/ошибок (`http_request`, `worker_job`).
+- `logs/alerts.jsonl` / `logs/alerts.csv` — автоматические алерты по ERROR/CRITICAL.
+- `logs/metrics.jsonl` / `logs/metrics.csv` — метрики времени/ошибок (`http_request`, `worker_job`).
 - `logs/llm_costs.csv` — стоимость LLM по заявкам (заполняется после
   успешного вызова LLM, даже если документ не признан накладной).
 - `logs/llm_costs_summary.json` — накопительные итоги по стоимости (USD/RUB).
