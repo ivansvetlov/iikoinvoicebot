@@ -5,13 +5,14 @@
 - Пользователю показываем короткий «код заявки», который проще продиктовать/скопировать.
 
 Короткий код делаем детерминированно из request_id:
-обычно это `HHMMSS_mmm` (время + миллисекунды).
+используем компактный формат из 5 цифр.
 
 Важно: это *не* идентификатор безопасности, а просто удобный «чек» для поддержки.
 """
 
 from __future__ import annotations
 
+import zlib
 from typing import Any
 
 from app.config import settings
@@ -21,26 +22,15 @@ from app.config import settings
 def short_request_code(request_id: str | None) -> str | None:
     """Делает короткий код для пользователя.
 
-    Пример полного request_id: 20260308_000736_800_6106711925
-    Короткий код: 000736_800
-
-    Если формат неожиданный — возвращаем исходный request_id.
+    Формат: 5 цифр (например, ``48291``), детерминированно от request_id.
+    Это удобно диктовать и использовать в поддержке.
     """
 
     if not request_id:
         return None
 
-    parts = request_id.split("_")
-
-    # Ожидаемый формат: YYYYMMDD_HHMMSS_mmm_<user>
-    if len(parts) >= 3 and len(parts[1]) == 6 and len(parts[2]) == 3:
-        return f"{parts[1]}_{parts[2]}"
-
-    # На всякий случай: иногда нужные части могут быть в хвосте.
-    if len(parts) >= 2 and len(parts[-2]) == 6 and len(parts[-1]) == 3:
-        return f"{parts[-2]}_{parts[-1]}"
-
-    return request_id
+    value = zlib.crc32(request_id.encode("utf-8")) % 100000
+    return f"{value:05d}"
 
 
 def format_user_response(payload: dict[str, Any]) -> str:

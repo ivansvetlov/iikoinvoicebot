@@ -5,7 +5,7 @@
 
 Примеры:
   python scripts/diagnose_request.py 20260308_000736_800_6106711925
-  python scripts/diagnose_request.py 000736_800
+  python scripts/diagnose_request.py 48291
 
 Скрипт:
 - находит request_id по фрагменту (по папкам data/jobs и по БД)
@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.db import _build_engine
 from app.models import TaskRecord
+from app.utils.user_messages import short_request_code
 
 
 DATA_JOBS_DIR = PROJECT_ROOT / "data" / "jobs"
@@ -80,12 +81,13 @@ def _tail_lines(path: Path, n: int = 120) -> list[str]:
 
 
 _SHORT_CODE_RE = re.compile(r"^(\d{6})_(\d{3})$")
+_SHORT_CODE_V2_RE = re.compile(r"^\d{5}$")
 
 
 def _normalize_fragment(raw: str) -> str:
     """Нормализует ввод пользователя.
 
-    Пользователь часто копирует строку целиком: "Код заявки: 000736_800".
+    Пользователь часто копирует строку целиком: "Код заявки: 48291".
     Мы вытащим из неё то, что похоже на код.
     """
 
@@ -100,11 +102,17 @@ def _is_short_code(fragment: str) -> bool:
     return bool(_SHORT_CODE_RE.match(fragment))
 
 
+def _is_short_code_v2(fragment: str) -> bool:
+    return bool(_SHORT_CODE_V2_RE.match(fragment))
+
+
 def _find_by_job_dirs(fragment: str) -> list[Match]:
     if not DATA_JOBS_DIR.exists():
         return []
 
-    # Если это короткий код HHMMSS_mmm, ищем более строго: "_HHMMSS_mmm_".
+    # Поддерживаем оба формата:
+    # - legacy HHMMSS_mmm
+    # - current 5-digit code
     needle = fragment
     strict_needle = f"_{fragment}_" if _is_short_code(fragment) else None
 
@@ -113,7 +121,10 @@ def _find_by_job_dirs(fragment: str) -> list[Match]:
         if not p.is_dir():
             continue
         name = p.name
-        if strict_needle:
+        if _is_short_code_v2(fragment):
+            if short_request_code(name) == fragment:
+                matches.append(Match(request_id=name, source="data/jobs"))
+        elif strict_needle:
             if strict_needle in name:
                 matches.append(Match(request_id=name, source="data/jobs"))
         else:
@@ -130,7 +141,21 @@ def _find_by_db(fragment: str) -> list[Match]:
     if engine is None:
         return []
 
-    # Для короткого кода HHMMSS_mmm ищем более строго: "_HHMMSS_mmm_".
+    if _is_short_code_v2(fragment):
+        with Session(engine) as s:
+            rows = (
+                s.query(TaskRecord)
+                .order_by(TaskRecord.created_at.desc())
+                .limit(5000)
+                .all()
+            )
+        out: list[Match] = []
+        for r in rows:
+            if short_request_code(r.request_id) == fragment:
+                out.append(Match(request_id=r.request_id, source="db", created_at=str(getattr(r, "created_at", None))))
+        return out
+
+    # Для legacy-кода HHMMSS_mmm ищем более строго: "_HHMMSS_mmm_".
     strict = f"_{fragment}_" if _is_short_code(fragment) else fragment
 
     with Session(engine) as s:
@@ -223,7 +248,7 @@ def _resolve_request_id(fragment: str) -> tuple[str | None, list[Match]]:
     """Пытается найти полный request_id по тому, что ввёл человек.
 
     Удобство для человека:
-    - если ввели короткий код HHMMSS_mmm и совпадений несколько (например через неделю),
+    - если ввели короткий код и совпадений несколько,
       мы автоматически выбираем самый свежий, но выводим альтернативы.
     """
 
@@ -244,9 +269,9 @@ def _resolve_request_id(fragment: str) -> tuple[str | None, list[Match]]:
         return all_matches[0].request_id, all_matches
 
     # Если совпадений несколько:
-    # - для короткого кода выбираем самый свежий (по request_id, он лексикографически упорядочен по времени)
+    # - для короткого кода выбираем самый свежий
     # - для произвольной строки — просим уточнить (оставляем как было)
-    if _is_short_code(fragment):
+    if _is_short_code(fragment) or _is_short_code_v2(fragment):
         all_matches.sort(key=lambda m: m.request_id, reverse=True)
         return all_matches[0].request_id, all_matches
 
@@ -270,7 +295,7 @@ def main() -> None:
         sys.exit(1)
 
     # Если совпадений было много, но мы выбрали самый свежий — скажем об этом явно.
-    if len(matches) > 1 and _is_short_code(fragment):
+    if len(matches) > 1 and (_is_short_code(fragment) or _is_short_code_v2(fragment)):
         print(
             f"Найдено несколько заявок с кодом {fragment}. "
             f"Беру самую свежую: {request_id}. Остальные — внизу (alt_matches)."

@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import unittest
 
-from app.utils.user_messages import format_invoice_markdown
+from app.utils.user_messages import format_invoice_markdown, short_request_code
 
 
 class UserMessagesTests(unittest.TestCase):
+    def test_short_request_code_is_five_digits(self) -> None:
+        code = short_request_code("20260406_211530_123_6106711925")
+
+        self.assertIsNotNone(code)
+        self.assertRegex(code, r"^\d{5}$")
+
     def test_format_invoice_markdown_appends_short_request_code(self) -> None:
         payload = {
             "request_id": "20260406_211530_123_6106711925",
@@ -18,8 +24,9 @@ class UserMessagesTests(unittest.TestCase):
         }
 
         text = format_invoice_markdown(payload)
+        code = short_request_code(payload["request_id"])
 
-        self.assertIn("Код заявки: 211530_123", text)
+        self.assertIn(f"Код заявки: {code}", text)
 
     def test_format_invoice_markdown_without_request_id_has_no_code(self) -> None:
         payload = {"parsed": {"items": []}}
