@@ -18,7 +18,7 @@
 
 Основные файлы в корневой директории:
 - `README.md` — этот файл, общее описание.
-- `docs/TODO.md` — план работ/идей.
+- `docs/TODO.md` — dashboard + план работ/идей.
 - `docs/TESTCASES.md` — список QA-сценариев.
 - `requirements.txt` — зависимости Python.
 - `docker-compose.yml`, `Dockerfile`, `nginx_bot.conf` — файлы для контейнерного деплоя.
