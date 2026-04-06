@@ -7,7 +7,7 @@
 
 ## Правила для агентов
 - Основные правила и стандарты: `AGENTS.md` (в корне проекта).
-- Проверенные команды запуска/диагностики: `DEBUG.md`.
+- Проверенные команды запуска/диагностики: `docs/DEBUG.md`.
 
 ## Архитектура
 - Краткий обзор модулей и потоков: `docs/ARCHITECTURE.md`
@@ -17,13 +17,9 @@
 ### Корень проекта
 
 Основные файлы в корневой директории:
-- `bot.py` — запуск Telegram-бота (polling).
-- `worker.py` — запуск воркера очереди (RQ).
-- `main.py` — вспомогательный вход (если нужен для утилит/отладки).
-- `invoice_llm_client.py` — отдельный LLM-клиент для пакетной обработки файлов из папки.
 - `README.md` — этот файл, общее описание.
-- `TODO.md` — план работ/идей.
-- `TESTCASES.md` — список QA-сценариев.
+- `docs/TODO.md` — план работ/идей.
+- `docs/TESTCASES.md` — список QA-сценариев.
 - `requirements.txt` — зависимости Python.
 - `docker-compose.yml`, `Dockerfile`, `nginx_bot.conf` — файлы для контейнерного деплоя.
 - `.env`, `.env.example` — конфиги окружения (секреты / токены **не должны** попадать в git).
@@ -31,6 +27,7 @@
 
 Служебные папки в корне:
 - `app/` — код backend-а, пайплайна и интеграций (подробности в `app/README.md`).
+  - `app/entrypoints/` — runtime-скрипты запуска (`bot.py`, `worker.py`, `main.py`, `invoice_llm_client.py`).
 - `scripts/` — дев-скрипты (`diagnose_request.py`, `cleanup_dev_artifacts.py` и т.п.).
 - `docs/` — документация для разработчика/агента (`AGENT_HANDOFF.md`, `DEV_SETUP.md`, `BOT_COMMAND_MATRIX.md`, `BOT_EVENT_CODES.md`).
 - `data/` — рабочие данные (БД, job-директории); не коммитится.
@@ -45,12 +42,12 @@
 - `app/parsers/file_text_extractor.py` - извлечение текста из PDF/DOCX/TXT
 - `app/parsers/invoice_parser.py` - эвристический парсинг позиций
 - `app/iiko/playwright_client.py` - загрузка в iiko через браузер
-- `bot.py` - Telegram бот
-- `invoice_llm_client.py` - LLM клиент для пакетной обработки
+- `app/entrypoints/bot.py` - Telegram бот
+- `app/entrypoints/invoice_llm_client.py` - LLM клиент для пакетной обработки
 
 ## LLM клиент
 ```bash
-python invoice_llm_client.py --path ./invoices --model gpt-4o-mini
+python app/entrypoints/invoice_llm_client.py --path ./invoices --model gpt-4o-mini
 ```
 
 ## Установка
@@ -90,7 +87,7 @@ uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload
 
 Bot:
 ```bash
-python bot.py
+python app/entrypoints/bot.py
 ```
 
 ## Очередь задач (Redis + RQ)
@@ -101,7 +98,7 @@ pip install -r requirements.txt
 ```
 3. Запустите воркер:
 ```bash
-python worker.py
+python app/entrypoints/worker.py
 ```
 
 ## Хранилище задач (Postgres)

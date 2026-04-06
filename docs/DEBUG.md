@@ -37,7 +37,7 @@ curl http://127.0.0.1:8000/health
 ### Запуск
 
 ```bash
-.venv\Scripts\python.exe worker.py
+.venv\Scripts\python.exe app\entrypoints\worker.py
 ```
 
 Проверено:
@@ -54,7 +54,7 @@ curl http://127.0.0.1:8000/health
 
 ### Остановка
 
-- В терминале с worker.py: `Ctrl+C`.
+- В терминале с `app/entrypoints/worker.py`: `Ctrl+C`.
 
 ---
 
@@ -66,26 +66,26 @@ curl http://127.0.0.1:8000/health
 Если нужно отдельно:
 
 ```bash
-.venv\Scripts\python.exe bot.py
+.venv\Scripts\python.exe app\entrypoints\bot.py
 ```
 
 Проверено:
 - бот поднимается, в консоли видно `Run polling for bot`;
 - при `/start` в Telegram бот отвечает и логирует события в `logs/bot.log`.
 
-**Важно:** нельзя запускать `bot.py` несколько раз параллельно — Telegram
+**Важно:** нельзя запускать `app/entrypoints/bot.py` несколько раз параллельно — Telegram
 возвращает `TelegramConflictError: terminated by other getUpdates request`.
 
 ### Остановка
 
-- В терминале с bot.py: `Ctrl+C`.
+- В терминале с `app/entrypoints/bot.py`: `Ctrl+C`.
 
 ---
 
 ## Dev-оркестратор: `scripts/dev_run_all.py` (backend + worker + bot)
 
-Особенность (проверено): перед запуском `bot.py` скрипт пытается остановить другие
-процессы `bot.py` (в том же venv/проекте), чтобы не ловить `TelegramConflictError`.
+Особенность (проверено): перед запуском `app/entrypoints/bot.py` скрипт пытается остановить другие
+процессы бота (в том же venv/проекте), чтобы не ловить `TelegramConflictError`.
 
 ### Запуск всех компонент одной командой
 

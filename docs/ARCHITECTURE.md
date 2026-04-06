@@ -7,9 +7,9 @@
 
 ### Верхний уровень
 - `app/api.py`: FastAPI‑приложение с `/health`, `/process`, `/process-batch`, `/telegram/webhook` и инициализацией БД/вебхука.
-- `bot.py`: точка входа Telegram‑бота (polling), защита от дублей через lock‑файл.
-- `worker.py`: точка входа RQ‑воркера, слушающего очередь Redis.
-- `main.py`: ASGI‑обёртка (`app` из `app.api`) для uvicorn/gunicorn.
+- `app/entrypoints/bot.py`: точка входа Telegram‑бота (polling), защита от дублей через lock‑файл.
+- `app/entrypoints/worker.py`: точка входа RQ‑воркера, слушающего очередь Redis.
+- `app/entrypoints/main.py`: ASGI‑обёртка (`app` из `app.api`) для uvicorn/gunicorn.
 
 ### Конфигурация и инфраструктура
 - `app/config.py`: `Settings` на базе Pydantic, чтение `.env`, все ключевые ENV (Telegram, Redis, DB, OpenAI, iiko, лимиты).
@@ -47,14 +47,14 @@
   - Возвращают `ProcessResponse(status="queued")`.
 
 ### Поток Telegram‑бота (polling/webhook)
-- Polling: запуск `bot.py` → `TelegramBotManager.run()`.
+- Polling: запуск `app/entrypoints/bot.py` → `TelegramBotManager.run()`.
 - Webhook: Telegram бьёт в `/telegram/webhook`, backend делегирует апдейты тому же `TelegramBotManager`.
 - Бот:
   - Ведёт авторизацию iiko и настройки пользователя (`pdf_mode`, split).
   - При получении файла(ов) отправляет их на backend `/process` или `/process-batch` с `push_to_iiko`, `user_id`, `pdf_mode`, `chat_id`.
 
 ### Поток воркера / конвейера
-- `worker.py` запускает RQ‑воркер, слушающий очередь Redis.
+- `app/entrypoints/worker.py` запускает RQ‑воркер, слушающий очередь Redis.
 - На задачу `process_invoice_task`:
   - Загружает payload из `data/jobs`, помечает задачу как `processing` в БД.
   - Читает файл(ы), вызывает `InvoicePipelineService.process(...)` (или `process_batch`).

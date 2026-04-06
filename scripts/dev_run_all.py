@@ -6,14 +6,14 @@ r"""Запуск backend, worker и бота одной командой (для
 Скрипт:
 - запускает backend (uvicorn app.api:app --host 127.0.0.1 --port 8000);
 - ждёт, пока /health начнёт отвечать;
-- запускает worker (worker.py);
-- запускает bot (bot.py);
+- запускает worker (`app/entrypoints/worker.py`);
+- запускает bot (`app/entrypoints/bot.py`);
 - если на любом шаге ошибка — останавливает уже запущенные процессы и
   печатает понятное сообщение.
 
 Доп. защита:
-- перед запуском bot.py пытается найти и остановить **другие** процессы bot.py
-  этого проекта, чтобы не ловить TelegramConflictError.
+- перед запуском `app/entrypoints/bot.py` пытается найти и остановить **другие**
+  процессы бота этого проекта, чтобы не ловить TelegramConflictError.
 
 Это НЕ прод-оркестратор, а удобный помощник для локальной отладки.
 """
@@ -69,18 +69,18 @@ def _get_health(url: str) -> bool:
 
 
 def _kill_duplicate_bot_processes() -> None:
-    """Останавливает другие процессы bot.py (в том же venv/проекте).
+    """Останавливает другие процессы `app/entrypoints/bot.py` (в том же venv/проекте).
 
     Почему это нужно:
     - Telegram polling допускает только один процесс на один токен.
-    - Если запустить 2 экземпляра `bot.py`, получаем `TelegramConflictError`.
+    - Если запустить 2 экземпляра бота, получаем `TelegramConflictError`.
 
     Нюанс Windows:
     - CommandLine процесса часто содержит только `bot.py` (без cwd/абсолютного пути).
       Поэтому фильтр вида "PROJECT_ROOT in CommandLine" ненадёжен.
 
     Поэтому считаем процесс «нашим», если:
-    - в CommandLine есть `bot.py`
+    - в CommandLine есть `bot.py` (включая `app/entrypoints/bot.py`)
     - и ExecutablePath совпадает с текущим интерпретатором (sys.executable)
       или лежит внутри PROJECT_ROOT (обычно это `.venv\\Scripts\\python.exe`).
 
@@ -150,7 +150,7 @@ def _kill_duplicate_bot_processes() -> None:
     if not to_kill:
         return
 
-    print(f"[dev_run_all] found {len(to_kill)} existing bot.py processes, stopping: {to_kill}")
+    print(f"[dev_run_all] found {len(to_kill)} existing bot processes, stopping: {to_kill}")
     for pid in to_kill:
         # Сначала пробуем мягко
         subprocess.run(["taskkill", "/PID", str(pid), "/T"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -192,7 +192,7 @@ def start_backend(group: ProcGroup) -> None:
 
 
 def start_worker(group: ProcGroup) -> None:
-    cmd = [PYTHON, "worker.py"]
+    cmd = [PYTHON, "app/entrypoints/worker.py"]
     print("[dev_run_all] starting worker:", " ".join(cmd))
     group.worker = subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
     time.sleep(1)
@@ -200,7 +200,7 @@ def start_worker(group: ProcGroup) -> None:
 
 def start_bot(group: ProcGroup) -> None:
     _kill_duplicate_bot_processes()
-    cmd = [PYTHON, "bot.py"]
+    cmd = [PYTHON, "app/entrypoints/bot.py"]
     print("[dev_run_all] starting bot:", " ".join(cmd))
     group.bot = subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
     time.sleep(1)

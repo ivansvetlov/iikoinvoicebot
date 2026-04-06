@@ -9,4 +9,4 @@
   - общается с backend (`/process`, `/process-batch`);
   - форматирует ответы пользователю (через `app.utils.user_messages`).
 
-Запуск бота осуществляется из корневого `bot.py`, который создаёт экземпляр `TelegramBotManager`.
+Запуск бота осуществляется из `app/entrypoints/bot.py`, который создаёт экземпляр `TelegramBotManager`.

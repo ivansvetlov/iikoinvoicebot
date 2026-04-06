@@ -28,7 +28,7 @@ def _acquire_lock() -> "open file":
         return fh
     except (OSError, PermissionError):
         print(
-            "\n❌ Другой экземпляр bot.py уже запущен!\n"
+            "\n❌ Другой экземпляр бота уже запущен!\n"
             "   Остановите его перед повторным запуском.\n",
             file=sys.stderr,
         )
@@ -42,7 +42,7 @@ def _acquire_lock() -> "open file":
             fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             print(
-                "\n❌ Другой экземпляр bot.py уже запущен!\n"
+                "\n❌ Другой экземпляр бота уже запущен!\n"
                 "   Остановите его перед повторным запуском.\n",
                 file=sys.stderr,
             )

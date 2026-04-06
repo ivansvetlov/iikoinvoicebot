@@ -1,7 +1,7 @@
 ﻿"""Batch invoice parser via OpenAI function calling.
 
 Example usage:
-  python invoice_llm_client.py --path ./invoices --model gpt-4o-mini
+  python app/entrypoints/invoice_llm_client.py --path ./invoices --model gpt-4o-mini
 
 Environment:
   OPENAI_API_KEY=... (read from .env or environment)

@@ -33,11 +33,7 @@ class MoveAction:
 # Files that are commonly expected to live in the repo root.
 # This list is conservative on purpose.
 KEEP_FILES = {
-    # Python entrypoints / modules in root
-    "main.py",
-    "bot.py",
-    "worker.py",
-    "invoice_llm_client.py",
+    # Python entrypoints are expected under app/entrypoints/
     # Docker / deploy / config
     "Dockerfile",
     "docker-compose.yml",
@@ -54,7 +50,6 @@ KEEP_FILES = {
 # Docs that are often expected in root (GitHub, IDE, etc.).
 ROOT_DOCS = {
     "README.md",
-    "TODO.md",
 }
 
 
@@ -176,7 +171,7 @@ def main() -> int:
     parser.add_argument(
         "--include-readme-todo",
         action="store_true",
-        help="Also move README.md / TODO.md into docs/",
+        help="Also move README.md into docs/",
     )
 
     args = parser.parse_args()

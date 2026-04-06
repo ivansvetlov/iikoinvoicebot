@@ -12,7 +12,7 @@
 - [ ] Добавить unit-тесты (pytest) для `app/services/pipeline.py` и `app/parsers/`
 - [ ] Создать интеграционные тесты для API (`/process`, `/process-batch`)
 - [ ] Добавить моки для внешних зависимостей (iiko, OpenAI) в тестах
-- [ ] Провести QA по TESTCASES.md и зафиксировать результаты
+- [ ] Провести QA по docs/TESTCASES.md и зафиксировать результаты
 
 ## Этап 3 — Масштабируемость и мониторинг
 - [ ] Добавить мониторинг ошибок (Sentry) для backend и bot
@@ -35,7 +35,7 @@
 
 ## Выявлено из dialogue_dump (Copilot-сессия)
 - [x] Убрать `_auto_process_pending` (5с таймер) — корень зависания при одном файле
-- [ ] Исключить повторное создание bot.py процессов (lock-файл есть, но PyCharm обходит)
+- [ ] Исключить повторное создание процессов `app/entrypoints/bot.py` (lock-файл есть, но PyCharm обходит)
 - [ ] Заменить `apply_patch` / `Set-Content` workflow на инструменты без BOM-инъекции
 - [ ] Компилировать (`py_compile`) после каждой правки — агент пропускал NameError/ImportError
 - [ ] Убрать мёртвый код: остатки Tesseract (PSM/OEM/TESSDATA_PREFIX), Cloudflare Worker, invoice_client.py

@@ -15,25 +15,25 @@
    ```
 
 2. **Worker (RQ-воркер)**  
-   Файл: `worker.py`  
+   Файл: `app/entrypoints/worker.py`  
    Берёт задачи из Redis и выполняет пайплайн.
    ```bash
-   python worker.py
+   python app/entrypoints/worker.py
    ```
 
 3. **Telegram-бот (polling)**  
-   Файл: `bot.py`  
+   Файл: `app/entrypoints/bot.py`  
    Забирает обновления у Telegram и ходит в backend.
    ```bash
-   python bot.py
+   python app/entrypoints/bot.py
    ```
 
-> ВАЖНО: для одного `TELEGRAM_BOT_TOKEN` должен быть **только один** живой процесс `bot.py`.
+> ВАЖНО: для одного `TELEGRAM_BOT_TOKEN` должен быть **только один** живой процесс `app/entrypoints/bot.py`.
 > Два параллельных polling-а дают `TelegramConflictError`.
 
 ## 2. Быстрый запуск всех компонентов одной командой
 
-> Важно: `scripts/dev_run_all.py` перед запуском бота пытается остановить другие процессы `bot.py` (в том же venv/проекте),
+> Важно: `scripts/dev_run_all.py` перед запуском бота пытается остановить другие процессы `bot.py`/`app/entrypoints/bot.py` (в том же venv/проекте),
 > чтобы не ловить `TelegramConflictError`.
 
 Для локальной разработки можно запустить backend, worker и бота одной командой:
@@ -44,8 +44,8 @@
 
 Скрипт делает:
 - стартует backend (uvicorn) и ждёт, пока `/health` начнёт отвечать;
-- запускает worker (`worker.py`);
-- запускает бота (`bot.py`);
+- запускает worker (`app/entrypoints/worker.py`);
+- запускает бота (`app/entrypoints/bot.py`);
 - если на любом шаге ошибка (порт занят, backend не поднимается и т.п.) —
   останавливает уже запущенные процессы и печатает сообщение.
 
@@ -61,14 +61,14 @@
   `Parameters`: `app.api:app --host 127.0.0.1 --port 8000 --reload`
 
 - **worker**  
-  `Script path`: `worker.py`
+  `Script path`: `app/entrypoints/worker.py`
 
 - **bot**  
-  `Script path`: `bot.py`
+  `Script path`: `app/entrypoints/bot.py`
 
 ### Правило
 - Запускаем и останавливаем их **только через PyCharm**: зелёный треугольник (Run) / красный квадрат (Stop).
-- Не запускаем `python bot.py`/`python worker.py` руками в терминале параллельно.
+- Не запускаем `python app/entrypoints/bot.py`/`python app/entrypoints/worker.py` руками в терминале параллельно.
 
 Если нужно перезапустить бота:
 1. Нажать **Stop** на конфигурации `bot`.
@@ -112,7 +112,7 @@ Run polling for bot @iikoinvoicebot id=... - 'iiko invoice'
 - доступен ли `http://127.0.0.1:8000/health` (backend)
 - есть ли активные воркеры RQ (worker)
 
-Если всё ок, а бот не отвечает — значит, проблема именно в `bot.py` (run-конфигурация).
+Если всё ок, а бот не отвечает — значит, проблема именно в `app/entrypoints/bot.py` (run-конфигурация).
 
 ## 5. Что делать, если всё-таки словили TelegramConflictError
 
@@ -121,11 +121,11 @@ Run polling for bot @iikoinvoicebot id=... - 'iiko invoice'
 Telegram server says - Conflict: terminated by other getUpdates request;
 make sure that only one bot instance is running
 ```
-означает, что где-то уже крутится другой `bot.py`.
+означает, что где-то уже крутится другой процесс бота (`bot.py`/`app/entrypoints/bot.py`).
 
 Шаги:
 1. В PyCharm закрой все Run-конфигурации `bot`, `worker`, `backend` (красный квадрат).
-2. Встроенный терминал PyCharm: если запущен `python bot.py`/`python worker.py`, жми `Ctrl+C` или закрой вкладку.
+2. Встроенный терминал PyCharm: если запущен `python app/entrypoints/bot.py`/`python app/entrypoints/worker.py`, жми `Ctrl+C` или закрой вкладку.
 3. (Опционально) в Диспетчере задач заверши `python.exe`, у которых путь вида:
    `C:\Users\MiBookPro\PycharmProjects\PythonProject\.venv\Scripts\python.exe`.
 4. Затем **заново** запусти:
@@ -145,10 +145,10 @@ make sure that only one bot instance is running
 uvicorn app.api:app --host 127.0.0.1 --port 8000 --reload
 
 # Окно 2 — worker
-python worker.py
+python app/entrypoints/worker.py
 
 # Окно 3 — bot
-python bot.py
+python app/entrypoints/bot.py
 ```
 
 ### Проверка health и очереди

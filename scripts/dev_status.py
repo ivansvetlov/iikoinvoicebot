@@ -82,10 +82,13 @@ def main() -> None:
     if not ok_backend:
         print("\nСовет: запустите backend (uvicorn app.api:app --host 127.0.0.1 --port 8000)")
     if not ok_worker:
-        print("Совет: запустите worker (python worker.py)")
+        print("Совет: запустите worker (python app/entrypoints/worker.py)")
 
     if ok_backend and ok_worker:
-        print("\nВсё выглядит запущенным. Если бот не отвечает — проверьте run-конфигурацию bot.py в PyCharm.")
+        print(
+            "\nВсё выглядит запущенным. Если бот не отвечает — "
+            "проверьте run-конфигурацию app/entrypoints/bot.py в PyCharm."
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover
