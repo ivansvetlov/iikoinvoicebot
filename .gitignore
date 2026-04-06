@@ -58,3 +58,4 @@ iiko_server_docs/
 
 # --- Local document packs for manual recognition runs ---
 doc templates/
+.veai/
