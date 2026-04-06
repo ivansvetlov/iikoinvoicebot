@@ -46,6 +46,38 @@ def _truncate(text: str, max_len: int) -> str:
     return text[: max_len - 1].rstrip() + "…"
 
 
+def _short_stage_title(title: str) -> str:
+    if title.startswith("Текущий фокус MVP"):
+        return "MVP Фокус"
+    if title.startswith("Этап 12"):
+        return "Этап 12 — Post-stage3 backlog"
+    if title.startswith("Этап 11"):
+        return "Этап 11 — Процессное масштабирование"
+    if title.startswith("Этап 10"):
+        return "Этап 10 — Коммерциализация"
+    if title.startswith("Этап 1"):
+        return "Этап 1 — Стабильность"
+    if title.startswith("Этап 2"):
+        return "Этап 2 — Масштабирование"
+    if title.startswith("Этап 3"):
+        return "Этап 3 — Качество распознавания"
+    if title.startswith("Этап 4"):
+        return "Этап 4 — Надежность"
+    if title.startswith("Этап 5"):
+        return "Этап 5 — UX бота"
+    if title.startswith("Этап 6"):
+        return "Этап 6 — Хвосты MVP"
+    if title.startswith("Этап 7"):
+        return "Этап 7 — Альтернативный LLM"
+    if title.startswith("Этап 8"):
+        return "Этап 8 — Каналы продаж"
+    if title.startswith("Этап 9"):
+        return "Этап 9 — Интеграции"
+    if title.startswith("Аудит веток"):
+        return "Аудит веток"
+    return title
+
+
 def parse_todo(path: Path) -> list[SectionProgress]:
     sections: list[SectionProgress] = []
     current_title: str | None = None
@@ -103,21 +135,21 @@ def render_svg(sections: list[SectionProgress]) -> str:
     total_pct = (total_done / total_all * 100) if total_all else 0.0
     status_counts = Counter(s.status for s in stages)
 
-    width = 720
-    row_h = 54
-    overview_y = 90
-    overview_h = 250
-    focus_y = 360
-    focus_h = 220
-    bars_card_y = 600
-    bars_card_h = 100 + row_h * max(len(stages), 1)
+    width = 1200
+    row_h = 170
+    overview_y = 100
+    overview_h = 560
+    focus_y = 690
+    focus_h = 480
+    bars_card_y = 1210
+    bars_card_h = 190 + row_h * max(len(stages), 1)
     content_height = bars_card_y + bars_card_h + 40
     min_height = int(width * 19 / 6)  # vertical canvas in 19:6 proportion (H:W)
     height = max(content_height, min_height)
 
-    ring_cx = 155
-    ring_cy = 220
-    ring_r = 76
+    ring_cx = 240
+    ring_cy = 380
+    ring_r = 150
     ring_c = 2 * math.pi * ring_r
     ring_dash = ring_c * total_pct / 100
 
@@ -140,19 +172,19 @@ def render_svg(sections: list[SectionProgress]) -> str:
     )
     parts.append(f'<rect x="0" y="0" width="{width}" height="{height}" fill="url(#bg)"/>')
     parts.append(
-        '<text x="40" y="48" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700" fill="#0f172a">'
+        '<text x="40" y="64" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="700" fill="#0f172a">'
         "Roadmap Dashboard"
         "</text>"
     )
     parts.append(
-        '<text x="40" y="72" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#334155">'
+        '<text x="40" y="96" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#334155">'
         f'Источник: docs/TODO.md · Обновлено: {t(now_label)}'
         "</text>"
     )
 
     # Overview card.
     parts.append(
-        f'<rect x="40" y="{overview_y}" width="640" height="{overview_h}" rx="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>'
+        f'<rect x="40" y="{overview_y}" width="1120" height="{overview_h}" rx="20" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>'
     )
     parts.append(
         f'<circle cx="{ring_cx}" cy="{ring_cy}" r="{ring_r}" fill="none" stroke="#e2e8f0" stroke-width="18"/>'
@@ -163,34 +195,34 @@ def render_svg(sections: list[SectionProgress]) -> str:
     )
     parts.append(
         f'<text x="{ring_cx}" y="{ring_cy - 2}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" '
-        f'font-size="30" font-weight="700" fill="#0f172a">{total_pct:.1f}%</text>'
+        f'font-size="58" font-weight="700" fill="#0f172a">{total_pct:.1f}%</text>'
     )
     parts.append(
         f'<text x="{ring_cx}" y="{ring_cy + 24}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" '
-        f'font-size="13" fill="#475569">{total_done}/{total_all} задач</text>'
+        f'font-size="24" fill="#475569">{total_done}/{total_all} задач</text>'
     )
     parts.append(
-        '<text x="300" y="150" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#334155">Статусы этапов</text>'
+        '<text x="510" y="230" font-family="Segoe UI, Arial, sans-serif" font-size="34" fill="#334155">Статусы этапов</text>'
     )
     parts.append(
-        f'<text x="300" y="178" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="{_color_for_status("DONE")}">DONE: {status_counts.get("DONE", 0)}</text>'
+        f'<text x="510" y="286" font-family="Segoe UI, Arial, sans-serif" font-size="32" fill="{_color_for_status("DONE")}">DONE: {status_counts.get("DONE", 0)}</text>'
     )
     parts.append(
-        f'<text x="300" y="206" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="{_color_for_status("ACTIVE")}">ACTIVE: {status_counts.get("ACTIVE", 0)}</text>'
+        f'<text x="510" y="338" font-family="Segoe UI, Arial, sans-serif" font-size="32" fill="{_color_for_status("ACTIVE")}">ACTIVE: {status_counts.get("ACTIVE", 0)}</text>'
     )
     parts.append(
-        f'<text x="300" y="234" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="{_color_for_status("PLANNED")}">PLANNED: {status_counts.get("PLANNED", 0)}</text>'
+        f'<text x="510" y="390" font-family="Segoe UI, Arial, sans-serif" font-size="32" fill="{_color_for_status("PLANNED")}">PLANNED: {status_counts.get("PLANNED", 0)}</text>'
     )
     parts.append(
-        f'<text x="300" y="272" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#334155">Всего: {total_done}/{total_all}</text>'
+        f'<text x="510" y="470" font-family="Segoe UI, Arial, sans-serif" font-size="32" fill="#334155">Всего: {total_done}/{total_all}</text>'
     )
 
     # Highlights card.
     parts.append(
-        f'<rect x="40" y="{focus_y}" width="640" height="{focus_h}" rx="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>'
+        f'<rect x="40" y="{focus_y}" width="1120" height="{focus_h}" rx="20" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>'
     )
     parts.append(
-        f'<text x="70" y="{focus_y + 32}" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600" fill="#0f172a">'
+        f'<text x="80" y="{focus_y + 66}" font-family="Segoe UI, Arial, sans-serif" font-size="40" font-weight="600" fill="#0f172a">'
         "Фокус на спринт"
         "</text>"
     )
@@ -201,39 +233,39 @@ def render_svg(sections: list[SectionProgress]) -> str:
         "Подготовить Этап 9: MAX + МойСклад + 1С",
     ]
     for idx, item in enumerate(highlights):
-        y = focus_y + 64 + idx * 34
+        y = focus_y + 136 + idx * 80
         parts.append(
-            f'<text x="70" y="{y}" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#334155">• {t(_truncate(item, 64))}</text>'
+            f'<text x="80" y="{y}" font-family="Segoe UI, Arial, sans-serif" font-size="30" fill="#334155">• {t(_truncate(item, 56))}</text>'
         )
 
     # Stage bars card.
     parts.append(
-        f'<rect x="40" y="{bars_card_y}" width="640" height="{bars_card_h}" rx="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>'
+        f'<rect x="40" y="{bars_card_y}" width="1120" height="{bars_card_h}" rx="20" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>'
     )
     parts.append(
-        f'<text x="70" y="{bars_card_y + 34}" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600" fill="#0f172a">'
+        f'<text x="80" y="{bars_card_y + 66}" font-family="Segoe UI, Arial, sans-serif" font-size="40" font-weight="600" fill="#0f172a">'
         "Прогресс по этапам"
         "</text>"
     )
 
-    label_x = 70
-    bar_x = 70
-    bar_w = 380
+    label_x = 80
+    bar_x = 440
+    bar_w = 400
     for i, stage in enumerate(stages):
-        y = bars_card_y + 58 + i * row_h
-        stage_label = _truncate(stage.title, 56)
+        y = bars_card_y + 106 + i * row_h
+        stage_label = _truncate(_short_stage_title(stage.title), 36)
         fill = _color_for_status(stage.status)
         parts.append(
-            f'<text x="{label_x}" y="{y + 12}" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#1e293b">{t(stage_label)}</text>'
+            f'<text x="{label_x}" y="{y + 30}" font-family="Segoe UI, Arial, sans-serif" font-size="30" fill="#1e293b">{t(stage_label)}</text>'
         )
         parts.append(
-            f'<rect x="{bar_x}" y="{y + 20}" width="{bar_w}" height="12" rx="6" fill="#e2e8f0"/>'
+            f'<rect x="{bar_x}" y="{y + 8}" width="{bar_w}" height="42" rx="21" fill="#e2e8f0"/>'
         )
         parts.append(
-            f'<rect x="{bar_x}" y="{y + 20}" width="{bar_w * stage.pct / 100:.1f}" height="12" rx="6" fill="{fill}"/>'
+            f'<rect x="{bar_x}" y="{y + 8}" width="{bar_w * stage.pct / 100:.1f}" height="42" rx="21" fill="{fill}"/>'
         )
         parts.append(
-            f'<text x="{bar_x + bar_w + 20}" y="{y + 31}" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#334155">'
+            f'<text x="{bar_x + bar_w + 30}" y="{y + 38}" font-family="Segoe UI, Arial, sans-serif" font-size="28" fill="#334155">'
             f"{stage.done}/{stage.total} · {stage.pct:.1f}%"
             "</text>"
         )
