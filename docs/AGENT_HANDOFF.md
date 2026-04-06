@@ -35,7 +35,7 @@
   - rate-limit/идемпотентность/логирование событий.
 - `app/bot/backend_client.py` — HTTP‑клиент для `/process` и `/process-batch` (бот → backend).
 - `app/bot/file_storage.py` — файловое хранилище pending/split (bot side).
-- `docs/_md/root/ARCHITECTURE.md` — краткий обзор модулей и потоков.
+- `docs/ARCHITECTURE.md` — краткий обзор модулей и потоков.
 
 ## 3) Что добавили для устойчивости (негативные кейсы)
 ### 3.1 User-friendly ошибки + error_code
@@ -91,7 +91,7 @@
 - Переработан pending-UX в боте: вместо скрытого таймера — явные кнопки "Обработать/Добавить ещё", и явный выбор режима при 2+ файлах. Файлы: `app/bot/manager.py`, `app/bot/backend_client.py`, `app/bot/file_storage.py`.
 - Лог стоимости LLM переведён в append-only (без перечтения CSV). Файл: `app/services/pipeline.py`.
 - `.env` читается с `utf-8-sig` из-за BOM; добавлены утилиты `scripts/check_bom.py` и `scripts/strip_bom.py`.
-- Архитектурный обзор перенесён в `docs/_md/root/ARCHITECTURE.md`.
+- Архитектурный обзор перенесён в `docs/ARCHITECTURE.md`.
 - Добавлен `.gitattributes` для LF в репозитории; локально `core.autocrlf=false` рекомендован для чистых диффов.
 - Добавлен `logs/llm_costs_summary.json` (итоги LLM без пересчёта CSV) + `scripts/llm_costs_rebuild.py` для пересборки.
 - Упрощён UX: убран режим `/multi`, в split добавлены кнопки «Завершить/Добавить ещё/Отменить».
@@ -112,15 +112,15 @@
 - Git/ветки:
   - текущий рабочий трек распознавания: `feature/recognition-improvements`;
   - ветка `exp/topic-mcp-iiko-gateway` признана отдельным контекстом (не для recognition-задач);
-  - статусы и новые этапы (MAX, МойСклад, 1С, коммерциализация) добавлены в `docs/_md/root/TODO.md`.
+  - статусы и новые этапы (MAX, МойСклад, 1С, коммерциализация) добавлены в `docs/TODO.md`.
 
 ## 11) Roadmap refocus (2026-04-06)
-- В `docs/_md/root/TODO.md` уточнён приоритет: масштабирование через процессные модели (`cross-vertical modeling`), а не через набор разрозненных фич.
+- В `docs/TODO.md` уточнён приоритет: масштабирование через процессные модели (`cross-vertical modeling`), а не через набор разрозненных фич.
 - Voice-сценарии зафиксированы как канал входа в унифицированный процессный конвейер, а не отдельный продукт.
 - В интеграционном треке добавлен явный контур `iiko + r_keeper/StoreHouse + МойСклад + 1С` с приоритетом для РФ-сегмента: `MAX + МойСклад + 1С`.
 
 ## 12) Stage 3 final closure (2026-04-06)
-- Stage 3 в `docs/_md/root/TODO.md` помечен как закрытый по MVP scope.
+- Stage 3 в `docs/TODO.md` помечен как закрытый по MVP scope.
 - Невыполненные ранее пункты Stage 3 (`гибридный парсер`, `метрики стоимости`) перенесены в `Этап 12 — Post-stage3 optimization backlog`.
 
 ## 13) Post-stage3 backlog execution (2026-04-06)
