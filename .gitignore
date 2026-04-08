@@ -15,6 +15,8 @@ ENV/
 
 # --- IDE ---
 .idea/
+!.idea/runConfigurations/
+!.idea/runConfigurations/*.xml
 
 # --- OS ---
 Thumbs.db
@@ -24,6 +26,8 @@ Thumbs.db
 .env
 id_ed25519
 id_ed25519.pub
+github_ssh_private_ed25519
+github_ssh_public_ed25519.pub
 
 # --- Runtime data & logs ---
 logs/
@@ -34,7 +38,24 @@ tmp/
 deploy.tar.gz
 dialogue_dump.jsonl
 
+# --- Agent chat dumps (eat context, not needed at runtime) ---
+dump_chat_*
+docs/dumps/
+
+# --- IDE/agent local metadata ---
+.cursor/
+cursor.plan.md
+
 # --- Local scratch files ---
 tmp_*.txt
 tmp_*.html
 tmp_*.js
+
+# --- Local external repos / doc caches ---
+qwen-code/
+qwen-code2/
+iiko_server_docs/
+
+# --- Local document packs for manual recognition runs ---
+doc templates/
+.veai/

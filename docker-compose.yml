@@ -29,7 +29,7 @@ services:
 
   worker:
     build: .
-    command: python worker.py
+    command: python app/entrypoints/worker.py
     restart: unless-stopped
     env_file:
       - .env
@@ -39,7 +39,7 @@ services:
 
   bot:
     build: .
-    command: python bot.py
+    command: python app/entrypoints/bot.py
     restart: unless-stopped
     env_file:
       - .env

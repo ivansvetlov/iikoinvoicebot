@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     """Настройки приложения с загрузкой из .env и переменных окружения."""
 
     _env_path = Path(__file__).resolve().parent.parent / ".env"
-    model_config = SettingsConfigDict(env_file=_env_path, env_file_encoding="utf-8", extra="ignore")
+    # NB: используем utf-8-sig, чтобы безопасно читать .env даже если он был сохранён с BOM.
+    # Это устраняет класс проблем, когда первый ключ превращается в "\ufeffKEY".
+    model_config = SettingsConfigDict(env_file=_env_path, env_file_encoding="utf-8-sig", extra="ignore")
 
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     backend_url: HttpUrl = Field(default="http://127.0.0.1:8000", alias="BACKEND_URL")
@@ -23,8 +25,19 @@ class Settings(BaseSettings):
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    openai_model_image: str = Field(default="", alias="OPENAI_MODEL_IMAGE")
+    openai_model_image_fallback: str = Field(default="", alias="OPENAI_MODEL_IMAGE_FALLBACK")
+
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    log_max_mb: int = Field(default=5, alias="LOG_MAX_MB")
+    log_backup_count: int = Field(default=5, alias="LOG_BACKUP_COUNT")
+    log_archive_after_days: int = Field(default=7, alias="LOG_ARCHIVE_AFTER_DAYS")
 
     enable_pdf_image_fallback: bool = Field(default=True, alias="ENABLE_PDF_IMAGE_FALLBACK")
+    enable_image_ocr_hint: bool = Field(default=True, alias="ENABLE_IMAGE_OCR_HINT")
+    enable_fast_parser_fallback: bool = Field(default=True, alias="ENABLE_FAST_PARSER_FALLBACK")
+    fast_parser_min_chars: int = Field(default=120, alias="FAST_PARSER_MIN_CHARS")
+    fast_parser_min_items: int = Field(default=2, alias="FAST_PARSER_MIN_ITEMS")
     enable_split_mode: bool = Field(default=True, alias="ENABLE_SPLIT_MODE")
     max_upload_mb: int = Field(default=15, alias="MAX_UPLOAD_MB")
     max_files_per_minute: int = Field(default=10, alias="MAX_FILES_PER_MINUTE")
@@ -36,6 +49,9 @@ class Settings(BaseSettings):
 
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     queue_name: str = Field(default="default", alias="QUEUE_NAME")
+    worker_ttl_sec: int = Field(default=1800, alias="WORKER_TTL_SEC")
+    worker_maintenance_interval_sec: int = Field(default=60, alias="WORKER_MAINTENANCE_INTERVAL_SEC")
+    worker_job_monitoring_interval_sec: int = Field(default=15, alias="WORKER_JOB_MONITORING_INTERVAL_SEC")
 
     database_url: str = Field(default="sqlite:///./data/app.db", alias="DATABASE_URL")
 

@@ -26,7 +26,7 @@ class InvoiceItem(BaseModel):
 class InvoiceParseResult(BaseModel):
     """Результат извлечения текста и позиций из файла накладной."""
 
-    source_type: Literal["image", "pdf", "docx", "text", "unknown"]
+    source_type: Literal["image", "pdf", "docx", "text", "excel", "unknown"]
     raw_text: str = Field(default="")
     invoice_number: str | None = None
     invoice_date: str | None = None

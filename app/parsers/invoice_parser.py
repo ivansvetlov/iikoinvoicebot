@@ -21,6 +21,13 @@ class InvoiceParser:
         r"(?P<unit>[A-Za-zА-Яа-я0-9\.\-]+)\s+"
         r"(?P<sum>\d+[\d\s]*[\.,]?\d*)"
     )
+    # Keep unit token Unicode-friendly (Cyrillic + Latin) to avoid mojibake range issues.
+    _price_qty_sum_pattern = re.compile(
+        r"(?P<price>\d+[\d\s]*[\.,]?\d*)\s+"
+        r"(?P<qty>\d+[\d\s]*[\.,]?\d*)\s+"
+        r"(?P<unit>[\w\.\-]+)\s+"
+        r"(?P<sum>\d+[\d\s]*[\.,]?\d*)"
+    )
     _percent_pattern = re.compile(r"(\d{1,2})\s*%")
 
     _header_synonyms: dict[str, list[str]] = {
@@ -50,7 +57,7 @@ class InvoiceParser:
 
     @classmethod
     def _normalize_header(cls, header: str) -> str:
-        return re.sub(r"[^a-zA-Zа-яА-Я0-9%]+", " ", header.lower()).strip()
+        return re.sub(r"[^\w%]+", " ", header.lower(), flags=re.UNICODE).strip()
 
     @classmethod
     def _match_header(cls, header: str) -> str | None:
