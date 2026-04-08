@@ -20,6 +20,7 @@ from PIL import Image, ImageFilter, ImageOps
 from app.bot.messages import Msg
 from app.config import settings
 from app.errors import UserFacingError
+from app.iiko.import_export import IikoImportExporter
 from app.iiko.playwright_client import IikoPlaywrightClient
 from app.parsers.file_text_extractor import FileTextExtractor
 from app.parsers.invoice_parser import InvoiceParser
@@ -135,6 +136,7 @@ class InvoicePipelineService:
     def __init__(self) -> None:
         """Инициализирует клиент iiko для последующей загрузки."""
         self._iiko_client = IikoPlaywrightClient()
+        self._iiko_import_exporter = IikoImportExporter(settings.iiko_import_export_dir)
         self._pricing = {
             "gpt-4o-mini": {"input": 0.30, "output": 1.20},
             "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
@@ -1619,6 +1621,63 @@ class InvoicePipelineService:
 
         return self._dedupe_consecutive_items(items)
 
+    def _normalized_iiko_import_format(self) -> str:
+        value = (settings.iiko_import_format or "csv").strip().lower()
+        if value in {"csv", "xlsx"}:
+            return value
+        return "csv"
+
+    def _build_iiko_import_fallback_response(
+        self,
+        *,
+        request_id: str,
+        parsed: InvoiceParseResult,
+        items: list[InvoiceItem],
+        iiko_error: str,
+    ) -> ProcessResponse | None:
+        if not settings.iiko_import_fallback_enabled:
+            return None
+
+        export_format = self._normalized_iiko_import_format()
+        try:
+            export_path = self._iiko_import_exporter.export_items(
+                request_id=request_id,
+                items=items,
+                invoice_number=parsed.invoice_number,
+                invoice_date=parsed.invoice_date,
+                vendor_name=parsed.vendor_name,
+                export_format=export_format,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Failed to generate iiko import fallback file",
+                extra={"request_id": request_id, "export_format": export_format},
+            )
+            return None
+
+        fallback_warning = f"iiko_import_fallback_{export_format}"
+        warnings = list(parsed.warnings or [])
+        if fallback_warning not in warnings:
+            warnings.append(fallback_warning)
+        parsed_with_warning = parsed.model_copy(update={"warnings": warnings})
+
+        return ProcessResponse(
+            request_id=request_id,
+            status="ok",
+            parsed=parsed_with_warning,
+            iiko_uploaded=False,
+            iiko_error=iiko_error,
+            iiko_import_ready=True,
+            iiko_import_format=export_format,
+            iiko_import_path=str(export_path),
+            error_code=None,
+            message=(
+                "Прямую отправку в iiko выполнить не удалось.\n"
+                f"Подготовлен файл импорта: {export_format.upper()}.\n"
+                "Можно загрузить его в iiko вручную."
+            ),
+        )
+
     async def process(
         self,
         filename: str,
@@ -1986,6 +2045,14 @@ class InvoicePipelineService:
                 if attempt < 2:
                     await asyncio.sleep(1 + attempt)
                 else:
+                    fallback = self._build_iiko_import_fallback_response(
+                        request_id=request_id,
+                        parsed=parsed,
+                        items=items,
+                        iiko_error=str(exc),
+                    )
+                    if fallback is not None:
+                        return fallback
                     return ProcessResponse(
                         request_id=request_id,
                         status="error",
@@ -2128,6 +2195,14 @@ class InvoicePipelineService:
                 if attempt < 2:
                     await asyncio.sleep(1 + attempt)
                 else:
+                    fallback = self._build_iiko_import_fallback_response(
+                        request_id=request_id,
+                        parsed=parsed,
+                        items=combined_items,
+                        iiko_error=str(exc),
+                    )
+                    if fallback is not None:
+                        return fallback
                     return ProcessResponse(
                         request_id=request_id,
                         status="error",

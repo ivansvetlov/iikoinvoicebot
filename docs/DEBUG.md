@@ -37,7 +37,7 @@ curl http://127.0.0.1:8000/health
 ### Запуск
 
 ```bash
-.venv\Scripts\python.exe app\entrypoints\worker.py
+.venv\Scripts\python.exe -m app.entrypoints.worker
 ```
 
 Проверено:
@@ -66,7 +66,7 @@ curl http://127.0.0.1:8000/health
 Если нужно отдельно:
 
 ```bash
-.venv\Scripts\python.exe app\entrypoints\bot.py
+.venv\Scripts\python.exe -m app.entrypoints.bot
 ```
 
 Проверено:

@@ -20,11 +20,12 @@
 - `docker-compose.yml`, `Dockerfile`, `nginx_bot.conf`, `.env.example`: окружение и деплой.
 
 ### Бизнес‑логика и сервисы
-- `app/services/pipeline.py`: `InvoicePipelineService` — основной конвейер: извлечение текста → LLM → валидация/фильтрация → запись логов → опциональная выгрузка в iiko.
+- `app/services/pipeline.py`: `InvoicePipelineService` — основной конвейер: извлечение текста → LLM → валидация/фильтрация → запись логов → выгрузка в iiko (Playwright) или fallback в CSV/XLSX импорт-файл.
 - `app/parsers/...`: извлечение текста из файлов (PDF, изображения, DOCX, текст).
 - `app/services/user_store.py`: JSON‑хранилище для user‑state (логин/пароль iiko, `pdf_mode`).
 - `app/services/invoice_validator.py`: эвристика «похоже ли на счёт».
 - `app/iiko/playwright_client.py`: Playwright‑клиент для загрузки позиций в iiko.
+- `app/iiko/import_export.py`: генерация CSV/XLSX файла для ручного импорта в iiko при недоступности Playwright.
 - `app/schemas.py`: Pydantic‑схемы `InvoiceItem`, `InvoiceParseResult`, `ProcessResponse` и т.п.
 
 ### Бот и задачи
@@ -62,7 +63,7 @@
 
 ## Интеграции
 - OpenAI: `/v1/files` и `/v1/responses` (tool calling `parse_invoice`), трекинг токенов и стоимости.
-- iiko: Playwright‑клиент для загрузки позиций счёта.
+- iiko: Playwright‑клиент для прямой загрузки + fallback через CSV/XLSX импорт-файл.
 - Redis + RQ: асинхронная очередь задач.
 - SQLAlchemy БД: хранение статуса задач.
 

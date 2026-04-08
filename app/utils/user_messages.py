@@ -56,6 +56,8 @@ def format_user_response(payload: dict[str, Any]) -> str:
     code = short_request_code(request_id)
 
     iiko_uploaded = bool(payload.get("iiko_uploaded"))
+    iiko_import_ready = bool(payload.get("iiko_import_ready"))
+    iiko_import_format = str(payload.get("iiko_import_format") or "CSV").upper()
 
     lines: list[str] = []
 
@@ -90,6 +92,8 @@ def format_user_response(payload: dict[str, Any]) -> str:
 
         if iiko_uploaded:
             lines.append(Msg.RESP_IIKO_UPLOADED)
+        elif iiko_import_ready:
+            lines.append(Msg.RESP_IIKO_IMPORT_READY.format(fmt=iiko_import_format))
 
     # Предупреждения
     if warnings:
@@ -129,17 +133,23 @@ def format_invoice_markdown(
     date = overrides.get("invoice_date") or parsed.get("invoice_date") or Msg.INVOICE_UNKNOWN
     number = overrides.get("invoice_number") or parsed.get("invoice_number") or Msg.INVOICE_UNKNOWN
 
-    lines: list[str] = [
-        Msg.INVOICE_TITLE,
-        "",
-        Msg.INVOICE_SUPPLIER.format(supplier=supplier),
-        Msg.INVOICE_CONSIGNEE.format(consignee=consignee),
-        Msg.INVOICE_DELIVERY.format(delivery=delivery),
-        Msg.INVOICE_DATE.format(date=date),
-        Msg.INVOICE_NUMBER.format(number=number),
-        "",
-        Msg.INVOICE_ITEMS,
-    ]
+    lines: list[str] = [Msg.INVOICE_TITLE]
+    if payload.get("iiko_import_ready"):
+        fmt = str(payload.get("iiko_import_format") or "CSV").upper()
+        lines.append("")
+        lines.append(Msg.INVOICE_IMPORT_READY.format(fmt=fmt))
+    lines.extend(
+        [
+            "",
+            Msg.INVOICE_SUPPLIER.format(supplier=supplier),
+            Msg.INVOICE_CONSIGNEE.format(consignee=consignee),
+            Msg.INVOICE_DELIVERY.format(delivery=delivery),
+            Msg.INVOICE_DATE.format(date=date),
+            Msg.INVOICE_NUMBER.format(number=number),
+            "",
+            Msg.INVOICE_ITEMS,
+        ]
+    )
 
     total_vat = 0.0
     total_sum = 0.0

@@ -240,6 +240,114 @@ class PipelineFastParserTests(unittest.TestCase):
         self.assertIn("fast_parser_used", response.parsed.warnings)
 
 
+class PipelineIikoFallbackTests(unittest.TestCase):
+    def test_process_returns_import_ready_when_iiko_upload_fails(self) -> None:
+        service = InvoicePipelineService()
+        items = [
+            InvoiceItem(
+                name="Молоко",
+                unit_amount=Decimal("2"),
+                unit_price=Decimal("100"),
+                total_cost=Decimal("200"),
+                cost_with_tax=Decimal("200"),
+            )
+        ]
+        fast_result = (
+            {
+                "document_type": "TORG-12",
+                "has_invoice_keyword": True,
+                "has_receipt_keyword": False,
+                "invoice_number": "15",
+                "invoice_date": "2026-04-08",
+                "vendor_name": "ООО Тест",
+                "total_amount": 200,
+            },
+            items,
+            [],
+        )
+
+        async def run_case(tmp_dir: str):
+            with patch("app.services.pipeline.FileTextExtractor.extract", return_value=("text", "invoice data")):
+                with patch.object(service, "_try_fast_parse", return_value=fast_result):
+                    with patch("app.services.pipeline.get_iiko_credentials", return_value=("user", "pass")):
+                        with patch.object(
+                            service._iiko_client,
+                            "upload_invoice_items",
+                            new=AsyncMock(side_effect=RuntimeError("playwright failed")),
+                        ):
+                            with patch("app.services.pipeline.settings.iiko_import_fallback_enabled", True):
+                                with patch("app.services.pipeline.settings.iiko_import_format", "csv"):
+                                    with patch("app.services.pipeline.settings.iiko_import_export_dir", tmp_dir):
+                                        service._iiko_import_exporter = service._iiko_import_exporter.__class__(tmp_dir)
+                                        return await service.process(
+                                            "invoice.txt",
+                                            b"stub",
+                                            push_to_iiko=True,
+                                            user_id="42",
+                                            request_id="20260408_120000_000_42",
+                                        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            response = asyncio.run(run_case(tmp_dir))
+            export_exists = bool(response.iiko_import_path) and Path(response.iiko_import_path).exists()
+
+        self.assertEqual(response.status, "ok")
+        self.assertFalse(response.iiko_uploaded)
+        self.assertTrue(response.iiko_import_ready)
+        self.assertEqual(response.iiko_import_format, "csv")
+        self.assertTrue(response.iiko_import_path)
+        self.assertTrue(export_exists)
+        self.assertIn("iiko_import_fallback_csv", response.parsed.warnings)
+
+    def test_process_keeps_error_when_import_fallback_disabled(self) -> None:
+        service = InvoicePipelineService()
+        items = [
+            InvoiceItem(
+                name="Молоко",
+                unit_amount=Decimal("2"),
+                unit_price=Decimal("100"),
+                total_cost=Decimal("200"),
+                cost_with_tax=Decimal("200"),
+            )
+        ]
+        fast_result = (
+            {
+                "document_type": "TORG-12",
+                "has_invoice_keyword": True,
+                "has_receipt_keyword": False,
+                "invoice_number": "15",
+                "invoice_date": "2026-04-08",
+                "vendor_name": "ООО Тест",
+                "total_amount": 200,
+            },
+            items,
+            [],
+        )
+
+        async def run_case():
+            with patch("app.services.pipeline.FileTextExtractor.extract", return_value=("text", "invoice data")):
+                with patch.object(service, "_try_fast_parse", return_value=fast_result):
+                    with patch("app.services.pipeline.get_iiko_credentials", return_value=("user", "pass")):
+                        with patch.object(
+                            service._iiko_client,
+                            "upload_invoice_items",
+                            new=AsyncMock(side_effect=RuntimeError("playwright failed")),
+                        ):
+                            with patch("app.services.pipeline.settings.iiko_import_fallback_enabled", False):
+                                return await service.process(
+                                    "invoice.txt",
+                                    b"stub",
+                                    push_to_iiko=True,
+                                    user_id="42",
+                                    request_id="20260408_121000_000_42",
+                                )
+
+        response = asyncio.run(run_case())
+        self.assertEqual(response.status, "error")
+        self.assertEqual(response.error_code, "iiko_upload_failed")
+        self.assertFalse(response.iiko_import_ready)
+
+
 class PipelineCostSummaryTests(unittest.TestCase):
     def test_update_cost_summary_adds_day_and_user_aggregates(self) -> None:
         service = InvoicePipelineService()

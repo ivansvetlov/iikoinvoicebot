@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     iiko_password: str = Field(default="", alias="IIKO_PASSWORD")
     iiko_headless: bool = Field(default=True, alias="IIKO_HEADLESS")
     push_to_iiko: bool = Field(default=True, alias="PUSH_TO_IIKO")
+    iiko_import_fallback_enabled: bool = Field(default=True, alias="IIKO_IMPORT_FALLBACK_ENABLED")
+    iiko_import_format: str = Field(default="csv", alias="IIKO_IMPORT_FORMAT")
+    iiko_import_export_dir: str = Field(default="data/exports/iiko", alias="IIKO_IMPORT_EXPORT_DIR")
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")

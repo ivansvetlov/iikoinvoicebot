@@ -259,7 +259,7 @@ def start_backend(group: ProcGroup) -> None:
 
 
 def start_worker(group: ProcGroup) -> None:
-    cmd = [PYTHON, "app/entrypoints/worker.py"]
+    cmd = [PYTHON, "-m", "app.entrypoints.worker"]
     print("[dev_run_all] starting worker:", " ".join(cmd))
     group.worker = subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
     time.sleep(1)
@@ -267,7 +267,7 @@ def start_worker(group: ProcGroup) -> None:
 
 def start_bot(group: ProcGroup) -> None:
     _kill_duplicate_bot_processes()
-    cmd = [PYTHON, "app/entrypoints/bot.py"]
+    cmd = [PYTHON, "-m", "app.entrypoints.bot"]
     print("[dev_run_all] starting bot:", " ".join(cmd))
     group.bot = subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
     time.sleep(1)

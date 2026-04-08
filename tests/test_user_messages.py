@@ -55,6 +55,31 @@ class UserMessagesTests(unittest.TestCase):
         self.assertIn(Msg.BATCH_NOT_INVOICE_MESSAGE.strip(), text)
         self.assertNotIn(Msg.NOT_INVOICE_MESSAGE.strip(), text)
 
+    def test_format_user_response_includes_iiko_import_ready_line(self) -> None:
+        payload = {
+            "status": "ok",
+            "parsed": {"items": [{"name": "Item"}], "warnings": []},
+            "iiko_uploaded": False,
+            "iiko_import_ready": True,
+            "iiko_import_format": "csv",
+        }
+        text = format_user_response(payload)
+        self.assertIn(Msg.RESP_IIKO_IMPORT_READY.format(fmt="CSV"), text)
+
+    def test_format_invoice_markdown_includes_iiko_import_ready_notice(self) -> None:
+        payload = {
+            "parsed": {
+                "vendor_name": "Test Supplier",
+                "invoice_date": "2026-04-06",
+                "invoice_number": "15",
+                "items": [],
+            },
+            "iiko_import_ready": True,
+            "iiko_import_format": "xlsx",
+        }
+        text = format_invoice_markdown(payload)
+        self.assertIn(Msg.INVOICE_IMPORT_READY.format(fmt="XLSX"), text)
+
 
 if __name__ == "__main__":
     unittest.main()

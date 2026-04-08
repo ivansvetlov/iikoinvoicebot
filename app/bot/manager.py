@@ -1390,6 +1390,13 @@ class TelegramBotManager:
                 reply_markup=None,
             )
             return
+        if result.get("status") == "ok" and result.get("iiko_import_ready"):
+            fmt = str(result.get("iiko_import_format") or "CSV").upper()
+            await message.edit_text(
+                Msg.IIKO_IMPORT_READY.format(fmt=fmt, code_line=code_line),
+                reply_markup=None,
+            )
+            return
         await message.edit_text(
             Msg.IIKO_FAILED.format(code_line=code_line),
             reply_markup=None,

@@ -57,7 +57,7 @@
 - [x] Cost logging: llm_costs.csv + llm_usage в JSON запросов
 - [x] Docker: Dockerfile + docker-compose.yml (backend, worker, bot, redis)
 - [ ] HTTPS + webhook на VPS (домен + Let's Encrypt + Nginx)
-- [ ] iiko: маппинг позиций → импорт через CSV/XLSX (альтернатива Playwright)
+- [x] iiko: маппинг позиций → импорт через CSV/XLSX (альтернатива Playwright)
 - [ ] Быстрый парсер ТОРГ-12 / УПД без LLM (экономия на типовых формах)
 - [x] Команда /status (показ состояния очереди задач пользователю)
 - [x] /status: user-only view + auto-reap зависших queued/processing

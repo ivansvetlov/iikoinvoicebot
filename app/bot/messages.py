@@ -149,6 +149,7 @@ class Msg:
     IIKO_FILE_NOT_FOUND = "Файл не найден для отправки.{code_line}"
     IIKO_FAILED = "Не удалось отправить в iiko.{code_line}"
     IIKO_OK = "✅ Успешно отправлено в iiko.{code_line}"
+    IIKO_IMPORT_READY = "⚠️ Прямая отправка в iiko недоступна.\nФайл импорта подготовлен: {fmt}.{code_line}"
 
     PDF_MODE = (
         "Выберите режим обработки этого PDF.\n"
@@ -238,6 +239,7 @@ class Msg:
     RESP_STATUS = "Статус: {status}"
     RESP_ITEMS_RECOGNIZED = "Распознано позиций: {count}"
     RESP_IIKO_UPLOADED = "iiko: загружено."
+    RESP_IIKO_IMPORT_READY = "iiko: подготовлен файл импорта ({fmt})."
     RESP_WARNINGS = "Предупреждения: {warnings}"
     RESP_CODE = "Код заявки: {code}"
     CODE_LINE = "\n\nКод заявки: {code}"
@@ -278,6 +280,7 @@ class Msg:
 
     INVOICE_UNKNOWN = "—"
     INVOICE_TITLE = "📄 Документ распознан"
+    INVOICE_IMPORT_READY = "⚠️ Прямая отправка в iiko сейчас недоступна.\nПодготовлен файл импорта: {fmt}."
     INVOICE_SUPPLIER = "📦 Поставщик: {supplier}"
     INVOICE_CONSIGNEE = "🏢 Грузополучатель: {consignee}"
     INVOICE_DELIVERY = "📍 Адрес доставки: {delivery}"

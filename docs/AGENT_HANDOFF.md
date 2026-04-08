@@ -451,6 +451,27 @@
 - Quick check:
   - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
 
+## 46) Stage 6: iiko import fallback via CSV/XLSX (2026-04-08)
+- Files:
+  - added `app/iiko/import_export.py`, `tests/test_iiko_import_export.py`;
+  - updated `app/services/pipeline.py`, `app/config.py`, `app/schemas.py`, `app/bot/messages.py`, `app/bot/manager.py`, `app/utils/user_messages.py`, `tests/test_invoice_recognition.py`, `tests/test_user_messages.py`, `.env.example`, `docs/TODO.md`, `docs/README.md`, `docs/ARCHITECTURE.md`.
+- Behavior:
+  - if direct iiko upload via Playwright fails after retries, pipeline can return successful fallback with generated import file (`CSV` or `XLSX`) instead of hard error;
+  - fallback behavior is configurable via `IIKO_IMPORT_FALLBACK_ENABLED`, `IIKO_IMPORT_FORMAT`, `IIKO_IMPORT_EXPORT_DIR`;
+  - user-facing responses now indicate import-file fallback (`format_user_response` and invoice markdown), and manual `inv:send` treats fallback as non-failed outcome.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_iiko_import_export tests.test_user_messages tests.test_invoice_recognition -v`
+
+## 47) dev_run_all: module-based worker/bot startup (2026-04-08)
+- Files:
+  - updated `scripts/dev_run_all.py`, `docs/DEBUG.md`.
+- Behavior:
+  - `dev_run_all` now starts worker/bot as modules (`-m app.entrypoints.worker`, `-m app.entrypoints.bot`) instead of direct file execution;
+  - prevents `ModuleNotFoundError: No module named 'app'` in local orchestration and aligns standalone runbook commands with runtime behavior.
+- Quick check:
+  - `.venv\\Scripts\\python.exe scripts\\dev_run_all.py`
+  - `.venv\\Scripts\\python.exe scripts\\dev_status.py`
+
 ---
 
 ### Быстрый чек-лист для нового агента

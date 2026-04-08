@@ -44,6 +44,9 @@ class ProcessResponse(BaseModel):
     parsed: InvoiceParseResult
     iiko_uploaded: bool = False
     iiko_error: str | None = None
+    iiko_import_ready: bool = False
+    iiko_import_format: str | None = None
+    iiko_import_path: str | None = None
     # Машиночитаемый код ошибки (для UX на стороне бота и для метрик).
     error_code: str | None = None
     # Сообщение для пользователя (без технических деталей).
