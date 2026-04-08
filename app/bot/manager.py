@@ -34,7 +34,7 @@ from app.services.user_store import (
     set_iiko_credentials,
     set_pdf_mode,
 )
-from app.task_store import get_queue_snapshot, get_user_last_task
+from app.task_store import get_user_active_snapshot, get_user_last_task
 from app.utils.user_messages import format_user_response, format_invoice_markdown, short_request_code
 
 if TYPE_CHECKING:
@@ -129,24 +129,33 @@ class TelegramBotManager:
         self._log_status(user_id, "auth_requested", {"message_id": message.message_id})
 
     async def show_status(self, message: Message) -> None:
-        """Показывает пользователю состояние его последней заявки и очереди."""
+        """Показывает пользователю состояние его активных заявок и последней обработки."""
         if not message.from_user:
             return
         user_id = str(message.from_user.id)
         text = self._build_status_text(user_id)
-        await message.answer(text)
+        await message.answer(text, reply_markup=self._status_keyboard())
         self._log_status(user_id, "status_requested")
 
     def _build_status_text(self, user_id: str) -> str:
-        snapshot = get_queue_snapshot()
+        snapshot = get_user_active_snapshot(
+            user_id,
+            active_hours=settings.status_active_hours,
+            stale_minutes=settings.status_stale_minutes,
+        )
         last = get_user_last_task(user_id)
         pending_count = len(self._collect_pending_files(user_id))
 
         lines = [
             Msg.STATUS_TITLE,
+            Msg.STATUS_SCOPE.format(hours=settings.status_active_hours),
+            "",
             Msg.STATUS_QUEUE.format(queued=snapshot.get("queued", 0)),
             Msg.STATUS_PROCESSING.format(processing=snapshot.get("processing", 0)),
         ]
+        if snapshot.get("stale", 0) > 0:
+            lines.append(Msg.STATUS_STALE.format(stale=snapshot.get("stale", 0)))
+            lines.append(Msg.STATUS_STALE_HINT)
 
         if pending_count > 0:
             lines.append("")
@@ -167,6 +176,14 @@ class TelegramBotManager:
             lines.append(Msg.STATUS_EMPTY)
 
         return "\n".join(lines).strip()
+
+    @staticmethod
+    def _status_keyboard() -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=Msg.BTN_STATUS_REFRESH, callback_data="status:refresh", style="default")]
+            ]
+        )
 
     async def on_text(self, message: Message) -> None:
         """Обрабатывает текстовые сообщения для авторизации."""
@@ -839,6 +856,9 @@ class TelegramBotManager:
         if data.startswith("pdf:"):
             await self._handle_pdf_choice(query, data)
             return
+        if data.startswith("status:"):
+            await self._handle_status_choice(query, data)
+            return
         if data.startswith("inv:"):
             await self._handle_invoice_actions(query, data)
             return
@@ -899,6 +919,18 @@ class TelegramBotManager:
             self._log_status(user_id, "pending_deduplicated", stats)
             return
         await query.message.answer(Msg.MODE_UNKNOWN)
+
+    async def _handle_status_choice(self, query: CallbackQuery, data: str) -> None:
+        if not query.from_user:
+            return
+        user_id = str(query.from_user.id)
+        if data == "status:refresh":
+            await query.message.edit_text(
+                self._build_status_text(user_id),
+                reply_markup=self._status_keyboard(),
+            )
+            self._log_status(user_id, "status_refreshed")
+            return
 
     async def _handle_invoice_actions(self, query: CallbackQuery, data: str) -> None:
         if not query.from_user:

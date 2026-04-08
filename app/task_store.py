@@ -97,6 +97,40 @@ def get_queue_snapshot() -> dict[str, int]:
         return snapshot
 
 
+def get_user_active_snapshot(user_id: str, *, active_hours: int, stale_minutes: int) -> dict[str, int]:
+    """Возвращает активные счетчики задач пользователя в заданном окне."""
+    init_db()
+    with get_session() as session:
+        if session is None:
+            return {"queued": 0, "processing": 0, "stale": 0}
+        active_cutoff = datetime.utcnow().timestamp() - (active_hours * 3600)
+        stale_cutoff = datetime.utcnow().timestamp() - (stale_minutes * 60)
+
+        tasks = (
+            session.query(TaskRecord)
+            .filter(TaskRecord.user_id == user_id)
+            .filter(TaskRecord.status.in_(("queued", "processing")))
+            .all()
+        )
+
+        snapshot = {"queued": 0, "processing": 0, "stale": 0}
+        for task in tasks:
+            created_at = task.created_at
+            if not created_at:
+                continue
+            if created_at.timestamp() < active_cutoff:
+                continue
+
+            status = str(task.status or "")
+            if status in ("queued", "processing"):
+                snapshot[status] += 1
+
+            touch_ts = (task.updated_at or task.created_at).timestamp()
+            if touch_ts < stale_cutoff:
+                snapshot["stale"] += 1
+        return snapshot
+
+
 def get_user_last_task(user_id: str) -> dict[str, Any] | None:
     """Возвращает последнюю задачу пользователя."""
     init_db()

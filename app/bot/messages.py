@@ -4,9 +4,12 @@ from __future__ import annotations
 
 
 class Msg:
-    STATUS_TITLE = "Статус сервиса:"
+    STATUS_TITLE = "Статус ваших заявок:"
+    STATUS_SCOPE = "Показываю активные заявки за последние {hours} ч."
     STATUS_QUEUE = "В очереди: {queued}"
-    STATUS_PROCESSING = "В работе: {processing}"
+    STATUS_PROCESSING = "В обработке: {processing}"
+    STATUS_STALE = "Требуют внимания: {stale}"
+    STATUS_STALE_HINT = "Есть зависшие заявки. Отправьте файл повторно."
     STATUS_PENDING = "В черновике файлов: {count}"
     STATUS_LAST_REQUEST = "Последняя заявка: {code}"
     STATUS_LAST_STATE = "Состояние: {status}"
@@ -19,6 +22,7 @@ class Msg:
         "error": "ошибка",
     }
     CMD_STATUS_DESC = "Статус заявок"
+    BTN_STATUS_REFRESH = "Обновить статус"
     CMD_START_DESC = "Перезапуск и авторизация"
     MERGE_ALIASES = {"merge", "объединить", "с"}
 

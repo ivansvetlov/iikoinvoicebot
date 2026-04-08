@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     max_upload_mb: int = Field(default=15, alias="MAX_UPLOAD_MB")
     max_files_per_minute: int = Field(default=10, alias="MAX_FILES_PER_MINUTE")
     max_files_per_batch: int = Field(default=10, alias="MAX_FILES_PER_BATCH")
+    status_active_hours: int = Field(default=24, alias="STATUS_ACTIVE_HOURS")
+    status_stale_minutes: int = Field(default=20, alias="STATUS_STALE_MINUTES")
 
     use_webhook: bool = Field(default=False, alias="USE_WEBHOOK")
     webhook_url: str = Field(default="", alias="WEBHOOK_URL")

@@ -402,6 +402,16 @@
 - Quick check:
   - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 tests.test_user_messages -v`
 
+## 41) /status UX switched to user-only active view (2026-04-08)
+- Files:
+  - updated `app/task_store.py`, `app/bot/manager.py`, `app/bot/messages.py`, `.env.example`, `tests/test_bot_stage5.py`.
+- Behavior:
+  - `/status` now shows only current user's active requests (no global queue of all users);
+  - added active window + stale detection (`STATUS_ACTIVE_HOURS`, `STATUS_STALE_MINUTES`);
+  - added inline refresh button in status message (`status:refresh` callback).
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
+
 ---
 
 ### Быстрый чек-лист для нового агента

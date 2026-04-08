@@ -462,7 +462,7 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
 
     async def test_build_status_text_includes_queue_and_last_task(self) -> None:
         user_id = "42"
-        with patch("app.bot.manager.get_queue_snapshot", return_value={"queued": 3, "processing": 2}):
+        with patch("app.bot.manager.get_user_active_snapshot", return_value={"queued": 3, "processing": 2, "stale": 1}):
             with patch(
                 "app.bot.manager.get_user_last_task",
                 return_value={
@@ -473,8 +473,10 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
             ):
                 text = self.manager._build_status_text(user_id)
 
+        self.assertIn("Статус ваших заявок:", text)
         self.assertIn("В очереди: 3", text)
-        self.assertIn("В работе: 2", text)
+        self.assertIn("В обработке: 2", text)
+        self.assertIn("Требуют внимания: 1", text)
         self.assertIn("Последняя заявка:", text)
         self.assertIn("Состояние: обрабатывается", text)
         self.assertIn("Комментарий: Идет обработка", text)
@@ -488,7 +490,31 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
             await self.manager.show_status(message)
 
         build_status.assert_called_once_with("42")
-        message.answer.assert_awaited_once_with("status-text")
+        message.answer.assert_awaited_once()
+        self.assertEqual(message.answer.await_args.args[0], "status-text")
+        self.assertIsNotNone(message.answer.await_args.kwargs.get("reply_markup"))
+
+    async def test_status_refresh_callback_updates_message(self) -> None:
+        query_message = SimpleNamespace(
+            chat=SimpleNamespace(id=1001),
+            edit_text=AsyncMock(),
+            answer=AsyncMock(),
+        )
+        query = SimpleNamespace(
+            from_user=SimpleNamespace(id=42),
+            message=query_message,
+            data="status:refresh",
+            answer=AsyncMock(),
+        )
+
+        with patch.object(self.manager, "_build_status_text", return_value="status-refresh") as build_status:
+            await self.manager.on_mode_choice(query)
+
+        query.answer.assert_awaited_once()
+        build_status.assert_called_once_with("42")
+        query_message.edit_text.assert_awaited_once()
+        self.assertEqual(query_message.edit_text.await_args.args[0], "status-refresh")
+        self.assertIsNotNone(query_message.edit_text.await_args.kwargs.get("reply_markup"))
 
 
 if __name__ == "__main__":
