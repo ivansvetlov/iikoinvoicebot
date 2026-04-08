@@ -441,6 +441,16 @@
 - Quick check:
   - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
 
+## 45) /status retry action for last failed request (2026-04-08)
+- Files:
+  - updated `app/bot/manager.py`, `app/bot/messages.py`, `tests/test_bot_stage5.py`, `docs/TODO.md`.
+- Behavior:
+  - status card now shows `Повторить обработку` for the last failed request (if source payload exists);
+  - retry callback resubmits original file/batch to backend and refreshes status card in-place;
+  - access guard added: retry is blocked for requests of another user.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
+
 ---
 
 ### Быстрый чек-лист для нового агента

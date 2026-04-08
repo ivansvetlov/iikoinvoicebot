@@ -62,6 +62,7 @@
 - [x] Команда /status (показ состояния очереди задач пользователю)
 - [x] /status: user-only view + auto-reap зависших queued/processing
 - [x] /status: одна обновляемая карточка (без спама) + закрепление (pin) по настройке
+- [x] /status: retry из карточки для последней ошибочной заявки
 - [ ] Auto-restart воркера и backend (systemd / docker restart policy)
 
 ## Этап 7 — Альтернативный LLM-провайдер (Cloudflare + Gemini)

@@ -135,6 +135,7 @@ class TelegramBotManager:
             return
         user_id = str(message.from_user.id)
         text = self._build_status_text(user_id)
+        retry_request_id = self._status_retry_request_id(user_id)
         old = self._status_prompt.get(user_id)
         if old and old[0] == message.chat.id:
             try:
@@ -142,14 +143,14 @@ class TelegramBotManager:
                     chat_id=old[0],
                     message_id=old[1],
                     text=text,
-                    reply_markup=self._status_keyboard(),
+                    reply_markup=self._status_keyboard(retry_request_id),
                 )
                 self._log_status(user_id, "status_updated", {"message_id": old[1]})
                 return
             except Exception:  # noqa: BLE001
                 logger.debug("Failed to edit status message for user_id=%s", user_id)
 
-        sent = await self.bot.send_message(message.chat.id, text, reply_markup=self._status_keyboard())
+        sent = await self.bot.send_message(message.chat.id, text, reply_markup=self._status_keyboard(retry_request_id))
         self._status_prompt[user_id] = (message.chat.id, sent.message_id)
         if old and old[0] == message.chat.id and old[1] != sent.message_id:
             try:
@@ -208,13 +209,40 @@ class TelegramBotManager:
 
         return "\n".join(lines).strip()
 
+    def _status_keyboard(self, retry_request_id: str | None = None) -> InlineKeyboardMarkup:
+        rows = [
+            [InlineKeyboardButton(text=Msg.BTN_STATUS_REFRESH, callback_data="status:refresh", style="default")]
+        ]
+        if retry_request_id:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=Msg.BTN_STATUS_RETRY,
+                        callback_data=f"status:retry:{retry_request_id}",
+                        style="primary",
+                    )
+                ]
+            )
+        return InlineKeyboardMarkup(inline_keyboard=rows)
+
+    def _status_retry_request_id(self, user_id: str) -> str | None:
+        """Возвращает request_id для кнопки retry, если последняя заявка пользователя завершилась ошибкой."""
+        last = get_user_last_task(user_id)
+        if not last:
+            return None
+        if str(last.get("status") or "") != "error":
+            return None
+        request_id = str(last.get("request_id") or "")
+        if not request_id:
+            return None
+        payload_path = self._job_payload_path(request_id)
+        if not payload_path.exists():
+            return None
+        return request_id
+
     @staticmethod
-    def _status_keyboard() -> InlineKeyboardMarkup:
-        return InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text=Msg.BTN_STATUS_REFRESH, callback_data="status:refresh", style="default")]
-            ]
-        )
+    def _job_payload_path(request_id: str) -> Path:
+        return Path(__file__).resolve().parents[2] / "data" / "jobs" / request_id / "payload.json"
 
     async def _pin_status_message(self, chat_id: int, message_id: int, user_id: str) -> None:
         """Пытается закрепить статус-карточку; при ошибке молча продолжает."""
@@ -976,7 +1004,7 @@ class TelegramBotManager:
         if data == "status:refresh":
             await query.message.edit_text(
                 self._build_status_text(user_id),
-                reply_markup=self._status_keyboard(),
+                reply_markup=self._status_keyboard(self._status_retry_request_id(user_id)),
             )
             if getattr(query.message, "chat", None) and getattr(query.message, "message_id", None):
                 self._status_prompt[user_id] = (query.message.chat.id, query.message.message_id)
@@ -984,6 +1012,93 @@ class TelegramBotManager:
                     await self._pin_status_message(query.message.chat.id, query.message.message_id, user_id)
             self._log_status(user_id, "status_refreshed")
             return
+        if data.startswith("status:retry:"):
+            request_id = data.split(":", 2)[2]
+            await self._retry_status_request(query.message, user_id, request_id)
+            return
+
+    async def _retry_status_request(self, message: Message, user_id: str, request_id: str) -> None:
+        payload_path = self._job_payload_path(request_id)
+        if not payload_path.exists():
+            await message.edit_text(
+                Msg.STATUS_RETRY_SOURCE_MISSING,
+                reply_markup=self._status_keyboard(self._status_retry_request_id(user_id)),
+            )
+            return
+
+        try:
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            await message.edit_text(
+                Msg.STATUS_RETRY_SOURCE_MISSING,
+                reply_markup=self._status_keyboard(self._status_retry_request_id(user_id)),
+            )
+            return
+
+        payload_user_id = str(payload.get("user_id") or "")
+        if payload_user_id and payload_user_id != user_id:
+            await message.edit_text(
+                Msg.STATUS_RETRY_DENIED,
+                reply_markup=self._status_keyboard(self._status_retry_request_id(user_id)),
+            )
+            self._log_status(user_id, "status_retry_denied", {"request_id": request_id})
+            return
+
+        files = payload.get("files")
+        filename = payload.get("filename")
+        file_path = payload.get("file_path")
+        push_to_iiko = bool(payload.get("push_to_iiko", settings.push_to_iiko))
+        chat_id = message.chat.id
+
+        try:
+            if files:
+                batch: list[tuple[str, bytes]] = []
+                for name, path in files:
+                    batch.append((name, Path(path).read_bytes()))
+                result = await send_batch_to_backend(
+                    self._backend_url,
+                    batch,
+                    user_id,
+                    chat_id,
+                    status_message_id=message.message_id,
+                    push_to_iiko_override=push_to_iiko,
+                )
+            else:
+                if not filename or not file_path:
+                    await message.edit_text(
+                        Msg.STATUS_RETRY_SOURCE_MISSING,
+                        reply_markup=self._status_keyboard(self._status_retry_request_id(user_id)),
+                    )
+                    return
+                result = await send_file_to_backend(
+                    self._backend_url,
+                    filename,
+                    Path(file_path).read_bytes(),
+                    user_id,
+                    chat_id,
+                    status_message_id=message.message_id,
+                    push_to_iiko_override=push_to_iiko,
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to retry request from status card")
+            await message.edit_text(
+                Msg.STATUS_RETRY_FAILED,
+                reply_markup=self._status_keyboard(self._status_retry_request_id(user_id)),
+            )
+            self._log_status(user_id, "status_retry_failed", {"request_id": request_id})
+            return
+
+        lines = [Msg.STATUS_RETRY_SENT, "", self._build_status_text(user_id)]
+        await message.edit_text(
+            "\n".join(lines).strip(),
+            reply_markup=self._status_keyboard(self._status_retry_request_id(user_id)),
+        )
+        self._status_prompt[user_id] = (chat_id, message.message_id)
+        self._log_status(
+            user_id,
+            "status_retry_sent",
+            {"request_id": request_id, "new_request_id": result.get("request_id")},
+        )
 
     async def _handle_invoice_actions(self, query: CallbackQuery, data: str) -> None:
         if not query.from_user:

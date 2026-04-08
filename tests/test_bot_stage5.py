@@ -572,6 +572,42 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(query_message.edit_text.await_args.args[0], "status-refresh")
         self.assertIsNotNone(query_message.edit_text.await_args.kwargs.get("reply_markup"))
 
+    async def test_status_retry_callback_resubmits_file(self) -> None:
+        payload_dir = Path(self._temp_dir.name) / "job"
+        payload_dir.mkdir(parents=True, exist_ok=True)
+        source_file = payload_dir / "doc.pdf"
+        source_file.write_bytes(b"pdf-bytes")
+        payload_path = payload_dir / "payload.json"
+        payload_path.write_text(
+            '{"user_id":"42","filename":"doc.pdf","file_path":"%s","push_to_iiko":true}' % source_file.as_posix(),
+            encoding="utf-8",
+        )
+
+        query_message = SimpleNamespace(
+            chat=SimpleNamespace(id=1001),
+            message_id=7002,
+            edit_text=AsyncMock(),
+            answer=AsyncMock(),
+        )
+        query = SimpleNamespace(
+            from_user=SimpleNamespace(id=42),
+            message=query_message,
+            data="status:retry:old_request",
+            answer=AsyncMock(),
+        )
+
+        with patch.object(self.manager, "_job_payload_path", return_value=payload_path):
+            with patch("app.bot.manager.send_file_to_backend", new=AsyncMock(return_value={"status": "queued", "request_id": "new_request"})) as send_file:
+                with patch.object(self.manager, "_build_status_text", return_value="status-body"):
+                    await self.manager.on_mode_choice(query)
+
+        query.answer.assert_awaited_once()
+        self.assertEqual(send_file.await_count, 1)
+        query_message.edit_text.assert_awaited_once()
+        edited_text = query_message.edit_text.await_args.args[0]
+        self.assertIn("Повторно отправил документ в обработку.", edited_text)
+        self.assertIn("status-body", edited_text)
+
 
 if __name__ == "__main__":
     unittest.main()

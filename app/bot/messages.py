@@ -16,6 +16,10 @@ class Msg:
     STATUS_LAST_STATE = "Состояние: {status}"
     STATUS_LAST_MESSAGE = "Комментарий: {message}"
     STATUS_EMPTY = "Пока нет заявок в истории."
+    STATUS_RETRY_SENT = "Повторно отправил документ в обработку."
+    STATUS_RETRY_SOURCE_MISSING = "Не нашел исходный файл для повтора."
+    STATUS_RETRY_FAILED = "Не удалось отправить документ повторно. Попробуйте позже."
+    STATUS_RETRY_DENIED = "Эта заявка не принадлежит текущему пользователю."
     STATUS_STATE_MAP = {
         "queued": "в очереди",
         "processing": "обрабатывается",
@@ -24,6 +28,7 @@ class Msg:
     }
     CMD_STATUS_DESC = "Статус заявок"
     BTN_STATUS_REFRESH = "Обновить статус"
+    BTN_STATUS_RETRY = "Повторить обработку"
     CMD_START_DESC = "Перезапуск и авторизация"
     MERGE_ALIASES = {"merge", "объединить", "с"}
 
