@@ -68,6 +68,7 @@ class TelegramBotManager:
         self._pending_chats: dict[str, int] = {}
         self._pending_prompt: dict[str, int] = {}
         self._split_prompt: dict[str, int] = {}
+        self._status_prompt: dict[str, tuple[int, int]] = {}
         self._media_groups: dict[str, dict] = {}
         self._media_group_tasks: dict[str, asyncio.Task] = {}
         self._split_media_groups: dict[str, dict] = {}
@@ -134,7 +135,27 @@ class TelegramBotManager:
             return
         user_id = str(message.from_user.id)
         text = self._build_status_text(user_id)
-        await message.answer(text, reply_markup=self._status_keyboard())
+        old = self._status_prompt.get(user_id)
+        if old and old[0] == message.chat.id:
+            try:
+                await self.bot.edit_message_text(
+                    chat_id=old[0],
+                    message_id=old[1],
+                    text=text,
+                    reply_markup=self._status_keyboard(),
+                )
+                self._log_status(user_id, "status_updated", {"message_id": old[1]})
+                return
+            except Exception:  # noqa: BLE001
+                logger.debug("Failed to edit status message for user_id=%s", user_id)
+
+        sent = await self.bot.send_message(message.chat.id, text, reply_markup=self._status_keyboard())
+        self._status_prompt[user_id] = (message.chat.id, sent.message_id)
+        if old and old[0] == message.chat.id and old[1] != sent.message_id:
+            try:
+                await self.bot.delete_message(old[0], old[1])
+            except Exception:  # noqa: BLE001
+                logger.debug("Failed to delete old status message for user_id=%s", user_id)
         self._log_status(user_id, "status_requested")
 
     def _build_status_text(self, user_id: str) -> str:
@@ -929,6 +950,8 @@ class TelegramBotManager:
                 self._build_status_text(user_id),
                 reply_markup=self._status_keyboard(),
             )
+            if getattr(query.message, "chat", None) and getattr(query.message, "message_id", None):
+                self._status_prompt[user_id] = (query.message.chat.id, query.message.message_id)
             self._log_status(user_id, "status_refreshed")
             return
 

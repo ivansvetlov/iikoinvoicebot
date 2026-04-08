@@ -110,6 +110,7 @@ class DummyBot:
         self.download_payloads: list[bytes] = []
         self.sent_messages: list[dict] = []
         self.deleted_messages: list[tuple[int, int]] = []
+        self.edited_messages: list[dict] = []
 
     async def get_file(self, file_id: str):
         return SimpleNamespace(file_path=file_id)
@@ -132,6 +133,17 @@ class DummyBot:
 
     async def delete_message(self, chat_id: int, message_id: int):
         self.deleted_messages.append((chat_id, message_id))
+
+    async def edit_message_text(self, text: str, chat_id: int, message_id: int, reply_markup=None):
+        self.edited_messages.append(
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "reply_markup": reply_markup,
+            }
+        )
+        return SimpleNamespace(message_id=message_id, chat=SimpleNamespace(id=chat_id))
 
     async def set_my_commands(self, *args, **kwargs) -> None:
         return None
@@ -484,19 +496,34 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
     async def test_status_command_sends_message(self) -> None:
         message = SimpleNamespace(
             from_user=SimpleNamespace(id=42),
-            answer=AsyncMock(),
+            chat=SimpleNamespace(id=1001),
         )
         with patch.object(self.manager, "_build_status_text", return_value="status-text") as build_status:
             await self.manager.show_status(message)
 
         build_status.assert_called_once_with("42")
-        message.answer.assert_awaited_once()
-        self.assertEqual(message.answer.await_args.args[0], "status-text")
-        self.assertIsNotNone(message.answer.await_args.kwargs.get("reply_markup"))
+        self.assertEqual(len(self.bot.sent_messages), 1)
+        self.assertEqual(self.bot.sent_messages[0]["text"], "status-text")
+        self.assertIsNotNone(self.bot.sent_messages[0]["reply_markup"])
+
+    async def test_status_command_reuses_previous_status_message(self) -> None:
+        message = SimpleNamespace(
+            from_user=SimpleNamespace(id=42),
+            chat=SimpleNamespace(id=1001),
+        )
+        with patch.object(self.manager, "_build_status_text", return_value="first-status"):
+            await self.manager.show_status(message)
+        with patch.object(self.manager, "_build_status_text", return_value="second-status"):
+            await self.manager.show_status(message)
+
+        self.assertEqual(len(self.bot.sent_messages), 1)
+        self.assertEqual(len(self.bot.edited_messages), 1)
+        self.assertEqual(self.bot.edited_messages[0]["text"], "second-status")
 
     async def test_status_refresh_callback_updates_message(self) -> None:
         query_message = SimpleNamespace(
             chat=SimpleNamespace(id=1001),
+            message_id=7001,
             edit_text=AsyncMock(),
             answer=AsyncMock(),
         )

@@ -412,6 +412,16 @@
 - Quick check:
   - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
 
+## 42) /status message reuse (no status spam) (2026-04-08)
+- Files:
+  - updated `app/bot/manager.py`, `tests/test_bot_stage5.py`.
+- Behavior:
+  - repeated `/status` now edits the previous status card instead of creating new messages;
+  - if old status message is unavailable, bot sends a new one and stores it as current;
+  - refresh callback keeps status-card pointer up to date.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 -v`
+
 ---
 
 ### Быстрый чек-лист для нового агента
