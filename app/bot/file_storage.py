@@ -70,6 +70,9 @@ class PendingSplitStorage:
     def deduplicate_pending_files(self, user_id: str) -> dict[str, int]:
         return self._deduplicate_user_dir(self._pending_dir / user_id)
 
+    def count_pending_duplicates(self, user_id: str) -> int:
+        return self._count_duplicates(self._pending_dir / user_id)
+
     def collect_split_files(self, user_id: str) -> list[tuple[str, bytes]]:
         user_dir = self._split_dir / user_id
         if not user_dir.exists():
@@ -85,6 +88,9 @@ class PendingSplitStorage:
 
     def deduplicate_split_files(self, user_id: str) -> dict[str, int]:
         return self._deduplicate_user_dir(self._split_dir / user_id)
+
+    def count_split_duplicates(self, user_id: str) -> int:
+        return self._count_duplicates(self._split_dir / user_id)
 
     def cleanup_old(self, hours: int = 12) -> None:
         """Удаляет старые файлы из pending/split."""
@@ -144,4 +150,25 @@ class PendingSplitStorage:
             kept += 1
 
         return {"removed": removed, "kept": kept}
+
+    @staticmethod
+    def _count_duplicates(path: Path) -> int:
+        if not path.exists():
+            return 0
+
+        seen_hashes: set[str] = set()
+        duplicates = 0
+        for item in sorted(path.glob("*")):
+            if not item.is_file():
+                continue
+            try:
+                digest = hashlib.sha256(item.read_bytes()).hexdigest()
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to hash file %s", item)
+                continue
+            if digest in seen_hashes:
+                duplicates += 1
+                continue
+            seen_hashes.add(digest)
+        return duplicates
 

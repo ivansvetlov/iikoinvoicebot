@@ -35,6 +35,73 @@ import httpx
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
+PROJECT_ROOT_LOW = str(PROJECT_ROOT).lower()
+
+
+def _is_project_runtime_process(command_line: str) -> bool:
+    cmd = (command_line or "").lower()
+    if "pycharmprojects\\pythonproject" not in cmd and PROJECT_ROOT_LOW not in cmd:
+        return False
+    markers = (
+        "app.api:app",
+        "app\\entrypoints\\worker.py",
+        "app/entrypoints/worker.py",
+        "app.entrypoints.worker",
+        "app\\entrypoints\\bot.py",
+        "app/entrypoints/bot.py",
+        "app.entrypoints.bot",
+    )
+    return any(marker in cmd for marker in markers)
+
+
+def _kill_existing_project_processes() -> None:
+    """Убивает запущенные процессы проекта перед новым стартом (pre-kill)."""
+    ps = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.Name -in @('python.exe','pythonw.exe') } | "
+        "Select-Object ProcessId,ParentProcessId,CommandLine | "
+        "ConvertTo-Json -Compress"
+    )
+    try:
+        raw = subprocess.check_output(["powershell", "-NoProfile", "-Command", ps], text=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[dev_run_all] pre-kill scan failed: {exc.__class__.__name__}: {exc}")
+        return
+
+    raw = raw.strip()
+    if not raw or raw == "null":
+        return
+    try:
+        data = json.loads(raw)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[dev_run_all] pre-kill scan invalid JSON: {exc.__class__.__name__}")
+        return
+
+    processes = [data] if isinstance(data, dict) else data
+    current_pid = os.getpid()
+    to_kill: list[int] = []
+    for proc in processes:
+        try:
+            pid = int(proc.get("ProcessId"))
+            cmdline = proc.get("CommandLine") or ""
+        except Exception:
+            continue
+        if pid == current_pid:
+            continue
+        if _is_project_runtime_process(cmdline):
+            to_kill.append(pid)
+
+    if not to_kill:
+        return
+
+    to_kill = sorted(set(to_kill))
+    print(f"[dev_run_all] pre-kill existing project processes: {to_kill}")
+    for pid in to_kill:
+        subprocess.run(["taskkill", "/PID", str(pid), "/T"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1)
+    for pid in to_kill:
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1)
 
 
 @dataclass
@@ -207,6 +274,7 @@ def start_bot(group: ProcGroup) -> None:
 
 
 def main() -> None:
+    _kill_existing_project_processes()
     group = ProcGroup()
     try:
         start_backend(group)

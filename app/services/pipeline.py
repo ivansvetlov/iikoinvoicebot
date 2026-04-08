@@ -17,6 +17,7 @@ import httpx
 import pdfplumber
 from PIL import Image, ImageFilter, ImageOps
 
+from app.bot.messages import Msg
 from app.config import settings
 from app.errors import UserFacingError
 from app.iiko.playwright_client import IikoPlaywrightClient
@@ -1824,7 +1825,7 @@ class InvoicePipelineService:
                     "Не удалось корректно распознать таблицу позиций.",
                     hint=(
                         "Попробуйте отправить фото целиком (одним кадром) или PDF. "
-                        "Если фото разрезано на части — попробуйте /split и отправьте части отдельно."
+                        + Msg.PHOTO_SPLIT_HINT
                     ),
                     code="llm_garbage",
                 )
@@ -1902,19 +1903,13 @@ class InvoicePipelineService:
 
         if not items or not is_likely_invoice(items, raw_text, parsed, source_type, llm_data):
             # Важно: это не "ошибка сервера". Это понятный кейс для пользователя.
-            hint = (
-                "Проверьте, что на фото/скане видны: название документа "
-                "(УПД/ТОРГ-12/1-Т/накладная/счёт-фактура) и таблица позиций. "
-                "Также можно отправлять кассовые/товарные чеки с читаемым списком позиций. "
-                "Если это скан в PDF — лучше отправить PDF с текстовым слоем или более чёткое фото."
-            )
             return ProcessResponse(
                 request_id=request_id,
                 status="error",
                 parsed=parsed,
                 iiko_uploaded=False,
                 error_code="not_invoice",
-                message="Похоже, в файле нет накладной или позиции не читаются. " + hint,
+                message=Msg.NOT_INVOICE_MESSAGE,
             )
 
         try:
@@ -2089,7 +2084,7 @@ class InvoicePipelineService:
                 parsed=parsed,
                 iiko_uploaded=False,
                 error_code="not_invoice",
-                message="Похоже, документ не распознан как накладная/счёт-фактура/чек. Отправьте более чёткий файл.",
+                message=Msg.BATCH_NOT_INVOICE_MESSAGE,
             )
 
         if not push_to_iiko:

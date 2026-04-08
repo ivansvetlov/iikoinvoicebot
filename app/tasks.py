@@ -119,6 +119,7 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
             "message": "Пустой payload: нет файла для обработки.",
             "request_id": request_id,
             "error_code": "payload_missing_file",
+            "batch": batch,
         }
         if request_id:
             mark_error(request_id, result["message"], "missing filename/file_path")
@@ -167,6 +168,7 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
         }
 
     result_payload = _to_payload(result)
+    result_payload["batch"] = batch
 
     if request_id:
         if result_payload.get("status") == "error":

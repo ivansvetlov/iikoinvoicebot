@@ -197,6 +197,201 @@
 - Быстрая проверка:
   - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 -v`
 
+## 20) Pending/Split UX cleanup after feedback (2026-04-06)
+- Файлы:
+  - обновлены `app/bot/manager.py`, `app/bot/file_storage.py`, `tests/test_bot_stage5.py`.
+- Поведение:
+  - из pending-клавиатуры убрана кнопка `🕒 Добавлю ещё позже`; добавление файлов работает по умолчанию без отдельного действия;
+  - кнопка `🧹 Удалить дубликаты` в pending/split показывается только если в текущем черновике реально есть дубликаты;
+  - тексты подсказок упрощены для пользователя: отдельной строкой указано, что можно дослать файлы или отправить в обработку.
+- Быстрая проверка:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 tests.test_user_messages -v`
+
+## 21) Merge CTA flow fix (2026-04-06)
+- Файлы:
+  - обновлены `app/bot/manager.py`, `tests/test_bot_stage5.py`.
+- Поведение:
+  - `🟩 Объединить и отправить` в pending больше не переводит в промежуточный split-экран;
+  - по кнопке сразу отправляется единый batch в backend (без лишнего шага `Отменить/Завершить`);
+  - текст `split:cancel` переписан: теперь явно сказано, что черновик очищен и можно отправлять новые файлы.
+- Быстрая проверка:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 tests.test_user_messages -v`
+
+## 22) Message formatting style update (2026-04-06)
+- Файлы:
+  - обновлен `app/bot/manager.py`.
+- Поведение:
+  - в pending/split сообщениях каждое предложение вынесено на новую строку;
+  - выделенные подсказки (`ВАЖНО`) оформлены с пустой строкой до и после;
+  - сервисные статусы отправки (`Собрано файлов...`, `Файл получен...`) также переведены на построчный формат.
+- Быстрая проверка:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 tests.test_user_messages -v`
+
+## 23) Global message line-break style (2026-04-06)
+- Файлы:
+  - обновлены `app/bot/manager.py`, `app/utils/user_messages.py`.
+- Поведение:
+  - все основные пользовательские сообщения в боте переведены в формат «одно предложение = одна строка»;
+  - в длинных уведомлениях и error-hints убраны склейки предложений через пробел, добавлены явные переносы;
+  - формат применен не только к pending/split, но и к авторизации, ограничениям, ошибкам backend и подсказкам из `format_user_response`.
+- Быстрая проверка:
+  - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
+
+## 24) Telegram button styles (Bot API 9.4) enabled (2026-04-06)
+- Файлы:
+  - обновлены `requirements.txt`, `app/bot/manager.py`.
+- Поведение:
+  - зависимость `aiogram` обновлена до `3.27.0` (поддержка `InlineKeyboardButton.style`);
+  - для ключевых кнопок выставлены стили: `success`, `danger`, `primary`, `default`;
+  - применено в pending/split/PDF/invoice-action/edit-action сценариях.
+- Быстрая проверка:
+  - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
+
+## 25) Centralized bot texts file (2026-04-06)
+- Файлы:
+  - добавлен `app/bot/messages.py`;
+  - обновлен `app/bot/manager.py` (переведен на `Msg.*` для пользовательских сообщений).
+- Поведение:
+  - основные пользовательские тексты бота вынесены в один файл для ручной правки «за один проход»;
+  - в `manager.py` сообщения отправляются через константы из `messages.py`.
+- Быстрая проверка:
+  - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
+
+## 26) Single text source for formatter + bot (2026-04-07)
+- Файлы:
+  - обновлены `app/bot/messages.py`, `app/bot/manager.py`, `app/utils/user_messages.py`.
+- Поведение:
+  - тексты из `format_user_response` и `format_invoice_markdown` вынесены в `app/bot/messages.py` (hints, статусы, подписи полей, шаблоны строк);
+  - `manager.py` и `user_messages.py` используют единый источник `Msg.*`;
+  - в `manager.py` больше нет прямых строк в `answer/edit_text/send_message`.
+- Быстрая проверка:
+  - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
+
+## 27) Full UI text centralization incl. button labels (2026-04-07)
+- Files:
+  - updated `app/bot/messages.py`, `app/bot/manager.py`.
+- Behavior:
+  - button captions, command description, merge aliases, request-code line, and invoice field labels are now read from `Msg.*`;
+  - `manager.py` no longer keeps runtime user-facing text literals in `answer/edit_text/send_message/InlineKeyboardButton(text=...)`.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 tests.test_user_messages -v`
+
+## 28) PDF mode UX simplification (2026-04-07)
+- Files:
+  - updated `app/bot/messages.py`, `app/bot/manager.py`, `tests/test_bot_stage5.py`.
+- Behavior:
+  - removed extra `Продолжить` button from PDF mode selection;
+  - flow is now explicit: user selects `fast` or `accurate`, and processing starts immediately;
+  - added user hint in PDF prompt: for unclear/low-quality document use `accurate`.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 -v`
+
+## 29) PDF pending-state fix for mode buttons (2026-04-07)
+- Files:
+  - updated `app/bot/manager.py`, `tests/test_bot_stage5.py`.
+- Behavior:
+  - after uploading a PDF, user is explicitly registered in pending state before showing `fast/accurate` buttons;
+  - callback handlers now restore pending state from saved pending files (covers bot restart between upload and button click);
+  - added status logging for PDF no-pending and selected PDF mode.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 -v`
+
+## 30) Worker stability hardening for long PDF jobs (2026-04-07)
+- Files:
+  - updated `app/config.py`, `app/entrypoints/worker.py`, `scripts/dev_run_all.py`.
+- Behavior:
+  - worker now uses configurable RQ timings via settings:
+    - `WORKER_TTL_SEC` (default `1800`)
+    - `WORKER_MAINTENANCE_INTERVAL_SEC` (default `60`)
+    - `WORKER_JOB_MONITORING_INTERVAL_SEC` (default `15`)
+  - `scripts/dev_run_all.py` now enforces single running instance via `tmp/dev_run_all.lock`, reducing accidental duplicate worker/backend/bot process trees.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
+
+## 31) Not-invoice user text centralized (2026-04-07)
+- Files:
+  - updated `app/bot/messages.py`, `app/services/pipeline.py`.
+- Behavior:
+  - user-facing not-invoice phrases are now centralized in `Msg` (`NOT_INVOICE_HINT`, `NOT_INVOICE_MESSAGE`, `BATCH_NOT_INVOICE_MESSAGE`);
+  - pipeline now reads those strings from `messages.py` instead of inline literals.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_invoice_recognition tests.test_user_messages -v`
+
+## 32) Not-invoice phrase unified into one constant (2026-04-07)
+- Files:
+  - updated `app/bot/messages.py`, `app/services/pipeline.py`.
+- Behavior:
+  - detailed not-invoice user phrase is now a single constant `Msg.NOT_INVOICE_MESSAGE` (no concatenation from multiple parts);
+  - pipeline uses this single constant directly.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_invoice_recognition tests.test_user_messages -v`
+
+## 33) Removed hidden /mode commands logic (2026-04-07)
+- Files:
+  - updated `app/bot/manager.py`, `app/bot/messages.py`.
+- Behavior:
+  - removed command handlers for `/mode`, `/modefast`, `/modeaccurate`;
+  - removed legacy message constants used only by those commands;
+  - PDF mode selection remains only in inline flow after PDF upload (`fast/accurate`).
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
+
+## 34) Batch wording for error/not-invoice messages (2026-04-07)
+- Files:
+  - updated `app/bot/messages.py`, `app/utils/user_messages.py`, `docs/TODO.md`.
+- Behavior:
+  - for multi-file/batch responses, generic error line is now plural (`Не получилось обработать файлы.`);
+  - batch not-invoice message is now plural and uses `файлы/документы` wording;
+  - TODO updated to reflect Stage 5 status and current PDF mode flow without `/mode`.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_user_messages tests.test_invoice_recognition tests.test_bot_stage5 -v`
+
+## 35) Batch flag propagation fix in worker responses (2026-04-07)
+- Files:
+  - updated `app/tasks.py`, `tests/test_user_messages.py`.
+- Behavior:
+  - worker now always propagates `batch` flag into `result_payload` before user-message formatting;
+  - plural error text (`Не получилось обработать файлы.`) is now reliably used for batch failures.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_user_messages tests.test_bot_stage5 -v`
+
+## 36) Rollback of runtime lock guards for local start flow (2026-04-07)
+- Files:
+  - updated `app/entrypoints/bot.py`, `scripts/dev_run_all.py`.
+- Behavior:
+  - removed `bot.lock` single-instance guard from bot entrypoint;
+  - removed `dev_run_all.lock` single-instance guard from launcher;
+  - launch flow is back to process-based control (kill/restart strategy).
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m py_compile app\\entrypoints\\bot.py scripts\\dev_run_all.py`
+
+## 37) Pre-kill start strategy in dev runner (2026-04-07)
+- Files:
+  - updated `scripts/dev_run_all.py`.
+- Behavior:
+  - added mandatory pre-kill phase before start to terminate existing project runtime processes (`dev_run_all`, `uvicorn app.api`, `worker`, `bot`);
+  - start command is now idempotent for local dev: each run begins from a clean process state.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m py_compile scripts\\dev_run_all.py`
+
+## 38) Pre-kill self-termination fix in dev runner (2026-04-07)
+- Files:
+  - updated `scripts/dev_run_all.py`.
+- Behavior:
+  - pre-kill no longer targets `dev_run_all.py` processes;
+  - only runtime services are terminated (`backend`, `worker`, `bot`), so launcher start from IDE no longer kills itself.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m py_compile scripts\\dev_run_all.py`
+
+## 39) Batch not-invoice phrasing normalization (2026-04-07)
+- Files:
+  - updated `app/utils/user_messages.py`, `tests/test_user_messages.py`.
+- Behavior:
+  - in batch error responses, singular not-invoice message is auto-normalized to plural wording (`файлы`, `документах`);
+  - prevents mixed output like `Не получилось обработать файлы` + `файл не содержит...`.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_user_messages tests.test_bot_stage5 -v`
+
 ---
 
 ### Быстрый чек-лист для нового агента

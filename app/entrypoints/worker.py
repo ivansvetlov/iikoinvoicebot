@@ -21,6 +21,12 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     queue = get_queue()
     logger.info("✅ Worker ready, listening on queue '%s'", settings.queue_name)
-    worker = SimpleWorker([queue], connection=queue.connection)
+    worker = SimpleWorker(
+        [queue],
+        connection=queue.connection,
+        default_worker_ttl=settings.worker_ttl_sec,
+        maintenance_interval=settings.worker_maintenance_interval_sec,
+        job_monitoring_interval=settings.worker_job_monitoring_interval_sec,
+    )
     worker.death_penalty_class = TimerDeathPenalty
     worker.work()

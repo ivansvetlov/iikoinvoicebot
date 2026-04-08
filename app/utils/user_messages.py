@@ -15,6 +15,7 @@ from __future__ import annotations
 import zlib
 from typing import Any
 
+from app.bot.messages import Msg
 from app.config import settings
 
 
@@ -46,6 +47,8 @@ def format_user_response(payload: dict[str, Any]) -> str:
     parsed = payload.get("parsed") or {}
     warnings = parsed.get("warnings") or []
     items = parsed.get("items") or []
+    source_type = str(parsed.get("source_type") or payload.get("source_type") or "").lower()
+    is_batch = bool(payload.get("batch")) or source_type == "batch"
 
     message = (payload.get("message") or "").strip()
     error_code = payload.get("error_code")
@@ -62,13 +65,17 @@ def format_user_response(payload: dict[str, Any]) -> str:
             lines.append(message)
             message = ""
         else:
-            lines.append("Принято. Результат пришлю позже.")
+            lines.append(Msg.RESP_QUEUED_DEFAULT)
     elif status == "ok":
-        lines.append("Готово.")
+        lines.append(Msg.RESP_OK)
     elif status == "error":
-        lines.append("Не получилось обработать файл.")
+        lines.append(Msg.RESP_ERROR_BATCH if is_batch else Msg.RESP_ERROR)
     else:
-        lines.append(f"Статус: {status}")
+        lines.append(Msg.RESP_STATUS.format(status=status))
+
+    # Нормализация текста ошибки для batch: избегаем единственного числа в пользовательском ответе.
+    if status == "error" and is_batch and message == Msg.NOT_INVOICE_MESSAGE.strip():
+        message = Msg.BATCH_NOT_INVOICE_MESSAGE.strip()
 
     # Основной текст от backend (если есть)
     if message:
@@ -79,51 +86,28 @@ def format_user_response(payload: dict[str, Any]) -> str:
     # Детали успешной обработки
     if status == "ok":
         lines.append("")
-        lines.append(f"Распознано позиций: {len(items)}")
+        lines.append(Msg.RESP_ITEMS_RECOGNIZED.format(count=len(items)))
 
         if iiko_uploaded:
-            lines.append("iiko: загружено.")
+            lines.append(Msg.RESP_IIKO_UPLOADED)
 
     # Предупреждения
     if warnings:
         lines.append("")
-        lines.append("Предупреждения: " + "; ".join([str(w) for w in warnings[:2]]))
+        lines.append(Msg.RESP_WARNINGS.format(warnings="; ".join([str(w) for w in warnings[:2]])))
 
     # Подсказки по error_code (только для ошибок)
     # Если backend уже прислал текст ошибки, не дублируем подсказку.
     if status == "error" and error_code and not message:
-        hints = {
-            "unsupported_format": "Поддерживаемые форматы: фото (JPG/PNG), PDF, DOCX.",
-            "bad_pdf": "PDF повреждён. Попробуйте пересохранить файл и отправить снова.",
-            "bad_docx": "DOCX повреждён. Попробуйте пересохранить файл и отправить снова.",
-            "empty_file": "Похоже, файл пустой. Проверьте и отправьте снова.",
-            "file_too_large": f"Сожмите файл. Максимум {settings.max_upload_mb} MB.",
-            "not_invoice": (
-                "Проверьте, что это накладная, УПД или ТОРГ‑12, "
-                "и что видно таблицу с позициями (строки и колонки)."
-            ),
-            "llm_timeout": "Распознавание отвечает медленно. Попробуйте через минуту.",
-            "llm_unavailable": "Распознавание временно недоступно. Попробуйте позже.",
-            "llm_bad_response": (
-                "Распознавание вернуло неполный или некорректный ответ. "
-                "Попробуйте отправить цельный PDF или одно фото накладной."
-            ),
-            "llm_garbage": (
-                "Распознавание «зациклилось» (много повторов или нулей). "
-                "Попробуйте одно ровное фото или PDF с цельной таблицей."
-            ),
-            "iiko_auth_missing": "Нажмите /start и введите логин/пароль iiko.",
-            "iiko_upload_failed": "Не удалось загрузить в iiko. Попробуйте позже.",
-        }
-        hint = hints.get(str(error_code))
+        hint = Msg.RESP_HINTS.get(str(error_code))
         if hint:
             lines.append("")
-            lines.append(hint)
+            lines.append(hint.format(max_upload_mb=settings.max_upload_mb))
 
     # Последняя линия: код заявки
     if code:
         lines.append("")
-        lines.append(f"Код заявки: {code}")
+        lines.append(Msg.RESP_CODE.format(code=code))
 
     return "\n".join(lines).strip()
 
@@ -139,22 +123,22 @@ def format_invoice_markdown(
     parsed = payload.get("parsed") or {}
     items = items_override or parsed.get("items") or payload.get("items") or []
 
-    supplier = overrides.get("supplier") or parsed.get("vendor_name") or "—"
-    consignee = overrides.get("consignee") or "—"
-    delivery = overrides.get("delivery_address") or "—"
-    date = overrides.get("invoice_date") or parsed.get("invoice_date") or "—"
-    number = overrides.get("invoice_number") or parsed.get("invoice_number") or "—"
+    supplier = overrides.get("supplier") or parsed.get("vendor_name") or Msg.INVOICE_UNKNOWN
+    consignee = overrides.get("consignee") or Msg.INVOICE_UNKNOWN
+    delivery = overrides.get("delivery_address") or Msg.INVOICE_UNKNOWN
+    date = overrides.get("invoice_date") or parsed.get("invoice_date") or Msg.INVOICE_UNKNOWN
+    number = overrides.get("invoice_number") or parsed.get("invoice_number") or Msg.INVOICE_UNKNOWN
 
     lines: list[str] = [
-        "📄 Распознанная накладная",
+        Msg.INVOICE_TITLE,
         "",
-        f"📦 Поставщик: {supplier}",
-        f"🏢 Грузополучатель: {consignee}",
-        f"📍 Адрес доставки: {delivery}",
-        f"📅 Дата: {date}",
-        f"📋 Номер накладной: {number}",
+        Msg.INVOICE_SUPPLIER.format(supplier=supplier),
+        Msg.INVOICE_CONSIGNEE.format(consignee=consignee),
+        Msg.INVOICE_DELIVERY.format(delivery=delivery),
+        Msg.INVOICE_DATE.format(date=date),
+        Msg.INVOICE_NUMBER.format(number=number),
         "",
-        "Товары:",
+        Msg.INVOICE_ITEMS,
     ]
 
     total_vat = 0.0
@@ -167,28 +151,28 @@ def format_invoice_markdown(
             return 0.0
 
     for index, item in enumerate(items, start=1):
-        name = item.get("name") or "—"
-        qty = item.get("unit_amount") or "—"
-        price = item.get("unit_price") or "—"
-        total = item.get("cost_with_tax") or item.get("total_cost") or "—"
-        vat = item.get("tax_amount") or "—"
+        name = item.get("name") or Msg.INVOICE_UNKNOWN
+        qty = item.get("unit_amount") or Msg.INVOICE_UNKNOWN
+        price = item.get("unit_price") or Msg.INVOICE_UNKNOWN
+        total = item.get("cost_with_tax") or item.get("total_cost") or Msg.INVOICE_UNKNOWN
+        vat = item.get("tax_amount") or Msg.INVOICE_UNKNOWN
 
         total_sum += _to_float(total)
         total_vat += _to_float(vat)
 
-        lines.append(f"{index}. {name}")
-        lines.append(f"- Кол-во: {qty}")
-        lines.append(f"- Цена: {price} ₽")
-        lines.append(f"- Сумма с НДС: {total} ₽ (НДС: {vat} ₽)")
+        lines.append(Msg.INVOICE_ITEM_LINE.format(index=index, name=name))
+        lines.append(Msg.INVOICE_ITEM_QTY.format(qty=qty))
+        lines.append(Msg.INVOICE_ITEM_PRICE.format(price=price))
+        lines.append(Msg.INVOICE_ITEM_TOTAL.format(total=total, vat=vat))
         lines.append("")
 
-    lines.append("──────────")
-    lines.append(f"📊 Сумма НДС: {round(total_vat, 2)} ₽")
-    lines.append(f"💰 ИТОГО с НДС: {round(total_sum, 2)} ₽")
+    lines.append(Msg.INVOICE_SEPARATOR)
+    lines.append(Msg.INVOICE_VAT_SUM.format(vat=round(total_vat, 2)))
+    lines.append(Msg.INVOICE_TOTAL_SUM.format(total=round(total_sum, 2)))
 
     code = short_request_code(payload.get("request_id"))
     if code:
         lines.append("")
-        lines.append(f"Код заявки: {code}")
+        lines.append(Msg.RESP_CODE.format(code=code))
 
     return "\n".join(lines).strip()

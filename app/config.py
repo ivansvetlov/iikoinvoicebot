@@ -49,6 +49,9 @@ class Settings(BaseSettings):
 
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     queue_name: str = Field(default="default", alias="QUEUE_NAME")
+    worker_ttl_sec: int = Field(default=1800, alias="WORKER_TTL_SEC")
+    worker_maintenance_interval_sec: int = Field(default=60, alias="WORKER_MAINTENANCE_INTERVAL_SEC")
+    worker_job_monitoring_interval_sec: int = Field(default=15, alias="WORKER_JOB_MONITORING_INTERVAL_SEC")
 
     database_url: str = Field(default="sqlite:///./data/app.db", alias="DATABASE_URL")
 

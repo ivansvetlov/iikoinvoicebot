@@ -26,6 +26,7 @@ from aiogram.types import (
 from app.bot.backend_client import send_batch_to_backend, send_file_to_backend
 from app.bot.event_codes import BOT_BACKEND_UNAVAILABLE, BOT_NO_PENDING, BOT_RATE_LIMIT, event_meta, with_event_code
 from app.bot.file_storage import PendingSplitStorage
+from app.bot.messages import Msg
 from app.config import settings
 from app.services.user_store import (
     get_iiko_credentials,
@@ -84,11 +85,11 @@ class TelegramBotManager:
         await self.dp.start_polling(self.bot)
 
     async def _set_visible_commands(self) -> None:
-        """Оставляем в списке команд только /start и /mode."""
+        """Оставляем в списке команд только /start."""
         try:
             await self.bot.set_my_commands(
                 [
-                    BotCommand(command="start", description="Перезапуск и авторизация"),
+                    BotCommand(command="start", description=Msg.CMD_START_DESC),
                 ]
             )
         except Exception:  # noqa: BLE001
@@ -97,10 +98,6 @@ class TelegramBotManager:
     def _register_handlers(self) -> None:
         """Регистрирует обработчики сообщений."""
         self.dp.message.register(self.start, CommandStart())
-        # /mode \/ /modefast \/ /modeaccurate
-        self.dp.message.register(self.set_mode, Command("mode"))
-        self.dp.message.register(self.set_mode_fast, Command("modefast"))
-        self.dp.message.register(self.set_mode_accurate, Command("modeaccurate"))
 
         self.dp.message.register(self.start_split, Command("split"))
         self.dp.message.register(self.finish_split, Command("done"))
@@ -122,72 +119,11 @@ class TelegramBotManager:
         user_id = str(message.from_user.id)
         self._reset_user_buffers(user_id)
         if get_iiko_credentials(user_id):
-            await message.answer("Вы уже авторизованы в iiko. Можете отправлять накладные, УПД, счёт-фактуры и чеки.")
+            await message.answer(Msg.AUTH_ALREADY)
             return
-        await message.answer("Для работы с iiko нужна авторизация. Введите логин iiko:")
+        await message.answer(Msg.AUTH_START)
         self._auth_state[user_id] = "await_login"
         self._log_status(user_id, "auth_requested", {"message_id": message.message_id})
-
-    async def set_mode(self, message: Message) -> None:
-        """Показывает и (опционально) меняет режим обработки PDF.
-
-        Варианты использования для пользователя:
-        - `/mode` — просто показать текущий режим и краткие подсказки.
-        - `/mode fast` или `/mode accurate` — переключить режим.
-
-        Отдельные команды `/modefast` и `/modeaccurate` обрабатываются
-        хендлерами `set_mode_fast` / `set_mode_accurate`.
-        """
-        if not message.from_user:
-            return
-        user_id = str(message.from_user.id)
-        text = (message.text or "").strip().lower()
-        parts = text.split()
-
-        # Только /mode — показать текущий режим и кнопки выбора.
-        if len(parts) == 1:
-            current = get_pdf_mode(user_id)
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="⚡ fast", callback_data="mode_fast")],
-                    [InlineKeyboardButton(text="🎯 accurate", callback_data="mode_accurate")],
-                ]
-            )
-            await message.answer(
-                "Режим обработки PDF:\n"
-                f"Сейчас: {current}\n"
-                "fast — быстрее, для четких файлов.\n"
-                "accurate — точнее, для сложных случаев\n",
-                reply_markup=keyboard,
-            )
-            return
-
-        # /mode fast | /mode accurate
-        mode = parts[1].strip().lower()
-        if mode not in {"fast", "accurate"}:
-            await message.answer(
-                "Неверный режим. Используйте `/mode fast` или `/mode accurate`."
-            )
-            return
-
-        set_pdf_mode(user_id, mode)
-        await message.answer(f"Готово. Режим PDF: {mode}.")
-
-    async def set_mode_fast(self, message: Message) -> None:
-        """Явная команда /modefast — переключает режим PDF в fast."""
-        if not message.from_user:
-            return
-        user_id = str(message.from_user.id)
-        set_pdf_mode(user_id, "fast")
-        await message.answer("Готово. Режим PDF: fast.")
-
-    async def set_mode_accurate(self, message: Message) -> None:
-        """Явная команда /modeaccurate — переключает режим PDF в accurate."""
-        if not message.from_user:
-            return
-        user_id = str(message.from_user.id)
-        set_pdf_mode(user_id, "accurate")
-        await message.answer("Готово. Режим PDF: accurate.")
 
     async def on_text(self, message: Message) -> None:
         """Обрабатывает текстовые сообщения для авторизации."""
@@ -199,17 +135,14 @@ class TelegramBotManager:
             return
         if user_id in self._pending_users:
             text = (message.text or "").strip().lower()
-            if text in {"merge", "объединить", "с"}:
+            if text in Msg.MERGE_ALIASES:
                 await self._accept_pending_as_split(message, user_id)
                 self._log_status(user_id, "mode_selected", {"mode": "merge"})
                 return
 
         state = self._auth_state.get(user_id)
         if not state:
-            await message.answer(
-                "Я принимаю фото, PDF или DOCX: накладные, УПД, счёт-фактуры и чеки. "
-                "Если нужна авторизация — используйте /start."
-            )
+            await message.answer(Msg.ACCEPTS_FILES)
             return
 
         text = (message.text or "").strip()
@@ -219,7 +152,7 @@ class TelegramBotManager:
         if state == "await_login":
             self._pending_login[user_id] = text
             self._auth_state[user_id] = "await_password"
-            await message.answer("Теперь введите пароль iiko:")
+            await message.answer(Msg.AUTH_PASSWORD)
             self._log_status(user_id, "auth_login_received")
             return
 
@@ -227,29 +160,26 @@ class TelegramBotManager:
             login = self._pending_login.get(user_id)
             if not login:
                 self._auth_state[user_id] = "await_login"
-                await message.answer("Логин не найден. Введите логин iiko:")
+                await message.answer(Msg.AUTH_LOGIN_MISSING)
                 return
             set_iiko_credentials(user_id, login, text)
             self._auth_state.pop(user_id, None)
             self._pending_login.pop(user_id, None)
-            await message.answer("Данные сохранены. Теперь можно отправлять накладные, УПД, счёт-фактуры и чеки.")
+            await message.answer(Msg.AUTH_SAVED)
             self._log_status(user_id, "auth_completed")
             return
-        await message.answer(
-            "Я принимаю фото, PDF или DOCX: накладные, УПД, счёт-фактуры и чеки. "
-            "Если нужна авторизация — используйте /start."
-        )
+        await message.answer(Msg.ACCEPTS_FILES)
 
     async def start_split(self, message: Message) -> None:
         """Включает режим сплит для объединения нескольких файлов в одну накладную."""
         if not message.from_user:
             return
         if not settings.enable_split_mode:
-            await message.answer("Режим объединения сейчас отключен.")
+            await message.answer(Msg.SPLIT_DISABLED)
             return
         user_id = str(message.from_user.id)
         if not get_iiko_credentials(user_id):
-            await message.answer("Нет данных для входа в iiko. Нажмите /start и пройдите авторизацию.")
+            await message.answer(Msg.NO_IIKO_CREDENTIALS)
             return
         self._split_users.add(user_id)
         self._clear_split_dir(user_id)
@@ -261,7 +191,7 @@ class TelegramBotManager:
         self._pending_prompt.pop(user_id, None)
 
         await message.answer(
-            "Режим объединения включен. Отправляйте части накладной.",
+            Msg.SPLIT_ENABLED,
             reply_markup=ReplyKeyboardRemove(),
         )
         self._log_status(user_id, "split_started")
@@ -272,9 +202,9 @@ class TelegramBotManager:
             return
         user_id = str(message.from_user.id)
         if user_id not in self._split_users:
-            await message.answer("Режим объединения не включен. Введите /split для начала.")
+            await message.answer(Msg.SPLIT_NOT_ENABLED)
             return
-        await message.answer("Завершаю режим объединения.", reply_markup=ReplyKeyboardRemove())
+        await message.answer(Msg.SPLIT_FINISHING, reply_markup=ReplyKeyboardRemove())
         await self._finalize_split(message.chat.id, user_id, status_message=None)
 
     async def cancel_split(self, message: Message) -> None:
@@ -287,7 +217,7 @@ class TelegramBotManager:
         self._split_users.discard(user_id)
         self._split_prompt.pop(user_id, None)
         await message.answer(
-            "Режим объединения отменен. Буфер очищен.",
+            Msg.SPLIT_CANCELLED,
             reply_markup=ReplyKeyboardRemove(),
         )
         self._log_status(user_id, "split_cancelled")
@@ -295,17 +225,11 @@ class TelegramBotManager:
     async def _handle_document(self, message: Message, document, filename: str | None) -> None:
         user_id = str(message.from_user.id) if message.from_user else None
         if not get_iiko_credentials(user_id):
-            await message.answer(
-                "Нет данных для входа в iiko. Нажмите /start и пройдите авторизацию."
-            )
+            await message.answer(Msg.NO_IIKO_CREDENTIALS)
             return
         if not self._check_rate_limit(user_id):
             await message.answer(
-                with_event_code(
-                    "Сейчас слишком много файлов. Я продолжу обработку через минуту. "
-                    "Если нужно срочно — отправьте позже.",
-                    BOT_RATE_LIMIT,
-                )
+                with_event_code(Msg.RATE_LIMIT, BOT_RATE_LIMIT)
             )
             self._log_status(user_id, "rate_limited", event_meta(BOT_RATE_LIMIT))
             return
@@ -343,6 +267,7 @@ class TelegramBotManager:
             await self._notify_soft_duplicate(message, user_id)
         self._log_status(user_id, "pending_file_added", {"filename": filename})
         if filename and filename.lower().endswith(".pdf"):
+            self._ensure_pending_user(user_id, message.chat.id)
             await self._handle_pdf_mode_choice(message, user_id)
             return
         await self._handle_pending_choice(message, user_id)
@@ -350,26 +275,19 @@ class TelegramBotManager:
     async def _handle_photo(self, message: Message, photo_list) -> None:
         user_id = str(message.from_user.id) if message.from_user else None
         if not get_iiko_credentials(user_id):
-            await message.answer(
-                "Нет данных для входа в iiko. Нажмите /start и пройдите авторизацию."
-            )
+            await message.answer(Msg.NO_IIKO_CREDENTIALS)
             return
         max_mb = settings.max_upload_mb
         if message.photo and message.photo[-1].file_size:
             if message.photo[-1].file_size > max_mb * 1024 * 1024:
                 await message.answer(
-                    f"Фото слишком большое (лимит {max_mb} MB). "
-                    "Сожмите фото и отправьте снова."
+                    Msg.FILE_TOO_LARGE.format(max_mb=max_mb)
                 )
                 self._log_status(user_id, "file_too_large")
                 return
         if not self._check_rate_limit(user_id):
             await message.answer(
-                with_event_code(
-                    "Сейчас слишком много файлов. Я продолжу обработку через минуту. "
-                    "Если нужно срочно — отправьте позже.",
-                    BOT_RATE_LIMIT,
-                )
+                with_event_code(Msg.RATE_LIMIT, BOT_RATE_LIMIT)
             )
             self._log_status(user_id, "rate_limited", event_meta(BOT_RATE_LIMIT))
             return
@@ -470,8 +388,7 @@ class TelegramBotManager:
                 return
 
         await message.answer(
-            "Я принимаю только фото, PDF или DOCX: накладные, УПД, счёт-фактуры и чеки. "
-            "Отправьте файл, и я верну статус обработки."
+            Msg.ACCEPTS_ONLY_SUPPORTED
         )
 
     async def _store_split_file(self, document, filename: str, user_id: str) -> bool:
@@ -505,6 +422,9 @@ class TelegramBotManager:
     def _deduplicate_pending_dir(self, user_id: str) -> dict[str, int]:
         return self._storage.deduplicate_pending_files(user_id)
 
+    def _pending_duplicates_count(self, user_id: str) -> int:
+        return self._storage.count_pending_duplicates(user_id)
+
     async def _accept_pending_as_split(
         self,
         message: Message,
@@ -513,7 +433,7 @@ class TelegramBotManager:
     ) -> None:
         files = self._collect_pending_files(user_id)
         if not files:
-            await message.answer("Нет ожидающих файлов.")
+            await message.answer(Msg.NO_PENDING)
             self._pending_users.discard(user_id)
             return
         task = self._pending_tasks.pop(user_id, None)
@@ -533,6 +453,71 @@ class TelegramBotManager:
     async def _process_pending_as_batch(self, message: Message, user_id: str) -> None:
         await self._process_pending_as_batch_chat(message.chat.id, user_id)
 
+    async def _process_pending_as_merged_batch_chat(
+        self,
+        chat_id: int,
+        user_id: str,
+        status_message: Message | None = None,
+    ) -> None:
+        """Отправляет все pending-файлы одним батчем в backend."""
+        files = self._collect_pending_files(user_id)
+        if not files:
+            await self.bot.send_message(chat_id, Msg.NO_PENDING)
+            self._pending_users.discard(user_id)
+            return
+
+        task = self._pending_tasks.pop(user_id, None)
+        if task:
+            task.cancel()
+        self._clear_pending_dir(user_id)
+        self._pending_users.discard(user_id)
+        self._pending_prompt.pop(user_id, None)
+
+        status_msg = status_message
+        if status_msg:
+            try:
+                await status_msg.edit_text(
+                    Msg.BATCH_COLLECTED.format(count=len(files)),
+                    reply_markup=None,
+                )
+            except Exception:  # noqa: BLE001
+                status_msg = None
+        if status_msg is None:
+            status_msg = await self.bot.send_message(
+                chat_id,
+                Msg.BATCH_COLLECTED.format(count=len(files)),
+            )
+
+        try:
+            self._log_status(user_id, "backend_batch_sending", {"count": len(files), "source": "pending"})
+            result = await send_batch_to_backend(
+                self._backend_url,
+                files,
+                user_id,
+                chat_id,
+                status_message_id=status_msg.message_id,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Backend batch request failed")
+            await status_msg.edit_text(Msg.BACKEND_FILES_ERROR)
+            await self.bot.send_message(
+                chat_id,
+                with_event_code(Msg.BACKEND_SEND_FILES_FAILED, BOT_BACKEND_UNAVAILABLE),
+            )
+            self._log_status(
+                user_id,
+                "backend_batch_error",
+                {"source": "pending", **event_meta(BOT_BACKEND_UNAVAILABLE)},
+            )
+            return
+
+        await status_msg.edit_text(self._format_response(result), reply_markup=None)
+        self._log_status(
+            user_id,
+            "backend_batch_done",
+            {"request_id": result.get("request_id"), "source": "pending"},
+        )
+
     async def _process_pending_as_batch_chat(
         self,
         chat_id: int,
@@ -541,7 +526,7 @@ class TelegramBotManager:
     ) -> None:
         files = self._collect_pending_files(user_id)
         if not files:
-            await self.bot.send_message(chat_id, "Нет ожидающих файлов.")
+            await self.bot.send_message(chat_id, Msg.NO_PENDING)
             self._pending_users.discard(user_id)
             return
         task = self._pending_tasks.pop(user_id, None)
@@ -556,7 +541,7 @@ class TelegramBotManager:
             status_msg = status_message
             if status_msg:
                 try:
-                    await status_msg.edit_text("Файл получен. Отправляю на сервер…")
+                    await status_msg.edit_text(Msg.FILE_RECEIVED_SENDING)
                 except Exception:  # noqa: BLE001
                     try:
                         await status_msg.delete()
@@ -564,9 +549,9 @@ class TelegramBotManager:
                         pass
                     status_msg = None
             if status_msg is None:
-                status_msg = await self.bot.send_message(chat_id, "Файл получен. Отправляю на сервер…")
+                status_msg = await self.bot.send_message(chat_id, Msg.FILE_RECEIVED_SENDING)
             try:
-                await status_msg.edit_text("Файл на сервере. Идет обработка…")
+                await status_msg.edit_text(Msg.FILE_ON_SERVER_PROCESSING)
                 self._log_status(user_id, "backend_sending", {"filename": name})
                 result = await send_file_to_backend(
                     self._backend_url,
@@ -578,14 +563,10 @@ class TelegramBotManager:
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("Backend request failed")
-                await status_msg.edit_text("Ошибка при обработке файла.")
+                await status_msg.edit_text(Msg.BACKEND_FILE_ERROR)
                 await self.bot.send_message(
                     chat_id,
-                    with_event_code(
-                        "Не удалось отправить файл на обработку. "
-                        "Проверьте соединение и попробуйте снова.",
-                        BOT_BACKEND_UNAVAILABLE,
-                    ),
+                    with_event_code(Msg.BACKEND_SEND_FILE_FAILED, BOT_BACKEND_UNAVAILABLE),
                 )
                 self._log_status(
                     user_id,
@@ -597,25 +578,21 @@ class TelegramBotManager:
             self._log_status(user_id, "backend_done", {"request_id": result.get("request_id")})
             return
 
-        status_msg = await self.bot.send_message(chat_id, f"Обрабатываю {len(files)} файлов отдельно…")
+        status_msg = await self.bot.send_message(chat_id, Msg.PROCESSING_SEPARATELY.format(count=len(files)))
         for index, (name, content) in enumerate(files, start=1):
             try:
-                await status_msg.edit_text(f"Файл {index}/{len(files)}. Отправляю на сервер…")
+                await status_msg.edit_text(Msg.FILE_PROGRESS.format(index=index, total=len(files)))
                 self._log_status(user_id, "backend_sending", {"filename": name, "index": index})
                 result = await send_file_to_backend(self._backend_url, name, content, user_id, chat_id)
                 await status_msg.edit_text(
-                    f"Файл {index}/{len(files)} обработан.\n{self._format_response(result)}"
+                    Msg.FILE_DONE.format(index=index, total=len(files), result=self._format_response(result))
                 )
                 self._log_status(user_id, "backend_done", {"request_id": result.get("request_id")})
             except Exception:  # noqa: BLE001
                 logger.exception("Backend request failed")
                 await self.bot.send_message(
                     chat_id,
-                    with_event_code(
-                        "Не удалось отправить файл на обработку. "
-                        "Проверьте соединение и попробуйте снова.",
-                        BOT_BACKEND_UNAVAILABLE,
-                    ),
+                    with_event_code(Msg.BACKEND_SEND_FILE_FAILED, BOT_BACKEND_UNAVAILABLE),
                 )
                 self._log_status(
                     user_id,
@@ -632,7 +609,7 @@ class TelegramBotManager:
             return
 
         if not files:
-            await message.answer("Нет ожидающих файлов.")
+            await message.answer(Msg.NO_PENDING)
             return
 
         # Регистрируем пользователя в pending (без таймера)
@@ -692,7 +669,7 @@ class TelegramBotManager:
 
         status_msg = await self.bot.send_message(
             chat_id,
-            f"Получено файлов в одном сообщении: {len(files)}. Обрабатываю объединением…",
+            Msg.MEDIA_GROUP_BATCH.format(count=len(files)),
         )
         try:
             self._log_status(user_id or "unknown", "media_group_batch_sending", {"count": len(files)})
@@ -705,13 +682,10 @@ class TelegramBotManager:
             )
         except Exception:  # noqa: BLE001
             logger.exception("Backend media group request failed")
-            await status_msg.edit_text("Ошибка при обработке файлов.")
+            await status_msg.edit_text(Msg.BACKEND_FILES_ERROR)
             await self.bot.send_message(
                 chat_id,
-                with_event_code(
-                    "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.",
-                    BOT_BACKEND_UNAVAILABLE,
-                ),
+                with_event_code(Msg.BACKEND_SEND_FILES_FAILED, BOT_BACKEND_UNAVAILABLE),
             )
             self._log_status(
                 user_id or "unknown",
@@ -772,12 +746,11 @@ class TelegramBotManager:
         self._log_status(user_id, "split_media_group_added", {"count": len(files), "duplicates": duplicate_count})
 
     async def _send_single_file_keyboard(self, message: Message, user_id: str) -> None:
-        """Один файл в pending — показываем кнопку 'Обработать' и 'Ещё файл'."""
-        text = "📄 Файл получен. Обрабатываем сейчас или оставляем черновик и добавляем ещё?"
+        """Один файл в pending: показываем только кнопку запуска обработки."""
+        text = Msg.PENDING_SINGLE
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="▶️ Обработать сейчас", callback_data="mode:process")],
-                [InlineKeyboardButton(text="🕒 Добавлю ещё позже", callback_data="mode:wait")],
+                [InlineKeyboardButton(text=Msg.BTN_PROCESS_NOW, callback_data="mode:process", style="primary")],
             ]
         )
         sent = await message.answer(text, reply_markup=keyboard)
@@ -790,17 +763,16 @@ class TelegramBotManager:
 
     async def _send_mode_keyboard_to_chat(self, chat_id: int, user_id: str) -> None:
         files = self._collect_pending_files(user_id)
-        text = (
-            f"Получено файлов: {len(files)}.\n"
-            "Можно сразу объединить и отправить, очистить дубликаты или продолжить добавлять файлы."
-        )
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="🟩 Объединить и отправить", callback_data="mode:merge")],
-                [InlineKeyboardButton(text="🧹 Удалить дубликаты", callback_data="mode:dedup")],
-                [InlineKeyboardButton(text="🕒 Добавлю ещё позже", callback_data="mode:wait")],
-            ]
-        )
+        duplicate_count = self._pending_duplicates_count(user_id)
+        text = Msg.PENDING_MULTI.format(count=len(files))
+        if duplicate_count > 0:
+            text += Msg.PENDING_DUPS.format(count=duplicate_count)
+
+        rows = [[InlineKeyboardButton(text=Msg.BTN_MERGE_SEND, callback_data="mode:merge", style="success")]]
+        if duplicate_count > 0:
+            rows.append([InlineKeyboardButton(text=Msg.BTN_DEDUP, callback_data="mode:dedup", style="danger")])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
         old_id = self._pending_prompt.get(user_id)
         sent = await self.bot.send_message(chat_id, text, reply_markup=keyboard)
         self._pending_prompt[user_id] = sent.message_id
@@ -833,16 +805,13 @@ class TelegramBotManager:
 
         # "Добавить ещё" — просто убираем клавиатуру, ждём следующий файл
         if data == "mode:wait":
-            await query.message.edit_text(
-                "Черновик сохранён. Отправляйте ещё файлы.\n"
-                "Когда будете готовы — нажмите «🟩 Объединить и отправить»."
-            )
+            await query.message.edit_text(Msg.PENDING_WAIT)
             return
 
-        if user_id not in self._pending_users:
+        if not self._ensure_pending_user(user_id, query.message.chat.id):
             await query.message.answer(
                 with_event_code(
-                    "Нет ожидающих файлов. Отправьте файлы заново.",
+                    Msg.NO_PENDING_REUPLOAD,
                     BOT_NO_PENDING,
                 )
             )
@@ -857,7 +826,7 @@ class TelegramBotManager:
         if data == "mode:process":
             status_message = query.message
             try:
-                await status_message.edit_text("⏳ Отправляю на обработку…")
+                await status_message.edit_text(Msg.SENDING_PROCESS)
             except Exception:  # noqa: BLE001
                 status_message = None
             await self._process_pending_as_batch_chat(
@@ -868,23 +837,25 @@ class TelegramBotManager:
             self._log_status(user_id, "mode_selected", {"mode": "process"})
             return
         if data == "mode:merge":
-            await self._accept_pending_as_split(
-                query.message,
+            status_message = query.message
+            try:
+                await status_message.edit_text(Msg.MERGING_SENDING, reply_markup=None)
+            except Exception:  # noqa: BLE001
+                status_message = None
+            await self._process_pending_as_merged_batch_chat(
+                query.message.chat.id,
                 user_id,
-                status_message=query.message,
+                status_message=status_message,
             )
             self._log_status(user_id, "mode_selected", {"mode": "merge"})
             return
         if data == "mode:dedup":
             stats = self._deduplicate_pending_dir(user_id)
-            await query.message.edit_text(
-                f"Готово. Удалено дубликатов: {stats['removed']}. "
-                f"Файлов в черновике: {stats['kept']}."
-            )
+            await query.message.edit_text(Msg.DEDUP_DONE.format(removed=stats["removed"], kept=stats["kept"]))
             await self._handle_pending_choice(query.message, user_id)
             self._log_status(user_id, "pending_deduplicated", stats)
             return
-        await query.message.answer("Неизвестный выбор. Используйте кнопки.")
+        await query.message.answer(Msg.MODE_UNKNOWN)
 
     async def _handle_invoice_actions(self, query: CallbackQuery, data: str) -> None:
         if not query.from_user:
@@ -892,20 +863,20 @@ class TelegramBotManager:
         user_id = str(query.from_user.id)
         parts = data.split(":", 2)
         if len(parts) < 3:
-            await query.answer("Некорректная команда")
+            await query.answer(Msg.BAD_COMMAND)
             return
         action, request_id = parts[1], parts[2]
         await query.answer()
 
         if action == "cancel":
-            await query.message.edit_text("Отменено.", reply_markup=None)
+            await query.message.edit_text(Msg.ACTION_CANCELLED, reply_markup=None)
             self._edit_state.pop(user_id, None)
             return
 
         if action == "edit":
             payload = self._load_request_payload(request_id)
             if not payload:
-                await query.message.answer("Не нашёл данные по заявке.")
+                await query.message.answer(Msg.EDIT_NOT_FOUND_REQUEST)
                 return
             state = EditState(request_id=request_id, payload=payload)
             self._edit_state[user_id] = state
@@ -922,7 +893,7 @@ class TelegramBotManager:
         user_id = str(query.from_user.id)
         state = self._edit_state.get(user_id)
         if not state:
-            await query.message.answer("Нет активного редактирования.")
+            await query.message.answer(Msg.EDIT_NO_ACTIVE)
             return
         await query.answer()
 
@@ -945,14 +916,14 @@ class TelegramBotManager:
             return
         if action == "cancel":
             self._edit_state.pop(user_id, None)
-            await query.message.edit_text("Редактирование отменено.", reply_markup=None)
+            await query.message.edit_text(Msg.EDIT_CANCELLED, reply_markup=None)
             return
         if action == "field" and len(parts) == 3:
             field = parts[2]
             state.mode = "info"
             state.awaiting = field
             await query.message.edit_text(
-                f"Введите значение для поля: {INFO_FIELDS.get(field, field)}",
+                Msg.EDIT_ENTER_FIELD.format(field=INFO_FIELDS.get(field, field)),
                 reply_markup=self._cancel_keyboard(),
             )
             return
@@ -967,7 +938,7 @@ class TelegramBotManager:
             state.mode = "itemfield"
             state.awaiting = field
             await query.message.edit_text(
-                f"Введите новое значение для поля: {ITEM_FIELDS.get(field, field)}",
+                Msg.EDIT_ENTER_ITEM_FIELD.format(field=ITEM_FIELDS.get(field, field)),
                 reply_markup=self._cancel_keyboard(),
             )
             return
@@ -998,76 +969,83 @@ class TelegramBotManager:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="🧾 Редактировать информацию", callback_data="edit:info"),
+                    InlineKeyboardButton(text=Msg.BTN_EDIT_INFO, callback_data="edit:info"),
                 ],
                 [
-                    InlineKeyboardButton(text="📦 Редактировать товары", callback_data="edit:items"),
+                    InlineKeyboardButton(text=Msg.BTN_EDIT_ITEMS, callback_data="edit:items"),
                 ],
                 [
-                    InlineKeyboardButton(text="✅ Готово", callback_data="edit:done"),
-                    InlineKeyboardButton(text="✖ Отмена", callback_data="edit:cancel"),
+                    InlineKeyboardButton(text=Msg.BTN_DONE, callback_data="edit:done", style="success"),
+                    InlineKeyboardButton(text=Msg.BTN_CANCEL, callback_data="edit:cancel", style="danger"),
                 ],
             ]
         )
-        await self._reply(message, "Что редактируем?", reply_markup=keyboard)
+        await self._reply(message, Msg.EDIT_WHAT, reply_markup=keyboard)
 
     async def _show_info_fields(self, message: Message, state: "EditState") -> None:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="Поставщик", callback_data="edit:field:supplier"),
-                    InlineKeyboardButton(text="Грузополучатель", callback_data="edit:field:consignee"),
+                    InlineKeyboardButton(text=Msg.INFO_FIELDS["supplier"], callback_data="edit:field:supplier"),
+                    InlineKeyboardButton(text=Msg.INFO_FIELDS["consignee"], callback_data="edit:field:consignee"),
                 ],
                 [
-                    InlineKeyboardButton(text="Адрес доставки", callback_data="edit:field:delivery_address"),
+                    InlineKeyboardButton(text=Msg.INFO_FIELDS["delivery_address"], callback_data="edit:field:delivery_address"),
                 ],
                 [
-                    InlineKeyboardButton(text="Дата", callback_data="edit:field:invoice_date"),
-                    InlineKeyboardButton(text="Номер", callback_data="edit:field:invoice_number"),
+                    InlineKeyboardButton(text=Msg.INFO_FIELDS["invoice_date"], callback_data="edit:field:invoice_date"),
+                    InlineKeyboardButton(text=Msg.INFO_FIELDS["invoice_number"], callback_data="edit:field:invoice_number"),
                 ],
                 [
-                    InlineKeyboardButton(text="◀ Назад", callback_data="edit:menu"),
-                    InlineKeyboardButton(text="✖ Отмена", callback_data="edit:cancel"),
+                    InlineKeyboardButton(text=Msg.BTN_BACK, callback_data="edit:menu"),
+                    InlineKeyboardButton(text=Msg.BTN_CANCEL, callback_data="edit:cancel", style="danger"),
                 ],
             ]
         )
-        await self._reply(message, "Выберите поле для изменения:", reply_markup=keyboard)
+        await self._reply(message, Msg.EDIT_SELECT_FIELD, reply_markup=keyboard)
 
     async def _show_items_list(self, message: Message, state: "EditState") -> None:
         buttons: list[list[InlineKeyboardButton]] = []
         for idx, item in enumerate(state.items[:10], start=1):
-            title = item.get("name") or f"Позиция {idx}"
-            buttons.append([InlineKeyboardButton(text=f"{idx}. {title[:32]}", callback_data=f"edit:item:{idx-1}")])
+            title = item.get("name") or Msg.ITEM_FALLBACK.format(idx=idx)
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text=Msg.BTN_ITEM_ROW.format(index=idx, title=title[:32]),
+                        callback_data=f"edit:item:{idx-1}",
+                    )
+                ]
+            )
         buttons.append(
             [
-                InlineKeyboardButton(text="◀ Назад", callback_data="edit:menu"),
-                InlineKeyboardButton(text="✖ Отмена", callback_data="edit:cancel"),
+                InlineKeyboardButton(text=Msg.BTN_BACK, callback_data="edit:menu"),
+                InlineKeyboardButton(text=Msg.BTN_CANCEL, callback_data="edit:cancel", style="danger"),
             ]
         )
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-        await self._reply(message, "Выберите товар для изменения:", reply_markup=keyboard)
+        await self._reply(message, Msg.EDIT_SELECT_ITEM, reply_markup=keyboard)
 
     async def _show_item_fields(self, message: Message, state: "EditState") -> None:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="Название", callback_data="edit:itemfield:name"),
+                    InlineKeyboardButton(text=Msg.BTN_ITEM_NAME, callback_data="edit:itemfield:name"),
                 ],
                 [
-                    InlineKeyboardButton(text="Кол-во", callback_data="edit:itemfield:unit_amount"),
-                    InlineKeyboardButton(text="Цена", callback_data="edit:itemfield:unit_price"),
+                    InlineKeyboardButton(text=Msg.BTN_ITEM_QTY, callback_data="edit:itemfield:unit_amount"),
+                    InlineKeyboardButton(text=Msg.BTN_ITEM_PRICE, callback_data="edit:itemfield:unit_price"),
                 ],
                 [
-                    InlineKeyboardButton(text="Сумма с НДС", callback_data="edit:itemfield:cost_with_tax"),
-                    InlineKeyboardButton(text="НДС", callback_data="edit:itemfield:tax_amount"),
+                    InlineKeyboardButton(text=Msg.BTN_ITEM_TOTAL, callback_data="edit:itemfield:cost_with_tax"),
+                    InlineKeyboardButton(text=Msg.BTN_ITEM_VAT, callback_data="edit:itemfield:tax_amount"),
                 ],
                 [
-                    InlineKeyboardButton(text="◀ Назад", callback_data="edit:items"),
-                    InlineKeyboardButton(text="✖ Отмена", callback_data="edit:cancel"),
+                    InlineKeyboardButton(text=Msg.BTN_BACK, callback_data="edit:items"),
+                    InlineKeyboardButton(text=Msg.BTN_CANCEL, callback_data="edit:cancel", style="danger"),
                 ],
             ]
         )
-        await self._reply(message, "Выберите поле товара:", reply_markup=keyboard)
+        await self._reply(message, Msg.EDIT_SELECT_ITEM_FIELD, reply_markup=keyboard)
 
     async def _show_final_response(self, message: Message, state: "EditState") -> None:
         text = format_invoice_markdown(
@@ -1094,26 +1072,29 @@ class TelegramBotManager:
         return InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="✏ Редактировать", callback_data=f"inv:edit:{request_id}"),
-                    InlineKeyboardButton(text="✅ Отправить в iiko", callback_data=f"inv:send:{request_id}"),
+                    InlineKeyboardButton(text=Msg.BTN_INV_EDIT, callback_data=f"inv:edit:{request_id}", style="primary"),
+                    InlineKeyboardButton(text=Msg.BTN_INV_SEND, callback_data=f"inv:send:{request_id}", style="success"),
                 ],
                 [
-                    InlineKeyboardButton(text="✖ Отмена", callback_data=f"inv:cancel:{request_id}"),
+                    InlineKeyboardButton(text=Msg.BTN_CANCEL, callback_data=f"inv:cancel:{request_id}", style="danger"),
                 ],
             ]
         )
 
     def _cancel_keyboard(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="✖ Отмена", callback_data="edit:cancel")]]
+            inline_keyboard=[[InlineKeyboardButton(text=Msg.BTN_CANCEL, callback_data="edit:cancel", style="danger")]]
         )
 
     async def _send_to_iiko(self, message: Message, request_id: str) -> None:
         code = short_request_code(request_id) or request_id
-        code_line = f"\n\nКод заявки: {code}" if code else ""
+        code_line = Msg.CODE_LINE.format(code=code) if code else ""
         payload_path = Path(__file__).resolve().parents[2] / "data" / "jobs" / request_id / "payload.json"
         if not payload_path.exists():
-            await message.edit_text(f"Не нашёл исходные файлы для отправки.{code_line}", reply_markup=None)
+            await message.edit_text(
+                Msg.IIKO_SOURCE_MISSING.format(code_line=code_line),
+                reply_markup=None,
+            )
             return
         payload = json.loads(payload_path.read_text(encoding="utf-8"))
         files = payload.get("files")
@@ -1138,7 +1119,10 @@ class TelegramBotManager:
                 )
             else:
                 if not filename or not file_path:
-                    await message.edit_text(f"Файл не найден для отправки.{code_line}", reply_markup=None)
+                    await message.edit_text(
+                        Msg.IIKO_FILE_NOT_FOUND.format(code_line=code_line),
+                        reply_markup=None,
+                    )
                     return
                 result = await send_file_to_backend(
                     self._backend_url,
@@ -1151,13 +1135,22 @@ class TelegramBotManager:
                 )
         except Exception:  # noqa: BLE001
             logger.exception("Failed to send to iiko")
-            await message.edit_text(f"Не удалось отправить в iiko.{code_line}", reply_markup=None)
+            await message.edit_text(
+                Msg.IIKO_FAILED.format(code_line=code_line),
+                reply_markup=None,
+            )
             return
 
         if result.get("status") == "ok" and result.get("iiko_uploaded"):
-            await message.edit_text(f"✅ Успешно отправлено в iiko.{code_line}", reply_markup=None)
+            await message.edit_text(
+                Msg.IIKO_OK.format(code_line=code_line),
+                reply_markup=None,
+            )
             return
-        await message.edit_text(f"Не удалось отправить в iiko.{code_line}", reply_markup=None)
+        await message.edit_text(
+            Msg.IIKO_FAILED.format(code_line=code_line),
+            reply_markup=None,
+        )
 
     def _load_request_payload(self, request_id: str) -> dict[str, Any] | None:
         path = Path(__file__).resolve().parents[2] / "logs" / "requests" / f"{request_id}.json"
@@ -1172,12 +1165,11 @@ class TelegramBotManager:
     async def _handle_pdf_mode_choice(self, message: Message, user_id: str) -> None:
         """Показывает выбор режима PDF перед обработкой."""
         current = get_pdf_mode(user_id)
-        text = f"Режим PDF: {current}. Выберите, как обрабатывать этот PDF:"
+        text = Msg.PDF_MODE.format(current=current)
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="⚡ fast", callback_data="pdf:fast")],
-                [InlineKeyboardButton(text="🎯 accurate", callback_data="pdf:accurate")],
-                [InlineKeyboardButton(text="▶️ Продолжить", callback_data="pdf:process")],
+                [InlineKeyboardButton(text=Msg.BTN_FAST, callback_data="pdf:fast", style="primary")],
+                [InlineKeyboardButton(text=Msg.BTN_ACCURATE, callback_data="pdf:accurate", style="default")],
             ]
         )
         sent = await message.answer(text, reply_markup=keyboard)
@@ -1189,13 +1181,20 @@ class TelegramBotManager:
         user_id = str(query.from_user.id)
         await query.answer()
 
-        if user_id not in self._pending_users:
-            await query.message.answer("Нет ожидающих файлов. Отправьте файл заново.")
+        if not self._ensure_pending_user(user_id, query.message.chat.id):
+            await query.message.answer(
+                with_event_code(
+                    Msg.NO_PENDING_FILE_REUPLOAD,
+                    BOT_NO_PENDING,
+                )
+            )
+            self._log_status(user_id, "no_pending_on_pdf_action", event_meta(BOT_NO_PENDING))
             return
 
         if data == "pdf:fast":
             set_pdf_mode(user_id, "fast")
-            await query.message.edit_text("Режим PDF установлен: fast.")
+            await query.message.edit_text(Msg.PDF_SET_FAST)
+            self._log_status(user_id, "mode_selected", {"mode": "pdf_fast"})
             await self._process_pending_as_batch_chat(
                 query.message.chat.id,
                 user_id,
@@ -1204,7 +1203,8 @@ class TelegramBotManager:
             return
         if data == "pdf:accurate":
             set_pdf_mode(user_id, "accurate")
-            await query.message.edit_text("Режим PDF установлен: accurate.")
+            await query.message.edit_text(Msg.PDF_SET_ACCURATE)
+            self._log_status(user_id, "mode_selected", {"mode": "pdf_accurate"})
             await self._process_pending_as_batch_chat(
                 query.message.chat.id,
                 user_id,
@@ -1212,6 +1212,7 @@ class TelegramBotManager:
             )
             return
         if data == "pdf:process":
+            self._log_status(user_id, "mode_selected", {"mode": "pdf_process"})
             await self._process_pending_as_batch_chat(
                 query.message.chat.id,
                 user_id,
@@ -1226,21 +1227,15 @@ class TelegramBotManager:
         user_id = str(query.from_user.id)
 
         if user_id not in self._split_users:
-            await query.message.edit_text("Режим объединения не включен. Введите /split.")
+            await query.message.edit_text(Msg.SPLIT_NOT_ENABLED_SHORT)
             return
 
         if data == "split:wait":
-            await query.message.edit_text(
-                "Ок, отправляйте ещё файлы в этот же черновик /split.\n"
-                "Когда закончите — нажмите «✅ Завершить» или введите /done."
-            )
+            await query.message.edit_text(Msg.SPLIT_WAIT)
             return
         if data == "split:dedup":
             stats = self._deduplicate_split_dir(user_id)
-            await query.message.edit_text(
-                f"Готово. Удалено дубликатов: {stats['removed']}. "
-                f"Файлов в черновике: {stats['kept']}."
-            )
+            await query.message.edit_text(Msg.DEDUP_DONE.format(removed=stats["removed"], kept=stats["kept"]))
             await self._update_split_prompt(query.message, user_id)
             self._log_status(user_id, "split_deduplicated", stats)
             return
@@ -1251,7 +1246,7 @@ class TelegramBotManager:
             self._split_users.discard(user_id)
             self._split_prompt.pop(user_id, None)
             await query.message.edit_text(
-                "Режим объединения отменен. Буфер очищен.",
+                Msg.SPLIT_CANCEL_INFO,
                 reply_markup=None,
             )
             self._log_status(user_id, "split_cancelled")
@@ -1265,12 +1260,12 @@ class TelegramBotManager:
             )
             return
 
-        await query.message.answer("Неизвестный выбор. Используйте кнопки.")
+        await query.message.answer(Msg.MODE_UNKNOWN)
 
     async def _update_split_prompt(self, message: Message, user_id: str) -> None:
         """Обновляет единое сообщение split-режима с кнопками."""
         count = len(self._collect_split_files(user_id))
-        text, keyboard = self._build_split_prompt(count)
+        text, keyboard = self._build_split_prompt(user_id, count)
         old_id = self._split_prompt.get(user_id)
         sent = await message.answer(text, reply_markup=keyboard)
         self._split_prompt[user_id] = sent.message_id
@@ -1292,12 +1287,12 @@ class TelegramBotManager:
         if not files:
             if status_message:
                 await status_message.edit_text(
-                    "Пока нет файлов. Отправьте части.",
+                    Msg.SPLIT_EMPTY,
                     reply_markup=None,
                 )
                 await self._update_split_prompt(status_message, user_id)
             else:
-                text, keyboard = self._build_split_prompt(0)
+                text, keyboard = self._build_split_prompt(user_id, 0)
                 sent = await self.bot.send_message(chat_id, text, reply_markup=keyboard)
                 self._split_prompt[user_id] = sent.message_id
             return
@@ -1306,7 +1301,7 @@ class TelegramBotManager:
         status_msg = status_message
         if status_msg:
             try:
-                await status_msg.edit_text("⏳ Отправляю на сервер…", reply_markup=None)
+                await status_msg.edit_text(Msg.SPLIT_SENDING, reply_markup=None)
             except Exception:  # noqa: BLE001
                 try:
                     await status_msg.delete()
@@ -1322,7 +1317,8 @@ class TelegramBotManager:
                 except Exception:  # noqa: BLE001
                     pass
             status_msg = await self.bot.send_message(
-                chat_id, f"Собрано файлов: {len(files)}. Отправляю на сервер…"
+                chat_id,
+                Msg.BATCH_COLLECTED.format(count=len(files)),
             )
 
         try:
@@ -1336,13 +1332,10 @@ class TelegramBotManager:
             )
         except Exception:  # noqa: BLE001
             logger.exception("Backend batch request failed")
-            await status_msg.edit_text("Ошибка при обработке файлов.")
+            await status_msg.edit_text(Msg.BACKEND_FILES_ERROR)
             await self.bot.send_message(
                 chat_id,
-                with_event_code(
-                    "Не удалось отправить файлы на обработку. Проверьте соединение и попробуйте снова.",
-                    BOT_BACKEND_UNAVAILABLE,
-                ),
+                with_event_code(Msg.BACKEND_SEND_FILES_FAILED, BOT_BACKEND_UNAVAILABLE),
             )
             self._log_status(user_id, "backend_batch_error", event_meta(BOT_BACKEND_UNAVAILABLE))
             return
@@ -1355,21 +1348,21 @@ class TelegramBotManager:
         await status_msg.edit_text(self._format_response(result), reply_markup=None)
         self._log_status(user_id, "backend_batch_done", {"request_id": result.get("request_id")})
 
-    @staticmethod
-    def _build_split_prompt(count: int) -> tuple[str, InlineKeyboardMarkup]:
-        text = (
-            f"Собрано файлов: {count}.\n"
-            "Можно добавить ещё или сразу отправить на обработку.\n"
-            "Если хотите начать заново, нажмите «✖ Отменить»."
-        )
+    def _build_split_prompt(self, user_id: str, count: int) -> tuple[str, InlineKeyboardMarkup]:
+        duplicate_count = self._split_duplicates_count(user_id)
+        text = Msg.SPLIT_PROMPT.format(count=count)
+        if duplicate_count > 0:
+            text += Msg.SPLIT_DUPS.format(count=duplicate_count)
+
+        first_row = [InlineKeyboardButton(text=Msg.BTN_SPLIT_CANCEL, callback_data="split:cancel", style="danger")]
+        if duplicate_count > 0:
+            first_row.append(InlineKeyboardButton(text=Msg.BTN_DEDUP, callback_data="split:dedup", style="danger"))
+
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
+                first_row,
                 [
-                    InlineKeyboardButton(text="✖ Отменить", callback_data="split:cancel"),
-                    InlineKeyboardButton(text="🧹 Удалить дубликаты", callback_data="split:dedup"),
-                ],
-                [
-                    InlineKeyboardButton(text="✅ Завершить", callback_data="split:done"),
+                    InlineKeyboardButton(text=Msg.BTN_SPLIT_DONE, callback_data="split:done", style="success"),
                 ],
             ]
         )
@@ -1378,14 +1371,8 @@ class TelegramBotManager:
     @staticmethod
     def _soft_duplicate_text(duplicate_count: int = 1) -> str:
         if duplicate_count <= 1:
-            return (
-                "Похоже, среди отправленных фото/файлов есть дубликат. "
-                "Я не блокирую его и оставляю в черновике."
-            )
-        return (
-            f"Похоже, среди отправленных фото/файлов есть дубликаты ({duplicate_count}). "
-            "Я не блокирую их и оставляю в черновике."
-        )
+            return Msg.SOFT_DUP_ONE
+        return Msg.SOFT_DUP_MANY.format(count=duplicate_count)
 
     async def _notify_soft_duplicate(self, message: Message, user_id: str, duplicate_count: int = 1) -> None:
         if duplicate_count <= 0:
@@ -1430,6 +1417,16 @@ class TelegramBotManager:
         self._pending_prompt.pop(user_id, None)
         self._split_prompt.pop(user_id, None)
 
+    def _ensure_pending_user(self, user_id: str, chat_id: int) -> bool:
+        if user_id in self._pending_users:
+            self._pending_chats[user_id] = chat_id
+            return True
+        if not self._collect_pending_files(user_id):
+            return False
+        self._pending_users.add(user_id)
+        self._pending_chats[user_id] = chat_id
+        return True
+
     def _collect_split_files(self, user_id: str) -> list[tuple[str, bytes]]:
         return self._storage.collect_split_files(user_id)
 
@@ -1438,6 +1435,9 @@ class TelegramBotManager:
 
     def _deduplicate_split_dir(self, user_id: str) -> dict[str, int]:
         return self._storage.deduplicate_split_files(user_id)
+
+    def _split_duplicates_count(self, user_id: str) -> int:
+        return self._storage.count_split_duplicates(user_id)
 
     def _log_status(self, user_id: str, event: str, extra: dict | None = None) -> None:
         payload = {
@@ -1529,18 +1529,6 @@ class EditState:
         self.items = self.items or list(parsed.get("items") or self.payload.get("items") or [])
 
 
-INFO_FIELDS = {
-    "supplier": "Поставщик",
-    "consignee": "Грузополучатель",
-    "delivery_address": "Адрес доставки",
-    "invoice_date": "Дата",
-    "invoice_number": "Номер",
-}
+INFO_FIELDS = Msg.INFO_FIELDS
 
-ITEM_FIELDS = {
-    "name": "Название",
-    "unit_amount": "Кол-во",
-    "unit_price": "Цена",
-    "cost_with_tax": "Сумма с НДС",
-    "tax_amount": "НДС",
-}
+ITEM_FIELDS = Msg.ITEM_FIELDS
