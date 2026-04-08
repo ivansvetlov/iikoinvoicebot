@@ -34,6 +34,7 @@ from app.services.user_store import (
     set_iiko_credentials,
     set_pdf_mode,
 )
+from app.task_store import get_queue_snapshot, get_user_last_task
 from app.utils.user_messages import format_user_response, format_invoice_markdown, short_request_code
 
 if TYPE_CHECKING:
@@ -90,6 +91,7 @@ class TelegramBotManager:
             await self.bot.set_my_commands(
                 [
                     BotCommand(command="start", description=Msg.CMD_START_DESC),
+                    BotCommand(command="status", description=Msg.CMD_STATUS_DESC),
                 ]
             )
         except Exception:  # noqa: BLE001
@@ -98,6 +100,7 @@ class TelegramBotManager:
     def _register_handlers(self) -> None:
         """Регистрирует обработчики сообщений."""
         self.dp.message.register(self.start, CommandStart())
+        self.dp.message.register(self.show_status, Command("status"))
 
         self.dp.message.register(self.start_split, Command("split"))
         self.dp.message.register(self.finish_split, Command("done"))
@@ -124,6 +127,46 @@ class TelegramBotManager:
         await message.answer(Msg.AUTH_START)
         self._auth_state[user_id] = "await_login"
         self._log_status(user_id, "auth_requested", {"message_id": message.message_id})
+
+    async def show_status(self, message: Message) -> None:
+        """Показывает пользователю состояние его последней заявки и очереди."""
+        if not message.from_user:
+            return
+        user_id = str(message.from_user.id)
+        text = self._build_status_text(user_id)
+        await message.answer(text)
+        self._log_status(user_id, "status_requested")
+
+    def _build_status_text(self, user_id: str) -> str:
+        snapshot = get_queue_snapshot()
+        last = get_user_last_task(user_id)
+        pending_count = len(self._collect_pending_files(user_id))
+
+        lines = [
+            Msg.STATUS_TITLE,
+            Msg.STATUS_QUEUE.format(queued=snapshot.get("queued", 0)),
+            Msg.STATUS_PROCESSING.format(processing=snapshot.get("processing", 0)),
+        ]
+
+        if pending_count > 0:
+            lines.append("")
+            lines.append(Msg.STATUS_PENDING.format(count=pending_count))
+
+        if last:
+            code = short_request_code(last.get("request_id")) or (last.get("request_id") or "—")
+            status_raw = str(last.get("status") or "")
+            status_human = Msg.STATUS_STATE_MAP.get(status_raw, status_raw or "unknown")
+            lines.append("")
+            lines.append(Msg.STATUS_LAST_REQUEST.format(code=code))
+            lines.append(Msg.STATUS_LAST_STATE.format(status=status_human))
+            last_message = (last.get("message") or "").strip()
+            if last_message:
+                lines.append(Msg.STATUS_LAST_MESSAGE.format(message=last_message))
+        elif pending_count == 0:
+            lines.append("")
+            lines.append(Msg.STATUS_EMPTY)
+
+        return "\n".join(lines).strip()
 
     async def on_text(self, message: Message) -> None:
         """Обрабатывает текстовые сообщения для авторизации."""

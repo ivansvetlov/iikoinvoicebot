@@ -6,6 +6,8 @@ import json
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import func
+
 from app.db import get_session, init_db
 from app.models import TaskRecord
 
@@ -75,3 +77,45 @@ def mark_error(request_id: str, message: str, error: str | None = None) -> None:
         task.message = message
         task.error = error
         task.finished_at = datetime.utcnow()
+
+
+def get_queue_snapshot() -> dict[str, int]:
+    """Возвращает агрегаты по очереди задач."""
+    init_db()
+    with get_session() as session:
+        if session is None:
+            return {"queued": 0, "processing": 0}
+        rows = (
+            session.query(TaskRecord.status, func.count(TaskRecord.id))
+            .filter(TaskRecord.status.in_(("queued", "processing")))
+            .group_by(TaskRecord.status)
+            .all()
+        )
+        snapshot = {"queued": 0, "processing": 0}
+        for status, count in rows:
+            snapshot[str(status)] = int(count)
+        return snapshot
+
+
+def get_user_last_task(user_id: str) -> dict[str, Any] | None:
+    """Возвращает последнюю задачу пользователя."""
+    init_db()
+    with get_session() as session:
+        if session is None:
+            return None
+        task = (
+            session.query(TaskRecord)
+            .filter(TaskRecord.user_id == user_id)
+            .order_by(TaskRecord.created_at.desc(), TaskRecord.id.desc())
+            .first()
+        )
+        if not task:
+            return None
+        return {
+            "request_id": task.request_id,
+            "status": task.status,
+            "message": task.message,
+            "batch": bool(task.batch),
+            "created_at": task.created_at,
+            "finished_at": task.finished_at,
+        }

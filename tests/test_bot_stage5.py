@@ -460,6 +460,36 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(user_id, self.manager._split_prompt)
         self.assertEqual(len(self.manager._collect_pending_files(user_id)), 0)
 
+    async def test_build_status_text_includes_queue_and_last_task(self) -> None:
+        user_id = "42"
+        with patch("app.bot.manager.get_queue_snapshot", return_value={"queued": 3, "processing": 2}):
+            with patch(
+                "app.bot.manager.get_user_last_task",
+                return_value={
+                    "request_id": "20260408_120000_123_42",
+                    "status": "processing",
+                    "message": "Идет обработка",
+                },
+            ):
+                text = self.manager._build_status_text(user_id)
+
+        self.assertIn("В очереди: 3", text)
+        self.assertIn("В работе: 2", text)
+        self.assertIn("Последняя заявка:", text)
+        self.assertIn("Состояние: обрабатывается", text)
+        self.assertIn("Комментарий: Идет обработка", text)
+
+    async def test_status_command_sends_message(self) -> None:
+        message = SimpleNamespace(
+            from_user=SimpleNamespace(id=42),
+            answer=AsyncMock(),
+        )
+        with patch.object(self.manager, "_build_status_text", return_value="status-text") as build_status:
+            await self.manager.show_status(message)
+
+        build_status.assert_called_once_with("42")
+        message.answer.assert_awaited_once_with("status-text")
+
 
 if __name__ == "__main__":
     unittest.main()

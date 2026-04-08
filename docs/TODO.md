@@ -59,7 +59,7 @@
 - [ ] HTTPS + webhook на VPS (домен + Let's Encrypt + Nginx)
 - [ ] iiko: маппинг позиций → импорт через CSV/XLSX (альтернатива Playwright)
 - [ ] Быстрый парсер ТОРГ-12 / УПД без LLM (экономия на типовых формах)
-- [ ] Команда /status (показ состояния очереди задач пользователю)
+- [x] Команда /status (показ состояния очереди задач пользователю)
 - [ ] Auto-restart воркера и backend (systemd / docker restart policy)
 
 ## Этап 7 — Альтернативный LLM-провайдер (Cloudflare + Gemini)

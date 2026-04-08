@@ -392,6 +392,16 @@
 - Quick check:
   - `.venv\\Scripts\\python.exe -m unittest tests.test_user_messages tests.test_bot_stage5 -v`
 
+## 40) Stage 6 kickoff: /status command for queue and last request (2026-04-08)
+- Files:
+  - updated `app/task_store.py`, `app/bot/manager.py`, `app/bot/messages.py`, `tests/test_bot_stage5.py`, `docs/TODO.md`.
+- Behavior:
+  - added `/status` command in bot menu and handler;
+  - user now sees queue aggregates (`queued`/`processing`), pending draft file count, and last request status/message;
+  - task store now exposes read helpers `get_queue_snapshot()` and `get_user_last_task(user_id)`.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 tests.test_user_messages -v`
+
 ---
 
 ### Быстрый чек-лист для нового агента
