@@ -271,7 +271,7 @@ class Msg:
     PHOTO_SPLIT_HINT = "Если фото разрезано на части — попробуйте /split и отправьте части отдельно."
 
     INVOICE_UNKNOWN = "—"
-    INVOICE_TITLE = "📄 Распознанная накладная"
+    INVOICE_TITLE = "📄 Документ распознан"
     INVOICE_SUPPLIER = "📦 Поставщик: {supplier}"
     INVOICE_CONSIGNEE = "🏢 Грузополучатель: {consignee}"
     INVOICE_DELIVERY = "📍 Адрес доставки: {delivery}"

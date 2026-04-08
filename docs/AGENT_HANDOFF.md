@@ -422,6 +422,15 @@
 - Quick check:
   - `.venv\\Scripts\\python.exe -m unittest tests.test_bot_stage5 -v`
 
+## 43) Neutral recognition header for all document types (2026-04-08)
+- Files:
+  - updated `app/bot/messages.py`.
+- Behavior:
+  - final success header changed from `Распознанная накладная` to neutral `Документ распознан`;
+  - avoids mismatched wording when source document is invoice/receipt/etc.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest tests.test_user_messages tests.test_bot_stage5 -v`
+
 ---
 
 ### Быстрый чек-лист для нового агента
