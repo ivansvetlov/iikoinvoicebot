@@ -111,6 +111,8 @@ class DummyBot:
         self.sent_messages: list[dict] = []
         self.deleted_messages: list[tuple[int, int]] = []
         self.edited_messages: list[dict] = []
+        self.pinned_messages: list[dict] = []
+        self.unpinned_chats: list[int] = []
 
     async def get_file(self, file_id: str):
         return SimpleNamespace(file_path=file_id)
@@ -144,6 +146,18 @@ class DummyBot:
             }
         )
         return SimpleNamespace(message_id=message_id, chat=SimpleNamespace(id=chat_id))
+
+    async def unpin_chat_message(self, chat_id: int):
+        self.unpinned_chats.append(chat_id)
+
+    async def pin_chat_message(self, chat_id: int, message_id: int, disable_notification: bool = True):
+        self.pinned_messages.append(
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "disable_notification": disable_notification,
+            }
+        )
 
     async def set_my_commands(self, *args, **kwargs) -> None:
         return None
@@ -474,18 +488,20 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
 
     async def test_build_status_text_includes_queue_and_last_task(self) -> None:
         user_id = "42"
-        with patch("app.bot.manager.get_user_active_snapshot", return_value={"queued": 3, "processing": 2, "stale": 1}):
-            with patch(
-                "app.bot.manager.get_user_last_task",
-                return_value={
-                    "request_id": "20260408_120000_123_42",
-                    "status": "processing",
-                    "message": "Идет обработка",
-                },
-            ):
-                text = self.manager._build_status_text(user_id)
+        with patch("app.bot.manager.reap_stale_tasks", return_value=2):
+            with patch("app.bot.manager.get_user_active_snapshot", return_value={"queued": 3, "processing": 2, "stale": 1}):
+                with patch(
+                    "app.bot.manager.get_user_last_task",
+                    return_value={
+                        "request_id": "20260408_120000_123_42",
+                        "status": "processing",
+                        "message": "Идет обработка",
+                    },
+                ):
+                    text = self.manager._build_status_text(user_id)
 
         self.assertIn("Статус ваших заявок:", text)
+        self.assertIn("Зависшие заявки: 2", text)
         self.assertIn("В очереди: 3", text)
         self.assertIn("В обработке: 2", text)
         self.assertIn("Требуют внимания: 1", text)
@@ -519,6 +535,19 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.bot.sent_messages), 1)
         self.assertEqual(len(self.bot.edited_messages), 1)
         self.assertEqual(self.bot.edited_messages[0]["text"], "second-status")
+
+    async def test_status_command_pins_card_when_enabled(self) -> None:
+        message = SimpleNamespace(
+            from_user=SimpleNamespace(id=42),
+            chat=SimpleNamespace(id=1001),
+        )
+        with patch("app.bot.manager.settings.status_pin_message", True):
+            with patch.object(self.manager, "_build_status_text", return_value="status-text"):
+                await self.manager.show_status(message)
+
+        self.assertEqual(len(self.bot.pinned_messages), 1)
+        self.assertEqual(self.bot.pinned_messages[0]["chat_id"], 1001)
+        self.assertEqual(self.bot.pinned_messages[0]["message_id"], 1)
 
     async def test_status_refresh_callback_updates_message(self) -> None:
         query_message = SimpleNamespace(

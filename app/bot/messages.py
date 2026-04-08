@@ -8,6 +8,7 @@ class Msg:
     STATUS_SCOPE = "Показываю активные заявки за последние {hours} ч."
     STATUS_QUEUE = "В очереди: {queued}"
     STATUS_PROCESSING = "В обработке: {processing}"
+    STATUS_REAPED = "Зависшие заявки: {count} (пометил как ошибка по таймауту)."
     STATUS_STALE = "Требуют внимания: {stale}"
     STATUS_STALE_HINT = "Есть зависшие заявки. Отправьте файл повторно."
     STATUS_PENDING = "В черновике файлов: {count}"

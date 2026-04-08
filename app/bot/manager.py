@@ -34,7 +34,7 @@ from app.services.user_store import (
     set_iiko_credentials,
     set_pdf_mode,
 )
-from app.task_store import get_user_active_snapshot, get_user_last_task
+from app.task_store import get_user_active_snapshot, get_user_last_task, reap_stale_tasks
 from app.utils.user_messages import format_user_response, format_invoice_markdown, short_request_code
 
 if TYPE_CHECKING:
@@ -156,9 +156,17 @@ class TelegramBotManager:
                 await self.bot.delete_message(old[0], old[1])
             except Exception:  # noqa: BLE001
                 logger.debug("Failed to delete old status message for user_id=%s", user_id)
+        if settings.status_pin_message:
+            await self._pin_status_message(message.chat.id, sent.message_id, user_id)
         self._log_status(user_id, "status_requested")
 
     def _build_status_text(self, user_id: str) -> str:
+        reaped = 0
+        if settings.status_auto_reap:
+            reaped = reap_stale_tasks(
+                user_id=user_id,
+                stale_minutes=settings.status_stale_minutes,
+            )
         snapshot = get_user_active_snapshot(
             user_id,
             active_hours=settings.status_active_hours,
@@ -171,9 +179,11 @@ class TelegramBotManager:
             Msg.STATUS_TITLE,
             Msg.STATUS_SCOPE.format(hours=settings.status_active_hours),
             "",
-            Msg.STATUS_QUEUE.format(queued=snapshot.get("queued", 0)),
-            Msg.STATUS_PROCESSING.format(processing=snapshot.get("processing", 0)),
         ]
+        if reaped > 0:
+            lines.append(Msg.STATUS_REAPED.format(count=reaped))
+        lines.append(Msg.STATUS_QUEUE.format(queued=snapshot.get("queued", 0)))
+        lines.append(Msg.STATUS_PROCESSING.format(processing=snapshot.get("processing", 0)))
         if snapshot.get("stale", 0) > 0:
             lines.append(Msg.STATUS_STALE.format(stale=snapshot.get("stale", 0)))
             lines.append(Msg.STATUS_STALE_HINT)
@@ -205,6 +215,24 @@ class TelegramBotManager:
                 [InlineKeyboardButton(text=Msg.BTN_STATUS_REFRESH, callback_data="status:refresh", style="default")]
             ]
         )
+
+    async def _pin_status_message(self, chat_id: int, message_id: int, user_id: str) -> None:
+        """Пытается закрепить статус-карточку; при ошибке молча продолжает."""
+        try:
+            await self.bot.unpin_chat_message(chat_id=chat_id)
+        except Exception:  # noqa: BLE001
+            # В ряде чатов unpin может быть недоступен; это не блокирует работу.
+            pass
+        try:
+            await self.bot.pin_chat_message(
+                chat_id=chat_id,
+                message_id=message_id,
+                disable_notification=True,
+            )
+            self._log_status(user_id, "status_pinned", {"message_id": message_id})
+        except Exception:  # noqa: BLE001
+            logger.debug("Failed to pin status message for user_id=%s", user_id)
+            self._log_status(user_id, "status_pin_failed", {"message_id": message_id})
 
     async def on_text(self, message: Message) -> None:
         """Обрабатывает текстовые сообщения для авторизации."""
@@ -952,6 +980,8 @@ class TelegramBotManager:
             )
             if getattr(query.message, "chat", None) and getattr(query.message, "message_id", None):
                 self._status_prompt[user_id] = (query.message.chat.id, query.message.message_id)
+                if settings.status_pin_message:
+                    await self._pin_status_message(query.message.chat.id, query.message.message_id, user_id)
             self._log_status(user_id, "status_refreshed")
             return
 

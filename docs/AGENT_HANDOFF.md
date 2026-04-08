@@ -431,6 +431,16 @@
 - Quick check:
   - `.venv\\Scripts\\python.exe -m unittest tests.test_user_messages tests.test_bot_stage5 -v`
 
+## 44) /status: stale-task reaper + optional pinned card (2026-04-08)
+- Files:
+  - updated `app/task_store.py`, `app/bot/manager.py`, `app/bot/messages.py`, `app/config.py`, `.env.example`, `tests/test_bot_stage5.py`, `docs/TODO.md`.
+- Behavior:
+  - `/status` now auto-reaps stale `queued/processing` tasks to timeout error (configurable);
+  - status card can be pinned (`STATUS_PIN_MESSAGE=true`) with safe fallback if chat permissions do not allow pinning;
+  - retained no-spam behavior: one status card per user is edited/reused.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m unittest discover -s tests -v`
+
 ---
 
 ### Быстрый чек-лист для нового агента

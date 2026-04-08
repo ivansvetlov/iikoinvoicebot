@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func
 
 from app.db import get_session, init_db
 from app.models import TaskRecord
+
+STALE_TASK_MESSAGE = "Заявка не завершилась вовремя. Отправьте файл повторно."
 
 
 def create_task(
@@ -153,3 +155,33 @@ def get_user_last_task(user_id: str) -> dict[str, Any] | None:
             "created_at": task.created_at,
             "finished_at": task.finished_at,
         }
+
+
+def reap_stale_tasks(*, stale_minutes: int, user_id: str | None = None) -> int:
+    """Помечает старые queued/processing задачи как timeout-error и возвращает их количество."""
+    init_db()
+    with get_session() as session:
+        if session is None:
+            return 0
+
+        query = session.query(TaskRecord).filter(TaskRecord.status.in_(("queued", "processing")))
+        if user_id is not None:
+            query = query.filter(TaskRecord.user_id == user_id)
+        tasks = query.all()
+        if not tasks:
+            return 0
+
+        cutoff = datetime.utcnow() - timedelta(minutes=max(stale_minutes, 1))
+        now = datetime.utcnow()
+        touched = 0
+        for task in tasks:
+            touch = task.updated_at or task.created_at
+            if touch is None or touch >= cutoff:
+                continue
+            task.status = "error"
+            if not (task.message or "").strip():
+                task.message = STALE_TASK_MESSAGE
+            task.error = "timeout_stale_task"
+            task.finished_at = now
+            touched += 1
+        return touched

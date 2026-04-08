@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     max_files_per_batch: int = Field(default=10, alias="MAX_FILES_PER_BATCH")
     status_active_hours: int = Field(default=24, alias="STATUS_ACTIVE_HOURS")
     status_stale_minutes: int = Field(default=20, alias="STATUS_STALE_MINUTES")
+    status_auto_reap: bool = Field(default=True, alias="STATUS_AUTO_REAP")
+    status_pin_message: bool = Field(default=True, alias="STATUS_PIN_MESSAGE")
 
     use_webhook: bool = Field(default=False, alias="USE_WEBHOOK")
     webhook_url: str = Field(default="", alias="WEBHOOK_URL")
