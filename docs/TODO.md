@@ -57,7 +57,7 @@
 - [x] Cost logging: llm_costs.csv + llm_usage в JSON запросов
 - [x] Docker: Dockerfile + docker-compose.yml (backend, worker, bot, redis)
 - [ ] HTTPS + webhook на VPS (домен + Let's Encrypt + Nginx)
-- [x] iiko: маппинг позиций → импорт через CSV/XLSX (альтернатива Playwright)
+- [x] iiko: маппинг позиций → импорт через CSV/XLSX (альтернатива прямой API-выгрузке)
 - [ ] Быстрый парсер ТОРГ-12 / УПД без LLM (экономия на типовых формах)
 - [x] Команда /status (показ состояния очереди задач пользователю)
 - [x] /status: user-only view + auto-reap зависших queued/processing
@@ -118,3 +118,16 @@
 - [x] Создать ветку под канал MAX (`feature/channel-max`)
 - [x] Создать ветку под интеграцию МойСклад (`feature/integration-moysklad`)
 - [x] Создать ветку под интеграцию 1С (`feature/integration-1c`)
+## Update 2026-04-18
+- [x] iiko: direct `incomingInvoice` API stabilized on demo stand (auto product resolve + required document metadata)
+- [x] iiko: verified the real posting path (`status=PROCESSED`) on demo stand with a `GOODS` item and `/reports/balance/stores` stock delta
+- [x] iiko: client now returns document number/status and distinguishes draft creation from warehouse receipt
+- [ ] iiko: product UX decision for production posting flow (`NEW` draft for review vs `PROCESSED` auto-post after confidence/mapping checks)
+- [ ] iiko: supplier mapping policy (from document/vendor catalog/default supplier) before enabling auto-posting for real clients
+
+## Update 2026-04-21
+- [x] iiko: one-time E2E stock cleanup on demo stand completed (all non-zero balances reduced to 0)
+- [x] iiko: added reusable stock reset utility `scripts/iiko_reset_stock.py` (dry-run + apply)
+- [x] iiko: first-fill path improved with optional auto-create missing products (`IIKO_AUTOCREATE_PRODUCTS`)
+- [x] iiko: verified incoming invoice posting from saved recognized request on clean stand (`status=PROCESSED`)
+- [ ] iiko: decide default policy for auto-create in production (off by default vs selective allow-list)

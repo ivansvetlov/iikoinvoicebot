@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import re
 import zlib
 from typing import Any
 
@@ -32,6 +33,59 @@ def short_request_code(request_id: str | None) -> str | None:
 
     value = zlib.crc32(request_id.encode("utf-8")) % 100000
     return f"{value:05d}"
+
+
+def _parse_decimal_number(value: str) -> float | None:
+    cleaned = (value or "").replace("\xa0", " ").strip()
+    if not cleaned:
+        return None
+
+    # Keep only number-related symbols.
+    cleaned = re.sub(r"[^0-9,.\-]", "", cleaned)
+    if not cleaned:
+        return None
+
+    # Normalize thousand separators for common RU/EU number forms.
+    if "," in cleaned and "." in cleaned:
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        cleaned = cleaned.replace(".", "").replace(",", ".")
+    else:
+        parts = cleaned.split(".")
+        if len(parts) > 2:
+            cleaned = "".join(parts[:-1]) + "." + parts[-1]
+
+    try:
+        return float(cleaned)
+    except Exception:
+        return None
+
+
+def _extract_document_vat_total(raw_text: str) -> float | None:
+    text = (raw_text or "").lower()
+    if not text:
+        return None
+
+    # Prefer document-level VAT phrases over line-level values.
+    patterns = [
+        r"в\s*том\s*числе\s*ндс(?:\s*\d{1,2}(?:[.,]\d+)?\s*%)?\s*[:\-]?\s*([0-9][0-9\s.,]*)",
+        r"итог[ао]?[^\n]{0,120}?ндс(?:\s*\d{1,2}(?:[.,]\d+)?\s*%)?\s*[:\-]?\s*([0-9][0-9\s.,]*)",
+        r"\bндс(?:\s*\d{1,2}(?:[.,]\d+)?\s*%)\s*[:\-]?\s*([0-9][0-9\s.,]*)",
+    ]
+
+    candidates: list[float] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            parsed = _parse_decimal_number(match.group(1))
+            if parsed is not None and parsed > 0:
+                candidates.append(parsed)
+
+    if not candidates:
+        return None
+    return candidates[-1]
 
 
 def format_user_response(payload: dict[str, Any]) -> str:
@@ -175,6 +229,15 @@ def format_invoice_markdown(
         lines.append(Msg.INVOICE_ITEM_PRICE.format(price=price))
         lines.append(Msg.INVOICE_ITEM_TOTAL.format(total=total, vat=vat))
         lines.append("")
+
+    # If VAT is not available per line, try document-level VAT from parsed payload/raw text.
+    doc_vat = _to_float(parsed.get("vat_total") or payload.get("vat_total"))
+    if doc_vat <= 0:
+        extracted_vat = _extract_document_vat_total(str(parsed.get("raw_text") or ""))
+        if extracted_vat is not None:
+            doc_vat = extracted_vat
+    if total_vat <= 0 and doc_vat > 0:
+        total_vat = doc_vat
 
     lines.append(Msg.INVOICE_SEPARATOR)
     lines.append(Msg.INVOICE_VAT_SUM.format(vat=round(total_vat, 2)))

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import sys
 import tempfile
 import types
@@ -101,6 +102,7 @@ except ModuleNotFoundError as exc:
     _install_aiogram_stubs()
     from app.bot.manager import TelegramBotManager
 from app.bot.messages import Msg
+from app.utils.user_messages import short_request_code
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "smoke"
 
@@ -201,6 +203,28 @@ def _document_message(
     return message, document
 
 
+def _text_message(*, user_id: int = 42, chat_id: int = 1001, text: str = ""):
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=user_id),
+        chat=SimpleNamespace(id=chat_id),
+        text=text,
+        answer=AsyncMock(),
+    )
+    message.answer.return_value = SimpleNamespace(message_id=9002, chat=message.chat)
+    return message
+
+
+def _start_message(*, user_id: int = 42, chat_id: int = 1001, message_id: int = 777):
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=user_id),
+        chat=SimpleNamespace(id=chat_id),
+        message_id=message_id,
+        answer=AsyncMock(),
+    )
+    message.answer.return_value = SimpleNamespace(message_id=9004, chat=message.chat)
+    return message
+
+
 class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self._bot_patcher = patch("app.bot.manager.Bot", DummyBot)
@@ -221,6 +245,87 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((FIXTURES_DIR / "invoice_control.txt").exists())
         self.assertTrue((FIXTURES_DIR / "receipt_control.txt").exists())
         self.assertTrue((FIXTURES_DIR / "duplicate_blob.bin").exists())
+
+    async def test_auth_password_step_verifies_iiko_before_save(self) -> None:
+        user_id = "42"
+        self.manager._auth_state[user_id] = "await_password"
+        self.manager._pending_login[user_id] = "demo_user"
+        message = _text_message(user_id=42, text="demo_password")
+
+        with patch.object(self.manager._iiko_client, "verify_credentials", new=AsyncMock(return_value=None)) as verify:
+            with patch("app.bot.manager.set_iiko_credentials") as save:
+                await self.manager.on_text(message)
+
+        self.assertEqual(verify.await_count, 1)
+        save.assert_called_once_with(user_id, "demo_user", "demo_password")
+        self.assertNotIn(user_id, self.manager._auth_state)
+        self.assertNotIn(user_id, self.manager._pending_login)
+        answers = [call.args[0] for call in message.answer.await_args_list if call.args]
+        self.assertIn(Msg.AUTH_CHECKING, answers)
+        self.assertIn(Msg.AUTH_SAVED, answers)
+
+    async def test_auth_password_step_returns_to_login_on_failed_verify(self) -> None:
+        user_id = "42"
+        self.manager._auth_state[user_id] = "await_password"
+        self.manager._pending_login[user_id] = "demo_user"
+        message = _text_message(user_id=42, text="bad_password")
+
+        with patch.object(
+            self.manager._iiko_client,
+            "verify_credentials",
+            new=AsyncMock(side_effect=RuntimeError("IIKO auth failed: status=401")),
+        ) as verify:
+            with patch("app.bot.manager.set_iiko_credentials") as save:
+                await self.manager.on_text(message)
+
+        self.assertEqual(verify.await_count, 1)
+        save.assert_not_called()
+        self.assertEqual(self.manager._auth_state.get(user_id), "await_login")
+        self.assertNotIn(user_id, self.manager._pending_login)
+        answers = [call.args[0] for call in message.answer.await_args_list if call.args]
+        self.assertIn(Msg.AUTH_CHECKING, answers)
+        self.assertIn(Msg.AUTH_FAILED, answers)
+
+    async def test_start_with_existing_credentials_shows_switch_button(self) -> None:
+        message = _start_message(user_id=42)
+        with patch("app.bot.manager.get_iiko_credentials", return_value=("old_login", "old_pass")):
+            await self.manager.start(message)
+
+        message.answer.assert_awaited_once()
+        self.assertEqual(message.answer.await_args.args[0], Msg.AUTH_ALREADY)
+        keyboard = message.answer.await_args.kwargs.get("reply_markup")
+        self.assertIsNotNone(keyboard)
+        callbacks = {
+            button.callback_data
+            for row in keyboard.inline_keyboard
+            for button in row
+        }
+        self.assertEqual(callbacks, {"auth:switch"})
+
+    async def test_auth_switch_callback_clears_credentials_and_requests_login(self) -> None:
+        self.manager._auth_state["42"] = "await_password"
+        self.manager._pending_login["42"] = "old_login"
+        query_message = SimpleNamespace(
+            chat=SimpleNamespace(id=1001),
+            message_id=7003,
+            edit_text=AsyncMock(),
+            answer=AsyncMock(),
+        )
+        query = SimpleNamespace(
+            from_user=SimpleNamespace(id=42),
+            message=query_message,
+            data="auth:switch",
+            answer=AsyncMock(),
+        )
+
+        with patch("app.bot.manager.clear_iiko_credentials") as clear_creds:
+            await self.manager.on_mode_choice(query)
+
+        query.answer.assert_awaited_once()
+        clear_creds.assert_called_once_with("42")
+        self.assertEqual(self.manager._auth_state.get("42"), "await_login")
+        self.assertNotIn("42", self.manager._pending_login)
+        query_message.edit_text.assert_awaited_once_with(Msg.AUTH_SWITCHED, reply_markup=None)
 
     async def test_split_album_updates_prompt_once(self) -> None:
         user_id = "42"
@@ -607,6 +712,79 @@ class BotStage5Tests(unittest.IsolatedAsyncioTestCase):
         edited_text = query_message.edit_text.await_args.args[0]
         self.assertIn("Повторно отправил документ в обработку.", edited_text)
         self.assertIn("status-body", edited_text)
+
+
+    async def test_on_text_ignores_pinned_service_message(self) -> None:
+        message = SimpleNamespace(
+            from_user=SimpleNamespace(id=42),
+            chat=SimpleNamespace(id=1001),
+            text="Alice pinned a message",
+            pinned_message=SimpleNamespace(message_id=555),
+            answer=AsyncMock(),
+        )
+
+        await self.manager.on_text(message)
+
+        message.answer.assert_not_awaited()
+
+    async def test_show_final_response_keeps_send_for_import_ready(self) -> None:
+        state = SimpleNamespace(
+            request_id="req-42",
+            payload={"parsed": {"items": []}, "iiko_uploaded": False, "iiko_import_ready": True},
+            overrides={},
+            items=[],
+        )
+        message = SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock())
+
+        with patch.object(self.manager, "_invoice_actions", wraps=self.manager._invoice_actions) as invoice_actions:
+            await self.manager._show_final_response(message, state)
+
+        self.assertTrue(invoice_actions.called)
+        self.assertTrue(invoice_actions.call_args.kwargs.get("allow_send"))
+
+    async def test_send_to_iiko_handles_queued_response_without_false_failure(self) -> None:
+        request_id = "test_send_to_iiko_queued_42"
+        query_message = SimpleNamespace(
+            chat=SimpleNamespace(id=1001),
+            message_id=7002,
+            edit_text=AsyncMock(),
+            answer=AsyncMock(),
+        )
+        queued_request_id = "20260420_213427_827_6106711925"
+        queued_code = short_request_code(queued_request_id) or queued_request_id
+
+        with patch.object(self.manager, "_load_request_payload", return_value={"user_id": "42"}):
+            with patch(
+                "app.bot.manager.send_request_to_iiko",
+                new=AsyncMock(return_value={"status": "queued", "request_id": queued_request_id}),
+            ) as send_to_iiko:
+                await self.manager._send_to_iiko(query_message, request_id, user_id="42")
+
+        self.assertEqual(send_to_iiko.await_count, 1)
+        self.assertTrue(query_message.edit_text.await_count >= 2)
+        final_text = query_message.edit_text.await_args_list[-1].args[0]
+        self.assertIn(Msg.IIKO_QUEUED.format(code_line=Msg.CODE_LINE.format(code=queued_code)).strip(), final_text)
+        self.assertNotIn(request_id, self.manager._iiko_send_inflight)
+
+    async def test_send_to_iiko_skips_when_same_request_already_inflight(self) -> None:
+        request_id = "test_send_to_iiko_inflight_42"
+        self.manager._iiko_send_inflight.add(request_id)
+        self.addCleanup(self.manager._iiko_send_inflight.discard, request_id)
+
+        query_message = SimpleNamespace(
+            chat=SimpleNamespace(id=1001),
+            message_id=7003,
+            edit_text=AsyncMock(),
+            answer=AsyncMock(),
+        )
+
+        with patch("app.bot.manager.send_request_to_iiko", new=AsyncMock()) as send_to_iiko:
+            await self.manager._send_to_iiko(query_message, request_id, user_id="42")
+
+        self.assertEqual(send_to_iiko.await_count, 0)
+        query_message.answer.assert_awaited_once()
+        text = query_message.answer.await_args.args[0]
+        self.assertIn("уже выполняется", text.lower())
 
 
 if __name__ == "__main__":

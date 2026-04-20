@@ -51,6 +51,26 @@ def set_iiko_credentials(user_id: str, login: str, password: str) -> None:
     _save_data(data)
 
 
+def clear_iiko_credentials(user_id: str) -> None:
+    """Remove saved iiko credentials for the given Telegram user id."""
+    data = _load_data()
+    users = data.get("users", {})
+    entry = users.get(str(user_id))
+    if not isinstance(entry, dict):
+        return
+    changed = False
+    if "iiko_login" in entry:
+        entry.pop("iiko_login", None)
+        changed = True
+    if "iiko_password" in entry:
+        entry.pop("iiko_password", None)
+        changed = True
+    if changed:
+        users[str(user_id)] = entry
+        data["users"] = users
+        _save_data(data)
+
+
 def get_pdf_mode(user_id: str | None) -> str:
     """Return pdf processing mode for user: fast or accurate."""
     if not user_id:

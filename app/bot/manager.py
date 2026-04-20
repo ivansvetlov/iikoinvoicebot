@@ -23,12 +23,14 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
-from app.bot.backend_client import send_batch_to_backend, send_file_to_backend
+from app.bot.backend_client import send_batch_to_backend, send_file_to_backend, send_request_to_iiko
 from app.bot.event_codes import BOT_BACKEND_UNAVAILABLE, BOT_NO_PENDING, BOT_RATE_LIMIT, event_meta, with_event_code
 from app.bot.file_storage import PendingSplitStorage
 from app.bot.messages import Msg
 from app.config import settings
+from app.iiko.server_client import IikoServerClient
 from app.services.user_store import (
+    clear_iiko_credentials,
     get_iiko_credentials,
     get_pdf_mode,
     set_iiko_credentials,
@@ -53,6 +55,7 @@ class TelegramBotManager:
         self._backend_url = backend_url.rstrip("/")
         self.bot = Bot(token=token)
         self.dp = Dispatcher()
+        self._iiko_client = IikoServerClient()
         self._register_handlers()
         self._auth_state: dict[str, str] = {}
         self._pending_login: dict[str, str] = {}
@@ -75,6 +78,7 @@ class TelegramBotManager:
         self._split_media_group_tasks: dict[str, asyncio.Task] = {}
         self._rate_limits: dict[str, list[datetime]] = {}
         self._recent_hashes: dict[str, dict[str, datetime]] = {}
+        self._iiko_send_inflight: set[str] = set()
         self._edit_state: dict[str, EditState] = {}
         logger.info("Bot manager initialized")
         self._storage.cleanup_old()
@@ -123,11 +127,27 @@ class TelegramBotManager:
         user_id = str(message.from_user.id)
         self._reset_user_buffers(user_id)
         if get_iiko_credentials(user_id):
-            await message.answer(Msg.AUTH_ALREADY)
+            await message.answer(
+                Msg.AUTH_ALREADY,
+                reply_markup=self._auth_already_keyboard(),
+            )
             return
         await message.answer(Msg.AUTH_START)
         self._auth_state[user_id] = "await_login"
         self._log_status(user_id, "auth_requested", {"message_id": message.message_id})
+
+    def _auth_already_keyboard(self) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=Msg.BTN_AUTH_SWITCH,
+                        callback_data="auth:switch",
+                        style="danger",
+                    )
+                ]
+            ]
+        )
 
     async def show_status(self, message: Message) -> None:
         """Показывает пользователю состояние его активных заявок и последней обработки."""
@@ -266,6 +286,9 @@ class TelegramBotManager:
         """Обрабатывает текстовые сообщения для авторизации."""
         if not message.from_user:
             return
+        if getattr(message, "pinned_message", None) is not None:
+            # Ignore Telegram service event "message pinned" to avoid UX noise.
+            return
 
         user_id = str(message.from_user.id)
         if await self._handle_edit_text(message, user_id):
@@ -298,6 +321,23 @@ class TelegramBotManager:
             if not login:
                 self._auth_state[user_id] = "await_login"
                 await message.answer(Msg.AUTH_LOGIN_MISSING)
+                return
+            await message.answer(Msg.AUTH_CHECKING)
+            try:
+                await self._iiko_client.verify_credentials(login, text)
+            except Exception as exc:  # noqa: BLE001
+                self._auth_state[user_id] = "await_login"
+                self._pending_login.pop(user_id, None)
+                error_text = str(exc or "").strip()
+                if "IIKO_API_BASE_URL is not configured" in error_text:
+                    await message.answer(Msg.AUTH_API_NOT_CONFIGURED)
+                else:
+                    await message.answer(Msg.AUTH_FAILED)
+                self._log_status(
+                    user_id,
+                    "auth_failed",
+                    {"error": error_text[:300]},
+                )
                 return
             set_iiko_credentials(user_id, login, text)
             self._auth_state.pop(user_id, None)
@@ -483,6 +523,8 @@ class TelegramBotManager:
         """Обрабатывает reply на сообщение с файлом/фото, без повторной загрузки."""
         if not message.from_user:
             return
+        if getattr(message, "pinned_message", None) is not None:
+            return
         if message.document or message.photo:
             return
         reply = message.reply_to_message
@@ -510,6 +552,8 @@ class TelegramBotManager:
 
         Если это ответ на сообщение с файлом/фото, обрабатывает вложение.
         """
+        if getattr(message, "pinned_message", None) is not None:
+            return
         if message.document or message.photo:
             return
 
@@ -936,6 +980,9 @@ class TelegramBotManager:
         if data.startswith("status:"):
             await self._handle_status_choice(query, data)
             return
+        if data.startswith("auth:"):
+            await self._handle_auth_choice(query, data)
+            return
         if data.startswith("inv:"):
             await self._handle_invoice_actions(query, data)
             return
@@ -1015,6 +1062,22 @@ class TelegramBotManager:
         if data.startswith("status:retry:"):
             request_id = data.split(":", 2)[2]
             await self._retry_status_request(query.message, user_id, request_id)
+            return
+
+    async def _handle_auth_choice(self, query: CallbackQuery, data: str) -> None:
+        if not query.from_user:
+            return
+        user_id = str(query.from_user.id)
+        if data == "auth:switch":
+            self._reset_user_buffers(user_id)
+            clear_iiko_credentials(user_id)
+            self._pending_login.pop(user_id, None)
+            self._auth_state[user_id] = "await_login"
+            await query.message.edit_text(
+                Msg.AUTH_SWITCHED,
+                reply_markup=None,
+            )
+            self._log_status(user_id, "auth_switched")
             return
 
     async def _retry_status_request(self, message: Message, user_id: str, request_id: str) -> None:
@@ -1127,7 +1190,7 @@ class TelegramBotManager:
             return
 
         if action == "send":
-            await self._send_to_iiko(query.message, request_id)
+            await self._send_to_iiko(query.message, request_id, user_id=user_id)
             return
 
     async def _handle_edit_actions(self, query: CallbackQuery, data: str) -> None:
@@ -1296,7 +1359,9 @@ class TelegramBotManager:
             overrides=state.overrides,
             items_override=state.items,
         )
-        await self._reply(message, text, reply_markup=self._invoice_actions(state.request_id))
+        # Keep "send to iiko" available for import-fallback cases.
+        allow_send = not bool(state.payload.get("iiko_uploaded"))
+        await self._reply(message, text, reply_markup=self._invoice_actions(state.request_id, allow_send=allow_send))
 
     async def _reply(
         self,
@@ -1311,13 +1376,17 @@ class TelegramBotManager:
             pass
         await message.answer(text, reply_markup=reply_markup)
 
-    def _invoice_actions(self, request_id: str) -> InlineKeyboardMarkup:
+    def _invoice_actions(self, request_id: str, *, allow_send: bool = True) -> InlineKeyboardMarkup:
+        first_row = [
+            InlineKeyboardButton(text=Msg.BTN_INV_EDIT, callback_data=f"inv:edit:{request_id}", style="primary"),
+        ]
+        if allow_send:
+            first_row.append(
+                InlineKeyboardButton(text=Msg.BTN_INV_SEND, callback_data=f"inv:send:{request_id}", style="success")
+            )
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [
-                    InlineKeyboardButton(text=Msg.BTN_INV_EDIT, callback_data=f"inv:edit:{request_id}", style="primary"),
-                    InlineKeyboardButton(text=Msg.BTN_INV_SEND, callback_data=f"inv:send:{request_id}", style="success"),
-                ],
+                first_row,
                 [
                     InlineKeyboardButton(text=Msg.BTN_CANCEL, callback_data=f"inv:cancel:{request_id}", style="danger"),
                 ],
@@ -1329,78 +1398,96 @@ class TelegramBotManager:
             inline_keyboard=[[InlineKeyboardButton(text=Msg.BTN_CANCEL, callback_data="edit:cancel", style="danger")]]
         )
 
-    async def _send_to_iiko(self, message: Message, request_id: str) -> None:
+    async def _send_to_iiko(self, message: Message, request_id: str, *, user_id: str | None = None) -> None:
         code = short_request_code(request_id) or request_id
         code_line = Msg.CODE_LINE.format(code=code) if code else ""
-        payload_path = Path(__file__).resolve().parents[2] / "data" / "jobs" / request_id / "payload.json"
-        if not payload_path.exists():
-            await message.edit_text(
-                Msg.IIKO_SOURCE_MISSING.format(code_line=code_line),
-                reply_markup=None,
-            )
-            return
-        payload = json.loads(payload_path.read_text(encoding="utf-8"))
-        files = payload.get("files")
-        filename = payload.get("filename")
-        file_path = payload.get("file_path")
-        user_id = payload.get("user_id")
-        chat_id = payload.get("chat_id")
-        status_message_id = payload.get("status_message_id")
 
+        if request_id in self._iiko_send_inflight:
+            with suppress(Exception):
+                await message.answer(Msg.IIKO_ALREADY_SENDING.format(code_line=code_line))
+            return
+
+        self._iiko_send_inflight.add(request_id)
         try:
-            if files:
-                batch: list[tuple[str, bytes]] = []
-                for name, path in files:
-                    batch.append((name, Path(path).read_bytes()))
-                result = await send_batch_to_backend(
-                    self._backend_url,
-                    batch,
-                    user_id,
-                    chat_id,
-                    status_message_id=status_message_id,
-                    push_to_iiko_override=True,
+            payload = self._load_request_payload(request_id) or {}
+            payload_user_id = str(user_id or payload.get("user_id") or "")
+            if not payload:
+                await message.edit_text(
+                    Msg.IIKO_SOURCE_MISSING.format(code_line=code_line),
+                    reply_markup=None,
                 )
-            else:
-                if not filename or not file_path:
-                    await message.edit_text(
-                        Msg.IIKO_FILE_NOT_FOUND.format(code_line=code_line),
-                        reply_markup=None,
+                return
+
+            if payload_user_id:
+                self._log_status(payload_user_id, "inv_send_requested", {"request_id": request_id})
+
+            with suppress(Exception):
+                await message.edit_text(Msg.IIKO_SENDING.format(code_line=code_line), reply_markup=None)
+
+            try:
+                result = await send_request_to_iiko(
+                    self._backend_url,
+                    request_id,
+                    payload_user_id or None,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to send to iiko")
+                await message.edit_text(
+                    Msg.IIKO_FAILED.format(code_line=code_line),
+                    reply_markup=None,
+                )
+                if payload_user_id:
+                    self._log_status(payload_user_id, "inv_send_failed", {"request_id": request_id})
+                return
+
+            status = str(result.get("status") or "").strip().lower()
+            if status == "queued":
+                new_request_id = str(result.get("request_id") or "")
+                new_code = short_request_code(new_request_id) or new_request_id
+                new_code_line = Msg.CODE_LINE.format(code=new_code) if new_code else ""
+                await message.edit_text(
+                    Msg.IIKO_QUEUED.format(code_line=new_code_line),
+                    reply_markup=None,
+                )
+                if payload_user_id:
+                    self._log_status(
+                        payload_user_id,
+                        "inv_send_queued",
+                        {"source_request_id": request_id, "request_id": new_request_id},
                     )
-                    return
-                result = await send_file_to_backend(
-                    self._backend_url,
-                    filename,
-                    Path(file_path).read_bytes(),
-                    user_id,
-                    chat_id,
-                    status_message_id=status_message_id,
-                    push_to_iiko_override=True,
+                return
+
+            if status == "ok" and result.get("iiko_uploaded"):
+                await message.edit_text(
+                    Msg.IIKO_OK.format(code_line=code_line),
+                    reply_markup=None,
                 )
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to send to iiko")
+                if payload_user_id:
+                    self._log_status(payload_user_id, "inv_send_done", {"request_id": request_id, "mode": "api"})
+                return
+            if status == "ok" and result.get("iiko_import_ready"):
+                fmt = str(result.get("iiko_import_format") or "CSV").upper()
+                await message.edit_text(
+                    Msg.IIKO_IMPORT_READY.format(fmt=fmt, code_line=code_line),
+                    reply_markup=None,
+                )
+                if payload_user_id:
+                    self._log_status(payload_user_id, "inv_send_done", {"request_id": request_id, "mode": "import"})
+                return
+            if status == "error":
+                await message.edit_text(self._format_response(result), reply_markup=None)
+                if payload_user_id:
+                    self._log_status(payload_user_id, "inv_send_error", {"request_id": request_id})
+                return
+
             await message.edit_text(
                 Msg.IIKO_FAILED.format(code_line=code_line),
                 reply_markup=None,
             )
-            return
-
-        if result.get("status") == "ok" and result.get("iiko_uploaded"):
-            await message.edit_text(
-                Msg.IIKO_OK.format(code_line=code_line),
-                reply_markup=None,
-            )
-            return
-        if result.get("status") == "ok" and result.get("iiko_import_ready"):
-            fmt = str(result.get("iiko_import_format") or "CSV").upper()
-            await message.edit_text(
-                Msg.IIKO_IMPORT_READY.format(fmt=fmt, code_line=code_line),
-                reply_markup=None,
-            )
-            return
-        await message.edit_text(
-            Msg.IIKO_FAILED.format(code_line=code_line),
-            reply_markup=None,
-        )
+            if payload_user_id:
+                self._log_status(payload_user_id, "inv_send_failed", {"request_id": request_id})
+        finally:
+            self._iiko_send_inflight.discard(request_id)
 
     def _load_request_payload(self, request_id: str) -> dict[str, Any] | None:
         path = Path(__file__).resolve().parents[2] / "logs" / "requests" / f"{request_id}.json"

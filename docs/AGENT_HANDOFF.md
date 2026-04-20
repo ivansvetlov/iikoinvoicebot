@@ -2,6 +2,19 @@
 
 > Цель этого файла — чтобы новый агент/разработчик за 10–15 минут понял текущее состояние проекта, решения и где искать причины ошибок.
 
+## 49) iiko transport: Playwright removed, API-first mode (2026-04-18)
+- Files:
+  - removed `app/iiko/playwright_client.py`;
+  - added `app/iiko/server_client.py`;
+  - updated `app/config.py`, `.env.example`, `requirements.txt`, `app/services/pipeline.py`.
+- Behavior:
+  - browser automation path is removed from runtime;
+  - direct iiko upload now goes through server-side HTTP client (`IIKO_TRANSPORT=api`);
+  - safe default mode is `IIKO_TRANSPORT=import_only` with CSV/XLSX fallback generation.
+- Notes:
+  - current `iiko_server_docs` cache does not provide full endpoint/payload contracts;
+  - integration gaps are listed in `docs/IIKO_API_GAPS.md`.
+
 ## 0) Главные правила
 - Основные правила для агентов/разработчиков: `docs/AGENTS.md`.
 - Проверенные команды запуска/диагностики: `docs/DEBUG.md`.
@@ -456,7 +469,7 @@
   - added `app/iiko/import_export.py`, `tests/test_iiko_import_export.py`;
   - updated `app/services/pipeline.py`, `app/config.py`, `app/schemas.py`, `app/bot/messages.py`, `app/bot/manager.py`, `app/utils/user_messages.py`, `tests/test_invoice_recognition.py`, `tests/test_user_messages.py`, `.env.example`, `docs/TODO.md`, `docs/README.md`, `docs/ARCHITECTURE.md`.
 - Behavior:
-  - if direct iiko upload via Playwright fails after retries, pipeline can return successful fallback with generated import file (`CSV` or `XLSX`) instead of hard error;
+  - if direct iiko upload via server API fails after retries, pipeline can return successful fallback with generated import file (`CSV` or `XLSX`) instead of hard error;
   - fallback behavior is configurable via `IIKO_IMPORT_FALLBACK_ENABLED`, `IIKO_IMPORT_FORMAT`, `IIKO_IMPORT_EXPORT_DIR`;
   - user-facing responses now indicate import-file fallback (`format_user_response` and invoice markdown), and manual `inv:send` treats fallback as non-failed outcome.
 - Quick check:
@@ -471,6 +484,80 @@
 - Quick check:
   - `.venv\\Scripts\\python.exe scripts\\dev_run_all.py`
   - `.venv\\Scripts\\python.exe scripts\\dev_status.py`
+
+## 50) iiko API contract confirmed from PDF + /article pages (2026-04-18)
+- Files:
+  - updated `app/iiko/server_client.py`, `app/config.py`, `.env.example`, `docs/IIKO_API_GAPS.md`, `iiko_server_docs/README.md`, `iiko_server_docs/INDEX.md`;
+  - added `tests/test_iiko_server_client.py`.
+- Behavior:
+  - auth now follows official iikoServer contract: `POST /resto/api/auth?login=...&pass=<sha1(password)>`;
+  - upload now targets `POST /resto/api/documents/import/incomingInvoice?key=...` with XML payload;
+  - token is used as query param and cookie `key`;
+  - API mode now requires product mapping fields in `InvoiceItem.extras` (`product`/`supplierProduct`/`supplierProductArticle`), otherwise direct upload is skipped with explicit error and fallback path remains available.
+- Verification source:
+  - `C:\\Users\\MiBookPro\\Downloads\\iikoserver-api.pdf`;
+  - `https://ru.iiko.help/article/api-documentations/avtorizatsiya`;
+  - `https://ru.iiko.help/article/api-documentations/zagruzka-i-redaktirovanie-prikhodnoy-nakladnoy`;
+  - `https://ru.iiko.help/article/api-documentations/opisanie-oshibok`.
+
+## 51) Demo stand CRMID 8950663 integrated into local env (2026-04-18)
+- Files:
+  - added `docs/IIKO_DEMO_STAND.md` (sanitized stand metadata + links);
+  - added `data/private/iiko_demo_stand_8950663.md` (full letter with access details, local only);
+  - updated local `.env` to new API transport keys:
+    - `IIKO_API_BASE_URL=https://840-786-070.iiko.it`
+    - `IIKO_API_AUTH_PATH=/resto/api/auth`
+    - `IIKO_API_UPLOAD_PATH=/resto/api/documents/import/incomingInvoice`
+    - `IIKO_USERNAME=user`
+    - `IIKO_PASSWORD=<from letter>`
+- Notes:
+  - `IIKO_TRANSPORT` intentionally left as `import_only` for safe default;
+  - switching to direct API mode requires mapped iiko identifiers in `InvoiceItem.extras`.
+
+## 52) Live smoke on demo stand: auth OK, import requires payload hardening (2026-04-18)
+- Files:
+  - updated `app/iiko/server_client.py`, `docs/IIKO_API_GAPS.md`.
+- Behavior:
+  - auth now tries `form-urlencoded` first (compatible with 9.4 demo stand), then query fallback;
+  - live check confirmed `auth_status=200` on `https://840-786-070.iiko.it/resto/api/auth` with `login=user`, `pass=sha1(user#test)`;
+  - live check to `incomingInvoice` confirmed endpoint availability but returned `500 NPE` for minimal synthetic XML, indicating payload/business mapping is still incomplete.
+- Operational note:
+  - shell-level env vars `IIKO_USERNAME/IIKO_PASSWORD` can override `.env`; when debugging, verify effective values in process.
+
+## 53) iiko incomingInvoice made production-usable on demo stand (2026-04-18)
+- Files:
+  - updated `app/iiko/server_client.py`, `app/config.py`, `.env.example`, `app/iiko/README.md`, `tests/test_iiko_server_client.py`, `docs/IIKO_API_GAPS.md`.
+- Behavior:
+  - added catalog auto-resolve (`IIKO_AUTORESOLVE_PRODUCTS=true`):
+    - pulls `/resto/api/v2/entities/products/list`;
+    - resolves row mapping by `productArticle/article/num`, then `code`, then `name`;
+    - writes mapped `product` + `productArticle` + optional `code` into item extras;
+  - added optional store auto-fill (`IIKO_AUTOFILL_STORE=true`) from `/resto/api/corporation/stores` when exactly one store is available;
+  - added cache control for catalog lookup (`IIKO_CATALOG_CACHE_SEC`, default `300`);
+  - added required document-level metadata for import XML:
+    - `documentNumber`, `incomingDocumentNumber`, `dateIncoming`, `useDefaultDocumentTime`, `defaultStore` (when single store).
+- Live verification:
+  - before metadata: minimal payload consistently returned `500 NPE`;
+  - after metadata + mapping: direct `upload_invoice_items(...)` returns success (`documentValidationResult.valid=true`) on CRMID `8950663`.
+
+## 54) iiko incomingInvoice posting and stock verification (2026-04-18)
+- Files:
+  - updated `app/iiko/server_client.py`, `app/services/pipeline.py`, `app/schemas.py`, `app/config.py`, `.env.example`, `tests/test_iiko_server_client.py`, `docs/IIKO_API_GAPS.md`, `docs/TODO.md`.
+- Business finding:
+  - `documentValidationResult.valid=true` only proves that iiko accepted the XML;
+  - exported document `status=NEW` means draft/not posted;
+  - exported document `status=PROCESSED` plus `/resto/api/v2/reports/balance/stores` delta proves warehouse receipt for stock-moving goods.
+- Live demo proof on CRMID `8950663`:
+  - demo catalog initially had only `SERVICE` items, so previous smoke did not prove stock movement;
+  - created one API test `GOODS` product with `products/save`;
+  - import with `status=PROCESSED` requires `supplier`;
+  - updated client path created `bot-20260418235937-672c5b`, export returned `PROCESSED`, stock delta was `amount_delta=1`, `sum_delta=5`.
+- Runtime knobs:
+  - `IIKO_INCOMING_INVOICE_STATUS=NEW` creates a draft for manual review;
+  - `IIKO_INCOMING_INVOICE_STATUS=PROCESSED` attempts real posting;
+  - `IIKO_DEFAULT_SUPPLIER_ID` is needed for posting if supplier is not mapped from document extras;
+  - `IIKO_VERIFY_UPLOAD=true` verifies via export by number;
+  - `IIKO_VERIFY_STOCK_BALANCE=true` verifies before/after balance delta for resolved `product + store` pairs.
 
 ---
 

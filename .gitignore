@@ -52,8 +52,6 @@ tmp_*.html
 tmp_*.js
 
 # --- Local external repos / doc caches ---
-qwen-code/
-qwen-code2/
 iiko_server_docs/
 
 # --- Local document packs for manual recognition runs ---

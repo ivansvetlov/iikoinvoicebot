@@ -80,6 +80,27 @@ class UserMessagesTests(unittest.TestCase):
         text = format_invoice_markdown(payload)
         self.assertIn(Msg.INVOICE_IMPORT_READY.format(fmt="XLSX"), text)
 
+    def test_format_invoice_markdown_uses_document_level_vat_when_item_vat_missing(self) -> None:
+        payload = {
+            "parsed": {
+                "vendor_name": "Test Supplier",
+                "invoice_date": "2026-04-20",
+                "invoice_number": "VAT-1",
+                "raw_text": "ИТОГО 100,00\nв том числе НДС 20% 16,67",
+                "items": [
+                    {
+                        "name": "Milk",
+                        "unit_amount": "1",
+                        "unit_price": "100",
+                        "cost_with_tax": "100",
+                        "tax_amount": None,
+                    }
+                ],
+            },
+        }
+        text = format_invoice_markdown(payload)
+        self.assertIn(Msg.INVOICE_VAT_SUM.format(vat=16.67), text)
+
 
 if __name__ == "__main__":
     unittest.main()

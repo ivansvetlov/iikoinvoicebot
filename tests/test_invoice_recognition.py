@@ -273,19 +273,22 @@ class PipelineIikoFallbackTests(unittest.TestCase):
                         with patch.object(
                             service._iiko_client,
                             "upload_invoice_items",
-                            new=AsyncMock(side_effect=RuntimeError("playwright failed")),
+                            new=AsyncMock(side_effect=RuntimeError("iiko api failed")),
                         ):
-                            with patch("app.services.pipeline.settings.iiko_import_fallback_enabled", True):
-                                with patch("app.services.pipeline.settings.iiko_import_format", "csv"):
-                                    with patch("app.services.pipeline.settings.iiko_import_export_dir", tmp_dir):
-                                        service._iiko_import_exporter = service._iiko_import_exporter.__class__(tmp_dir)
-                                        return await service.process(
-                                            "invoice.txt",
-                                            b"stub",
-                                            push_to_iiko=True,
-                                            user_id="42",
-                                            request_id="20260408_120000_000_42",
-                                        )
+                            with patch("app.services.pipeline.settings.iiko_transport", "api"):
+                                with patch("app.services.pipeline.settings.iiko_import_fallback_enabled", True):
+                                    with patch("app.services.pipeline.settings.iiko_import_format", "csv"):
+                                        with patch("app.services.pipeline.settings.iiko_import_export_dir", tmp_dir):
+                                            service._iiko_import_exporter = service._iiko_import_exporter.__class__(
+                                                tmp_dir
+                                            )
+                                            return await service.process(
+                                                "invoice.txt",
+                                                b"stub",
+                                                push_to_iiko=True,
+                                                user_id="42",
+                                                request_id="20260408_120000_000_42",
+                                            )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             response = asyncio.run(run_case(tmp_dir))
@@ -331,21 +334,85 @@ class PipelineIikoFallbackTests(unittest.TestCase):
                         with patch.object(
                             service._iiko_client,
                             "upload_invoice_items",
-                            new=AsyncMock(side_effect=RuntimeError("playwright failed")),
+                            new=AsyncMock(side_effect=RuntimeError("iiko api failed")),
                         ):
-                            with patch("app.services.pipeline.settings.iiko_import_fallback_enabled", False):
-                                return await service.process(
-                                    "invoice.txt",
-                                    b"stub",
-                                    push_to_iiko=True,
-                                    user_id="42",
-                                    request_id="20260408_121000_000_42",
-                                )
+                            with patch("app.services.pipeline.settings.iiko_transport", "api"):
+                                with patch("app.services.pipeline.settings.iiko_import_fallback_enabled", False):
+                                    return await service.process(
+                                        "invoice.txt",
+                                        b"stub",
+                                        push_to_iiko=True,
+                                        user_id="42",
+                                        request_id="20260408_121000_000_42",
+                                    )
 
         response = asyncio.run(run_case())
         self.assertEqual(response.status, "error")
         self.assertEqual(response.error_code, "iiko_upload_failed")
         self.assertFalse(response.iiko_import_ready)
+
+
+class PipelineIikoUploadByRequestTests(unittest.TestCase):
+    def test_upload_existing_request_returns_not_found(self) -> None:
+        service = InvoicePipelineService()
+
+        with patch.object(service, "_load_saved_request_payload", return_value=None):
+            response = asyncio.run(service.upload_existing_request_to_iiko(request_id="missing-42", user_id="42"))
+
+        self.assertEqual(response.status, "error")
+        self.assertEqual(response.error_code, "request_not_found")
+
+    def test_upload_existing_request_returns_import_ready_on_api_failure(self) -> None:
+        service = InvoicePipelineService()
+        payload = {
+            "request_id": "req-42",
+            "source_type": "pdf",
+            "raw_text": "invoice",
+            "invoice_number": "15",
+            "invoice_date": "2026-04-08",
+            "vendor_name": "ООО Тест",
+            "total_amount": "200",
+            "warnings": [],
+            "items": [
+                {
+                    "name": "Молоко",
+                    "unit_amount": "2",
+                    "unit_price": "100",
+                    "total_cost": "200",
+                    "cost_with_tax": "200",
+                    "currency": "RUB",
+                    "extras": {},
+                }
+            ],
+        }
+
+        async def run_case(tmp_dir: str):
+            with patch.object(service, "_load_saved_request_payload", return_value=payload):
+                with patch("app.services.pipeline.get_iiko_credentials", return_value=("user", "pass")):
+                    with patch.object(
+                        service._iiko_client,
+                        "upload_invoice_items",
+                        new=AsyncMock(side_effect=RuntimeError("iiko api failed")),
+                    ):
+                        with patch("app.services.pipeline.settings.iiko_transport", "api"):
+                            with patch("app.services.pipeline.settings.iiko_import_fallback_enabled", True):
+                                with patch("app.services.pipeline.settings.iiko_import_format", "csv"):
+                                    with patch("app.services.pipeline.settings.iiko_import_export_dir", tmp_dir):
+                                        service._iiko_import_exporter = service._iiko_import_exporter.__class__(tmp_dir)
+                                        return await service.upload_existing_request_to_iiko(
+                                            request_id="req-42",
+                                            user_id="42",
+                                        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            response = asyncio.run(run_case(tmp_dir))
+            export_exists = bool(response.iiko_import_path) and Path(response.iiko_import_path).exists()
+
+        self.assertEqual(response.status, "ok")
+        self.assertFalse(response.iiko_uploaded)
+        self.assertTrue(response.iiko_import_ready)
+        self.assertEqual(response.iiko_import_format, "csv")
+        self.assertTrue(export_exists)
 
 
 class PipelineCostSummaryTests(unittest.TestCase):

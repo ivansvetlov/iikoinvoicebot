@@ -21,7 +21,7 @@ from app.bot.messages import Msg
 from app.config import settings
 from app.errors import UserFacingError
 from app.iiko.import_export import IikoImportExporter
-from app.iiko.playwright_client import IikoPlaywrightClient
+from app.iiko.server_client import IikoServerClient, IikoUploadResult
 from app.parsers.file_text_extractor import FileTextExtractor
 from app.parsers.invoice_parser import InvoiceParser
 from app.schemas import InvoiceItem, InvoiceParseResult, ProcessResponse
@@ -135,7 +135,7 @@ class InvoicePipelineService:
 
     def __init__(self) -> None:
         """Инициализирует клиент iiko для последующей загрузки."""
-        self._iiko_client = IikoPlaywrightClient()
+        self._iiko_client = IikoServerClient()
         self._iiko_import_exporter = IikoImportExporter(settings.iiko_import_export_dir)
         self._pricing = {
             "gpt-4o-mini": {"input": 0.30, "output": 1.20},
@@ -1627,6 +1627,24 @@ class InvoicePipelineService:
             return value
         return "csv"
 
+    def _is_direct_iiko_api_enabled(self) -> bool:
+        return (settings.iiko_transport or "import_only").strip().lower() == "api"
+
+    def _format_iiko_upload_message(self, result: IikoUploadResult) -> str:
+        number = result.document_number or "без номера"
+        status = (result.exported_status or result.requested_status or "").upper()
+        if status == "PROCESSED":
+            if result.stock_verified:
+                return f"Товар оприходован в iiko.\nПриходная накладная: {number}."
+            return f"Приходная накладная проведена в iiko.\nНомер документа: {number}."
+        if status == "NEW":
+            return (
+                "Приходная накладная создана в iiko.\n"
+                f"Номер документа: {number}.\n"
+                "Статус: черновик, требуется проведение в iiko."
+            )
+        return f"Позиции переданы в iiko.\nНомер документа: {number}."
+
     def _build_iiko_import_fallback_response(
         self,
         *,
@@ -1672,11 +1690,166 @@ class InvoicePipelineService:
             iiko_import_path=str(export_path),
             error_code=None,
             message=(
-                "Прямую отправку в iiko выполнить не удалось.\n"
+                "Автооприходование в iiko не выполнено.\n"
                 f"Подготовлен файл импорта: {export_format.upper()}.\n"
                 "Можно загрузить его в iiko вручную."
             ),
         )
+
+    @staticmethod
+    def _empty_parsed_result() -> InvoiceParseResult:
+        return InvoiceParseResult(source_type="unknown", raw_text="", items=[], warnings=[])
+
+    @staticmethod
+    def _normalize_source_type(value: Any) -> str:
+        source = str(value or "").strip().lower()
+        allowed = {"image", "pdf", "docx", "text", "excel", "unknown"}
+        return source if source in allowed else "unknown"
+
+    def _build_parsed_from_saved_payload(self, payload: dict[str, Any]) -> tuple[InvoiceParseResult, list[InvoiceItem]]:
+        raw_items = payload.get("items") or []
+        items: list[InvoiceItem] = []
+        for raw in raw_items:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                items.append(InvoiceItem.model_validate(raw))
+            except Exception:  # noqa: BLE001
+                continue
+
+        warnings = payload.get("warnings") or []
+        parsed = InvoiceParseResult(
+            source_type=self._normalize_source_type(payload.get("source_type")),
+            raw_text=str(payload.get("raw_text") or ""),
+            invoice_number=payload.get("invoice_number"),
+            invoice_date=payload.get("invoice_date"),
+            vendor_name=payload.get("vendor_name"),
+            total_amount=payload.get("total_amount"),
+            items=items,
+            warnings=[str(item) for item in warnings if item is not None],
+        )
+        return parsed, items
+
+    def _load_saved_request_payload(self, request_id: str) -> dict[str, Any] | None:
+        request_path = REQUESTS_DIR / f"{request_id}.json"
+        if not request_path.exists():
+            return None
+        try:
+            raw = json.loads(request_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return None
+        return raw if isinstance(raw, dict) else None
+
+    async def upload_existing_request_to_iiko(
+        self,
+        *,
+        request_id: str,
+        user_id: str | None = None,
+    ) -> ProcessResponse:
+        request_id = str(request_id or "").strip()
+        if not request_id:
+            return ProcessResponse(
+                request_id=uuid4().hex,
+                status="error",
+                parsed=self._empty_parsed_result(),
+                iiko_uploaded=False,
+                error_code="request_id_missing",
+                message="Не удалось определить заявку для оприходования.",
+            )
+
+        payload = self._load_saved_request_payload(request_id)
+        if not payload:
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=self._empty_parsed_result(),
+                iiko_uploaded=False,
+                error_code="request_not_found",
+                message="Не нашел сохраненные данные по этой заявке.",
+            )
+
+        parsed, items = self._build_parsed_from_saved_payload(payload)
+        if not items:
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=parsed,
+                iiko_uploaded=False,
+                error_code="request_items_missing",
+                message="Не нашел товарные позиции для оприходования в iiko.",
+            )
+
+        effective_user_id = str(user_id or payload.get("user_id") or "").strip() or None
+        creds = get_iiko_credentials(effective_user_id)
+        if not creds:
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=parsed,
+                iiko_uploaded=False,
+                error_code="iiko_auth_missing",
+                message="Нет данных для входа в iiko. Нажмите /start и введите логин/пароль.",
+            )
+
+        username, password = creds
+        if not self._is_direct_iiko_api_enabled():
+            fallback = self._build_iiko_import_fallback_response(
+                request_id=request_id,
+                parsed=parsed,
+                items=items,
+                iiko_error="IIKO_TRANSPORT is import_only",
+            )
+            if fallback is not None:
+                return fallback
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=parsed,
+                iiko_uploaded=False,
+                iiko_error="IIKO_TRANSPORT is import_only",
+                error_code="iiko_upload_disabled",
+                message="Прямая API-выгрузка в iiko отключена в конфигурации.",
+            )
+
+        for attempt in range(3):
+            try:
+                upload_result = await self._iiko_client.upload_invoice_items(items, username, password)
+                return ProcessResponse(
+                    request_id=request_id,
+                    status="ok",
+                    parsed=parsed,
+                    iiko_uploaded=True,
+                    iiko_document_number=upload_result.document_number,
+                    iiko_document_status=upload_result.exported_status or upload_result.requested_status,
+                    iiko_stock_verified=upload_result.stock_verified,
+                    error_code=None,
+                    message=self._format_iiko_upload_message(upload_result),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    "iiko upload by request failed",
+                    extra={"request_id": request_id, "attempt": attempt + 1},
+                )
+                if attempt < 2:
+                    await asyncio.sleep(1 + attempt)
+                    continue
+                fallback = self._build_iiko_import_fallback_response(
+                    request_id=request_id,
+                    parsed=parsed,
+                    items=items,
+                    iiko_error=str(exc),
+                )
+                if fallback is not None:
+                    return fallback
+                return ProcessResponse(
+                    request_id=request_id,
+                    status="error",
+                    parsed=parsed,
+                    iiko_uploaded=False,
+                    iiko_error=str(exc),
+                    error_code="iiko_upload_failed",
+                    message="Не удалось загрузить позиции в iiko. Попробуйте позже.",
+                )
 
     async def process(
         self,
@@ -2026,16 +2199,38 @@ class InvoicePipelineService:
 
         username, password = creds
 
+        if not self._is_direct_iiko_api_enabled():
+            fallback = self._build_iiko_import_fallback_response(
+                request_id=request_id,
+                parsed=parsed,
+                items=items,
+                iiko_error="IIKO_TRANSPORT is import_only",
+            )
+            if fallback is not None:
+                return fallback
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=parsed,
+                iiko_uploaded=False,
+                iiko_error="IIKO_TRANSPORT is import_only",
+                error_code="iiko_upload_disabled",
+                message="Прямая API-выгрузка в iiko отключена в конфигурации.",
+            )
+
         for attempt in range(3):
             try:
-                await self._iiko_client.upload_invoice_items(items, username, password)
+                upload_result = await self._iiko_client.upload_invoice_items(items, username, password)
                 return ProcessResponse(
                     request_id=request_id,
                     status="ok",
                     parsed=parsed,
                     iiko_uploaded=True,
+                    iiko_document_number=upload_result.document_number,
+                    iiko_document_status=upload_result.exported_status or upload_result.requested_status,
+                    iiko_stock_verified=upload_result.stock_verified,
                     error_code=None,
-                    message="Позиции загружены в iiko.",
+                    message=self._format_iiko_upload_message(upload_result),
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.exception(
@@ -2176,16 +2371,38 @@ class InvoicePipelineService:
             )
 
         username, password = creds
+        if not self._is_direct_iiko_api_enabled():
+            fallback = self._build_iiko_import_fallback_response(
+                request_id=request_id,
+                parsed=parsed,
+                items=combined_items,
+                iiko_error="IIKO_TRANSPORT is import_only",
+            )
+            if fallback is not None:
+                return fallback
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=parsed,
+                iiko_uploaded=False,
+                iiko_error="IIKO_TRANSPORT is import_only",
+                error_code="iiko_upload_disabled",
+                message="Прямая API-выгрузка в iiko отключена в конфигурации.",
+            )
+
         for attempt in range(3):
             try:
-                await self._iiko_client.upload_invoice_items(combined_items, username, password)
+                upload_result = await self._iiko_client.upload_invoice_items(combined_items, username, password)
                 return ProcessResponse(
                     request_id=request_id,
                     status="ok",
                     parsed=parsed,
                     iiko_uploaded=True,
+                    iiko_document_number=upload_result.document_number,
+                    iiko_document_status=upload_result.exported_status or upload_result.requested_status,
+                    iiko_stock_verified=upload_result.stock_verified,
                     error_code=None,
-                    message="Позиции загружены в iiko.",
+                    message=self._format_iiko_upload_message(upload_result),
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.exception(

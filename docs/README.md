@@ -3,8 +3,8 @@
 ## Что делает MVP
 - Бот принимает фото, PDF, DOCX (и текстовые файлы).
 - Backend извлекает текст (PDF/DOCX/TXT) и пытается выделить товарные позиции.
-- Позиции отправляются в iiko через Playwright (UI-автоматизация).
-- Если Playwright-выгрузка недоступна, backend готовит файл импорта CSV/XLSX для ручной загрузки в iiko.
+- Позиции отправляются в iiko через server-side API (HTTP).
+- Если прямая API-выгрузка недоступна, backend готовит файл импорта CSV/XLSX для ручной загрузки в iiko.
 
 ## Правила для агентов
 - Основные правила и стандарты: `docs/AGENTS.md`.
@@ -12,6 +12,7 @@
 
 ## Архитектура
 - Краткий обзор модулей и потоков: `docs/ARCHITECTURE.md`
+- Текущие пробелы по iiko API: `docs/IIKO_API_GAPS.md`
 
 ## Структура
 
@@ -41,7 +42,7 @@
 - `app/services/pipeline.py` - orchestration обработки
 - `app/parsers/file_text_extractor.py` - извлечение текста из PDF/DOCX/TXT
 - `app/parsers/invoice_parser.py` - эвристический парсинг позиций
-- `app/iiko/playwright_client.py` - загрузка в iiko через браузер
+- `app/iiko/server_client.py` - загрузка в iiko через server-side API
 - `app/iiko/import_export.py` - экспорт позиций в CSV/XLSX для ручного импорта в iiko
 - `app/entrypoints/bot.py` - Telegram бот
 - `app/entrypoints/invoice_llm_client.py` - LLM клиент для пакетной обработки
@@ -56,7 +57,6 @@ python app/entrypoints/invoice_llm_client.py --path ./invoices --model gpt-4o-mi
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-playwright install chromium
 ```
 
 ## Конфиг
@@ -64,11 +64,11 @@ playwright install chromium
 2. Заполните:
 - `TELEGRAM_BOT_TOKEN`
 - `OPENAI_API_KEY`
-- `IIKO_LOGIN_URL`, `IIKO_USERNAME`, `IIKO_PASSWORD`
+- `IIKO_TRANSPORT`, `IIKO_API_BASE_URL`, `IIKO_API_AUTH_PATH`, `IIKO_API_UPLOAD_PATH`
+- `IIKO_USERNAME`, `IIKO_PASSWORD`
 - `IIKO_IMPORT_FALLBACK_ENABLED` (true/false)
 - `IIKO_IMPORT_FORMAT` (`csv` или `xlsx`)
 - `IIKO_IMPORT_EXPORT_DIR` (папка для файлов импорта)
-- при необходимости селекторы `IIKO_SELECTORS_*` под вашу iiko-страницу.
 
 ### Быстрое переключение polling/webhook
 Скрипт обновляет `.env` без ручного редактирования.

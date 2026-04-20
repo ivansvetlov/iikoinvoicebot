@@ -185,7 +185,9 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
         reply_markup = None
         if result_payload.get("status") == "ok":
             text = format_invoice_markdown(result_payload)
-            reply_markup = _build_invoice_actions(result_payload.get("request_id"))
+            # Keep "send to iiko" available for import-fallback cases.
+            allow_send = not bool(result_payload.get("iiko_uploaded"))
+            reply_markup = _build_invoice_actions(result_payload.get("request_id"), allow_send=allow_send)
         if status_message_id:
             if not _edit_telegram_message(chat_id, status_message_id, text, reply_markup):
                 _send_telegram_message(chat_id, text, reply_markup)
@@ -216,15 +218,15 @@ def _format_response(payload: dict[str, Any]) -> str:
     return format_user_response(payload)
 
 
-def _build_invoice_actions(request_id: str | None) -> dict | None:
+def _build_invoice_actions(request_id: str | None, *, allow_send: bool = True) -> dict | None:
     if not request_id:
         return None
+    first_row = [{"text": "✏ Редактировать", "callback_data": f"inv:edit:{request_id}"}]
+    if allow_send:
+        first_row.append({"text": "✅ Оприходовать", "callback_data": f"inv:send:{request_id}"})
     return {
         "inline_keyboard": [
-            [
-                {"text": "✏ Редактировать", "callback_data": f"inv:edit:{request_id}"},
-                {"text": "✅ Отправить в iiko", "callback_data": f"inv:send:{request_id}"},
-            ],
+            first_row,
             [
                 {"text": "✖ Отмена", "callback_data": f"inv:cancel:{request_id}"},
             ],

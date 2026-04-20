@@ -34,8 +34,10 @@ class Msg:
 
     AUTH_ALREADY = (
         "Вы уже авторизованы в iiko.\n\n"
-        "Можете отправлять первичную документацию."
+        "Можете отправлять первичную документацию.\n\n"
+        "Если нужно перейти в другой iiko-сервер, нажмите «Сменить аккаунт iiko»."
     )
+    AUTH_SWITCHED = "Старые данные iiko очищены.\nВведите логин iiko:"
     AUTH_START = (
         "Для работы с iiko нужна авторизация.\n"
         "Введите логин iiko:"
@@ -45,7 +47,18 @@ class Msg:
     )
     AUTH_PASSWORD = "Теперь введите пароль iiko:"
     AUTH_LOGIN_MISSING = "Логин не найден.\nВведите логин iiko:"
+    AUTH_CHECKING = "Проверяю авторизацию в iiko через API…"
+    AUTH_FAILED = (
+        "Не удалось авторизоваться в iiko.\n"
+        "Проверьте логин, пароль и доступ API.\n\n"
+        "Введите логин iiko:"
+    )
+    AUTH_API_NOT_CONFIGURED = (
+        "Интеграция iiko API не настроена на сервере.\n"
+        "Проверьте IIKO_API_BASE_URL и повторите попытку."
+    )
     AUTH_SAVED = (
+        "Авторизация подтверждена.\n"
         "Данные сохранены.\n"
         "Теперь можно отправлять первичную документацию"
     )
@@ -147,9 +160,12 @@ class Msg:
 
     IIKO_SOURCE_MISSING = "Не нашёл исходные файлы для отправки.{code_line}"
     IIKO_FILE_NOT_FOUND = "Файл не найден для отправки.{code_line}"
+    IIKO_SENDING = "Отправляю в iiko.{code_line}"
+    IIKO_QUEUED = "Запрос принят в обработку.\nПроверяю отправку в iiko.{code_line}"
+    IIKO_ALREADY_SENDING = "Отправка в iiko уже выполняется.\nПодождите результат.{code_line}"
     IIKO_FAILED = "Не удалось отправить в iiko.{code_line}"
     IIKO_OK = "✅ Успешно отправлено в iiko.{code_line}"
-    IIKO_IMPORT_READY = "⚠️ Прямая отправка в iiko недоступна.\nФайл импорта подготовлен: {fmt}.{code_line}"
+    IIKO_IMPORT_READY = "⚠️ Автооприходование в iiko не выполнено.\nПодготовлен файл импорта: {fmt}.{code_line}"
 
     PDF_MODE = (
         "Выберите режим обработки этого PDF.\n"
@@ -213,9 +229,10 @@ class Msg:
     BTN_ITEM_TOTAL = "Сумма с НДС"
     BTN_ITEM_VAT = "НДС"
     BTN_INV_EDIT = "✏ Редактировать"
-    BTN_INV_SEND = "✅ Отправить в iiko"
+    BTN_INV_SEND = "✅ Оприходовать"
     BTN_SPLIT_CANCEL = "✖ Отменить"
     BTN_SPLIT_DONE = "✅ Завершить"
+    BTN_AUTH_SWITCH = "Сменить аккаунт iiko"
 
     INFO_FIELDS = {
         "supplier": "Поставщик",
@@ -280,7 +297,7 @@ class Msg:
 
     INVOICE_UNKNOWN = "—"
     INVOICE_TITLE = "📄 Документ распознан"
-    INVOICE_IMPORT_READY = "⚠️ Прямая отправка в iiko сейчас недоступна.\nПодготовлен файл импорта: {fmt}."
+    INVOICE_IMPORT_READY = "⚠️ Автооприходование в iiko не выполнено.\nПодготовлен файл импорта: {fmt}."
     INVOICE_SUPPLIER = "📦 Поставщик: {supplier}"
     INVOICE_CONSIGNEE = "🏢 Грузополучатель: {consignee}"
     INVOICE_DELIVERY = "📍 Адрес доставки: {delivery}"

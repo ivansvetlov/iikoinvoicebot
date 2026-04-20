@@ -267,3 +267,18 @@ async def process_batch(
         )
     except Exception as exc:  # noqa: BLE001
         return _error_response("Ошибка обработки файлов на сервере.", exc)
+
+
+@app.post("/iiko-upload-request", response_model=ProcessResponse)
+async def iiko_upload_request(
+    request_id: str = Form(...),
+    user_id: str | None = Form(default=None),
+) -> ProcessResponse:
+    """Отправляет в iiko ранее распознанную заявку по request_id без повторного OCR/LLM."""
+    try:
+        return await pipeline.upload_existing_request_to_iiko(
+            request_id=request_id,
+            user_id=user_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _error_response("Ошибка отправки в iiko на сервере.", exc)

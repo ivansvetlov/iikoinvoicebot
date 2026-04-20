@@ -47,6 +47,9 @@ class ProcessResponse(BaseModel):
     iiko_import_ready: bool = False
     iiko_import_format: str | None = None
     iiko_import_path: str | None = None
+    iiko_document_number: str | None = None
+    iiko_document_status: str | None = None
+    iiko_stock_verified: bool = False
     # Машиночитаемый код ошибки (для UX на стороне бота и для метрик).
     error_code: str | None = None
     # Сообщение для пользователя (без технических деталей).

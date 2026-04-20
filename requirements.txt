@@ -3,7 +3,6 @@ fastapi==0.116.1
 httpx==0.28.1
 redis==5.0.7
 rq==1.16.2
-playwright==1.55.0
 pdfplumber==0.11.7
 pillow==11.3.0
 pydantic==2.11.7

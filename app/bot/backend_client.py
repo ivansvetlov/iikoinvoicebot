@@ -1,4 +1,4 @@
-"""Клиент для отправки файлов в backend из Telegram-бота."""
+"""Клиент для отправки файлов/команд в backend из Telegram-бота."""
 
 from __future__ import annotations
 
@@ -12,6 +12,32 @@ from app.config import settings
 from app.services.user_store import get_pdf_mode
 
 logger = logging.getLogger(__name__)
+
+
+def _common_http_error_response(status_code: int, *, batch: bool = False) -> dict:
+    if status_code == 413:
+        return {
+            "status": "error",
+            "message": f"Файл слишком большой. Максимум {settings.max_upload_mb} MB.",
+        }
+    if status_code == 422:
+        return {
+            "status": "error",
+            "message": "Не удалось обработать запрос. Проверьте файл и попробуйте снова."
+            if not batch
+            else "Не удалось обработать запрос. Проверьте файлы и попробуйте снова.",
+        }
+    if status_code == 429:
+        return {
+            "status": "error",
+            "message": "Сервис перегружен. Попробуйте отправить файл чуть позже."
+            if not batch
+            else "Сервис перегружен. Попробуйте отправить файлы чуть позже.",
+        }
+    return {
+        "status": "error",
+        "message": "Сервер временно недоступен. Попробуйте позже.",
+    }
 
 
 async def send_file_to_backend(
@@ -60,26 +86,7 @@ async def send_file_to_backend(
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
                 logger.warning("Backend status error: %s", status_code)
-
-                if status_code == 413:
-                    return {
-                        "status": "error",
-                        "message": f"Файл слишком большой. Максимум {settings.max_upload_mb} MB.",
-                    }
-                if status_code == 422:
-                    return {
-                        "status": "error",
-                        "message": "Не удалось обработать запрос. Проверьте файл и попробуйте снова.",
-                    }
-                if status_code == 429:
-                    return {
-                        "status": "error",
-                        "message": "Сервис перегружен. Попробуйте отправить файл чуть позже.",
-                    }
-                return {
-                    "status": "error",
-                    "message": "Сервер временно недоступен. Попробуйте позже.",
-                }
+                return _common_http_error_response(status_code, batch=False)
 
 
 async def send_batch_to_backend(
@@ -126,3 +133,43 @@ async def send_batch_to_backend(
                     await asyncio.sleep(1 + attempt)
                     continue
                 raise exc
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                logger.warning("Backend status error: %s", status_code)
+                return _common_http_error_response(status_code, batch=True)
+
+
+async def send_request_to_iiko(
+    backend_url: str,
+    request_id: str,
+    user_id: str | None = None,
+) -> dict:
+    """Запрашивает отправку в iiko уже распознанной заявки по request_id."""
+    logger.info("Sending parsed request to iiko: %s", request_id)
+
+    async with httpx.AsyncClient(timeout=300) as client:
+        for attempt in range(3):
+            try:
+                data: dict[str, str] = {"request_id": request_id}
+                if user_id:
+                    data["user_id"] = user_id
+
+                response = await client.post(
+                    f"{backend_url.rstrip('/')}/iiko-upload-request",
+                    data=data,
+                )
+                try:
+                    return response.json()
+                except ValueError:
+                    response.raise_for_status()
+                    raise
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                logger.warning("Backend unavailable, attempt %s", attempt + 1)
+                if attempt < 2:
+                    await asyncio.sleep(1 + attempt)
+                    continue
+                raise exc
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                logger.warning("Backend status error: %s", status_code)
+                return _common_http_error_response(status_code, batch=False)
