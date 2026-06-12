@@ -79,11 +79,19 @@ try:
     }
 
     if not visible:
-        # Логи всегда сохраняются, даже когда окно скрыто
-        popen_kwargs["stdout"] = open(log_path("proxy.out.log"), "w", encoding="utf-8")
-        popen_kwargs["stderr"] = open(log_path("proxy.err.log"), "w", encoding="utf-8")
+        # Keep handles open for the lifetime of the proxy process (closing them in the
+        # parent when start_grok.py exits would kill/detach broken stdout on Windows).
+        popen_kwargs["stdout"] = open(
+            log_path("proxy.out.log"), "w", encoding="utf-8", buffering=1
+        )
+        popen_kwargs["stderr"] = open(
+            log_path("proxy.err.log"), "w", encoding="utf-8", buffering=1
+        )
 
     proxy_proc = subprocess.Popen(proxy_cmd, **popen_kwargs)
+    # Prevent GC from closing redirected log handles while the proxy is running.
+    if not visible and proxy_proc is not None:
+        proxy_proc._log_handles = (popen_kwargs.get("stdout"), popen_kwargs.get("stderr"))
     write_pid(PROXY_PID_FILE, proxy_proc.pid)
     print(f"  → proxy pid={proxy_proc.pid}  (saved {PROXY_PID_FILE})")
     if not visible:
