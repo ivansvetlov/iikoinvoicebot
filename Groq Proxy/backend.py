@@ -133,7 +133,7 @@ def invoke_grok_cli_llm(prompt: str, timeout: int = 90) -> BackendResult:
             "--prompt-file",
             prompt_file,
             "--max-turns",
-            "1",
+            "8",
             "--output-format",
             "plain",
         ]
@@ -168,7 +168,7 @@ def is_backend_failure(result: BackendResult) -> bool:
     if not _has_useful_output(result.stdout):
         return True
     err = (result.stderr or "").lower()
-    return "timeout" in err
+    return "timeout" in err or "max turns" in err
 
 
 def invoke_grok_llm(prompt: str, timeout: int = 120) -> BackendResult:

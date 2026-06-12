@@ -42,6 +42,8 @@ from prompt_pipeline import (
     already_answered_last_user,
     coerce_text_to_completion,
     synthesize_tool_error_response,
+    synthesize_intent_first_tool,
+    build_kilo_error_tool_response,
     needs_agent_continuation,
     is_simple_user_turn,
     detect_intent,
@@ -490,6 +492,18 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                     _release_turn(turn_key, clean_response, tool_calls, cache=True)
                     _send_openai_completion(self, stream, clean_response, tool_calls)
                     log(f"📤 RESPONSE_SENT tool_error_recovery total_time={time.time() - start_time:.2f}s")
+                    return
+
+                intent_tool = synthesize_intent_first_tool(messages, tools)
+                if intent_tool:
+                    clean_response, tool_calls = intent_tool
+                    log(
+                        f"🎯 INTENT_ROUTED (request_id={request_id}, intent={detect_intent(messages, tools)}) "
+                        f"→ {tool_calls[0]['function']['name']}"
+                    )
+                    _release_turn(turn_key, clean_response, tool_calls, cache=True)
+                    _send_openai_completion(self, stream, clean_response, tool_calls)
+                    log(f"📤 RESPONSE_SENT intent_routed total_time={time.time() - start_time:.2f}s")
                     return
 
                 suppress_reason = _should_suppress_duplicate(messages)

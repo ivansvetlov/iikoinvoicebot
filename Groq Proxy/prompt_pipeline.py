@@ -85,12 +85,12 @@ def detect_intent(messages: list, tools: list | None = None) -> str:
     text = _latest_user_intent(messages).lower()
     if not text:
         return "agent"
-    if len(text) <= 120 and any(m in text for m in _INTENT_GREETING):
-        return "greeting"
     if any(m in text for m in _INTENT_ANALYSIS):
         return "analysis"
     if any(m in text for m in _INTENT_PLAN):
         return "plan"
+    if len(text) <= 120 and any(m in text for m in _INTENT_GREETING):
+        return "greeting"
     return "agent"
 
 
@@ -359,14 +359,58 @@ def completion_argument_key(fn: dict) -> str:
 
 def build_completion_tool_call(tool_name: str, fn: dict, text: str) -> dict:
     key = completion_argument_key(fn)
+    return build_tool_call(tool_name, fn, {key: text})
+
+
+def _first_string_param(fn: dict, candidates: tuple[str, ...]) -> str:
+    props = (fn.get("parameters") or {}).get("properties") or {}
+    for key in candidates:
+        if key in props:
+            return key
+    return candidates[0]
+
+
+def build_tool_call(tool_name: str, fn: dict, arguments: dict) -> dict:
     return {
         "id": f"call_{uuid.uuid4().hex[:12]}",
         "type": "function",
         "function": {
             "name": tool_name,
-            "arguments": json.dumps({key: text}, ensure_ascii=False),
+            "arguments": json.dumps(arguments, ensure_ascii=False),
         },
     }
+
+
+def build_kilo_error_tool_response(tools: list | None, message: str) -> list | None:
+    picked = pick_completion_tool(tools or [])
+    if not picked:
+        return None
+    name, fn = picked
+    return [build_completion_tool_call(name, fn, message)]
+
+
+def synthesize_intent_first_tool(
+    messages: list,
+    tools: list | None,
+) -> tuple[str | None, list] | None:
+    if not tools or messages[-1].get("role") != "user":
+        return None
+    if needs_agent_continuation(messages) or is_kilo_tool_error_turn(messages):
+        return None
+    intent = detect_intent(messages, tools)
+    if intent not in ("analysis", "plan"):
+        return None
+    list_t = _pick_tool_by_names(tools, _LIST_TOOL_NAMES)
+    if list_t:
+        name, fn = list_t
+        key = _first_string_param(fn, ("path", "directory", "dir", "target_directory"))
+        return None, [build_tool_call(name, fn, {key: "."})]
+    read_t = _pick_tool_by_names(tools, _READ_TOOL_NAMES)
+    if read_t:
+        name, fn = read_t
+        key = _first_string_param(fn, ("path", "file", "filepath", "target_file"))
+        return None, [build_tool_call(name, fn, {key: "README.md"})]
+    return None
 
 
 def is_kilo_tool_error_turn(messages: list) -> bool:
