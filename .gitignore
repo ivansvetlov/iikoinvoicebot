@@ -33,6 +33,8 @@ github_ssh_public_ed25519.pub
 logs/
 data/
 tmp/
+Groq Proxy/logs/
+Groq Proxy/*.pid
 
 # --- Large / temporary artifacts ---
 deploy.tar.gz
@@ -40,6 +42,7 @@ dialogue_dump.jsonl
 
 # --- Agent chat dumps (eat context, not needed at runtime) ---
 dump_chat_*
+dump stage*
 docs/dumps/
 
 # --- IDE/agent local metadata ---

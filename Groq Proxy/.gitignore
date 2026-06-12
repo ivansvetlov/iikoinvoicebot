@@ -1,0 +1,20 @@
+# Runtime
+logs/
+*.pid
+
+# Python
+__pycache__/
+*.py[cod]
+
+# IDE (local PyCharm module — parent repo already ignores .idea/)
+.idea/
+
+# Scratch / one-off patches
+_patch_*.py
+patch_*.py
+*.new
+temp_*.txt
+
+# Agent local metadata
+.continue/
+terminals/
