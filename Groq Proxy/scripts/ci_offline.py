@@ -18,6 +18,8 @@ def _compile_modules() -> None:
         "prompt_pipeline.py",
         "response_pipeline.py",
         "bridge_guards.py",
+        "session_store.py",
+        "phase_router.py",
         "start_grok.py",
         "paths.py",
     ]
@@ -42,6 +44,9 @@ def main() -> int:
         "test_bridge_guards.py",
         "test_risk_mitigations.py",
         "test_structured_output.py",
+        "test_session_resume.py",
+        "test_two_phase.py",
+        "test_backend_resume_cmd.py",
         "test_no_cache_on_tool.py",
         "test_tool_calling.py",
     ):

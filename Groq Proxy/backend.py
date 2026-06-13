@@ -127,6 +127,8 @@ def invoke_grok_cli_llm(
     timeout: int = 90,
     *,
     output_format: str | None = None,
+    resume_session_id: str | None = None,
+    permission_mode: str | None = None,
 ) -> BackendResult:
     """Passive LLM via grok --prompt-file (clean JSON stdout)."""
     import time
@@ -150,6 +152,10 @@ def invoke_grok_cli_llm(
             "--output-format",
             fmt,
         ]
+        if resume_session_id:
+            cmd.extend(["--resume", resume_session_id])
+        if permission_mode:
+            cmd.extend(["--permission-mode", permission_mode])
         disallowed = (os.environ.get("GROK_DISALLOW_TOOLS") or "").strip()
         if disallowed:
             cmd.extend(["--disallowed-tools", disallowed])
@@ -163,11 +169,16 @@ def invoke_grok_cli_llm(
             cwd=os.path.dirname(os.path.abspath(__file__)),
             **_windows_popen_kwargs(),
         )
+        backend_tag = f"grok-cli:{fmt}"
+        if resume_session_id:
+            backend_tag += ":resume"
+        if permission_mode:
+            backend_tag += f":{permission_mode}"
         return BackendResult(
             stdout=proc.stdout or "",
             stderr=proc.stderr or "",
             returncode=proc.returncode,
-            backend=f"grok-cli:{fmt}",
+            backend=backend_tag,
             elapsed_s=round(time.time() - t0, 2),
         )
     finally:
@@ -207,12 +218,30 @@ def is_backend_failure(result: BackendResult) -> bool:
     return False
 
 
-def invoke_grok_llm(prompt: str, timeout: int = 120) -> BackendResult:
+def invoke_grok_llm(
+    prompt: str,
+    timeout: int = 120,
+    *,
+    resume_session_id: str | None = None,
+    permission_mode: str | None = None,
+) -> BackendResult:
     """Primary: grok CLI only (fast, clean JSON). No acpx fallback in Kilo path."""
     fmt = _grok_output_format()
-    result = invoke_grok_cli_llm(prompt, timeout=timeout, output_format=fmt)
+    result = invoke_grok_cli_llm(
+        prompt,
+        timeout=timeout,
+        output_format=fmt,
+        resume_session_id=resume_session_id,
+        permission_mode=permission_mode,
+    )
     if fmt == "json" and is_backend_failure(result):
-        plain = invoke_grok_cli_llm(prompt, timeout=timeout, output_format="plain")
+        plain = invoke_grok_cli_llm(
+            prompt,
+            timeout=timeout,
+            output_format="plain",
+            resume_session_id=resume_session_id,
+            permission_mode=permission_mode,
+        )
         if not is_backend_failure(plain):
             plain.backend = "grok-cli:plain-fallback"
             return plain

@@ -43,8 +43,16 @@ from bridge_guards import (
     validate_outbound_tool_calls,
 )
 from paths import log_path
+from phase_router import (
+    grok_permission_mode_for_phase,
+    resolve_grok_phase,
+    two_phase_enabled,
+)
 from prompt_pipeline import (
     prepare_kilo_prompt,
+    build_resume_delta_prompt,
+    conversation_key,
+    is_grok_resume_turn,
     normalize_message_content as _normalize_content,
     _user_turn_key,
     already_answered_last_user,
@@ -59,6 +67,7 @@ from prompt_pipeline import (
     DEFAULT_MAX_PROMPT_CHARS,
 )
 from response_pipeline import parse_assistant_response, unwrap_grok_cli_stdout
+from session_store import get_session_store, resume_sessions_enabled
 
 if sys.platform == "win32" and sys.stdout is not None and sys.stdout.isatty():
     import ctypes
@@ -204,7 +213,13 @@ def _wait_for_turn(turn_key: str, evt: threading.Event) -> tuple[str | None, lis
     return None
 
 
-def _invoke_grok_locked(prompt: str, timeout: int | None = None):
+def _invoke_grok_locked(
+    prompt: str,
+    timeout: int | None = None,
+    *,
+    resume_session_id: str | None = None,
+    permission_mode: str | None = None,
+):
     timeout = timeout if timeout is not None else _GROK_TIMEOUT_S
     wait_started = None
     if not _grok_call_lock.acquire(blocking=False):
@@ -220,7 +235,12 @@ def _invoke_grok_locked(prompt: str, timeout: int | None = None):
                 f"⚠️ LARGE_PROMPT len={len(prompt)} "
                 f"(budget={DEFAULT_MAX_PROMPT_CHARS}, timeout={timeout}s)"
             )
-        return invoke_grok_llm(prompt, timeout=timeout)
+        return invoke_grok_llm(
+            prompt,
+            timeout=timeout,
+            resume_session_id=resume_session_id,
+            permission_mode=permission_mode,
+        )
     finally:
         _grok_call_lock.release()
 
@@ -498,6 +518,9 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 "grok_timeout_s": _GROK_TIMEOUT_S,
                 "prompt_budget": DEFAULT_MAX_PROMPT_CHARS,
                 "grok_output_format": os.environ.get("GROK_OUTPUT_FORMAT", "plain"),
+                "grok_resume_sessions": resume_sessions_enabled(),
+                "grok_two_phase": two_phase_enabled(),
+                "active_grok_sessions": get_session_store().count(),
             }
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -527,7 +550,20 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                         messages[-1]['content'] = task_match.group(1).strip()
 
                 # Passive LLM pipeline: compress Kilo prompt, Grok decides, Kilo executes tools
-                prompt = prepare_kilo_prompt(messages, tools=tools or None)
+                conv_key = conversation_key(messages)
+                phase = resolve_grok_phase(messages, tools)
+                permission_mode = grok_permission_mode_for_phase(phase)
+                resume_id: str | None = None
+                use_resume = False
+                if resume_sessions_enabled() and conv_key and is_grok_resume_turn(messages):
+                    resume_id = get_session_store().get(conv_key)
+                    if resume_id:
+                        use_resume = True
+                        prompt = build_resume_delta_prompt(messages, tools=tools or None)
+                    else:
+                        prompt = prepare_kilo_prompt(messages, tools=tools or None)
+                else:
+                    prompt = prepare_kilo_prompt(messages, tools=tools or None)
                 if not prompt and messages:
                     prompt = normalize_message_content(messages[-1].get("content")) or str(body)
 
@@ -542,6 +578,8 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 log(
                     f"📥 REQUEST (tools={len(tools)}, prompt_len={len(prompt)}, "
                     f"roles={roles}, intent={detect_intent(messages, tools)}, "
+                    f"phase={phase}, two_phase={two_phase_enabled()}, "
+                    f"resume={use_resume}, conv_key={conv_key[:12]!r}, "
                     f"turn_key={turn_key[:48]!r}, mode=llm-only): {prompt[:160]}..."
                 )
 
@@ -589,10 +627,18 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                         log(f"📤 RESPONSE_SENT cached total_time={time.time() - start_time:.2f}s")
                         return
 
-                log(f"🚀 LLM_BACKEND (request_id={request_id})")
+                log(
+                    f"🚀 LLM_BACKEND (request_id={request_id}, "
+                    f"resume_id={resume_id[:12] + '...' if resume_id else 'none'}, "
+                    f"permission_mode={permission_mode or 'default'})"
+                )
 
                 try:
-                    backend_result = _invoke_grok_locked(prompt)
+                    backend_result = _invoke_grok_locked(
+                        prompt,
+                        resume_session_id=resume_id if use_resume else None,
+                        permission_mode=permission_mode,
+                    )
                 except Exception as e:
                     _release_turn(turn_key)
                     if "Timeout" in type(e).__name__:
@@ -607,9 +653,11 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 if backend_result.stderr:
                     log(f"RAW_BACKEND_STDERR: {backend_result.stderr[:400]}")
                 output_fmt = os.environ.get("GROK_OUTPUT_FORMAT", "plain")
+                grok_session_id = None
                 parse_text, grok_meta = unwrap_grok_cli_stdout(raw_stdout or "", output_fmt)
-                if grok_meta.get("session_id"):
-                    log(f"🔗 GROK_SESSION_ID={grok_meta['session_id']}")
+                grok_session_id = grok_meta.get("session_id")
+                if grok_session_id:
+                    log(f"🔗 GROK_SESSION_ID={grok_session_id}")
                 if raw_stdout:
                     log(
                         f"RAW_BACKEND_STDOUT ({backend_result.backend}, "
@@ -617,9 +665,37 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                     )
 
                 backend_eval = classify_backend_result(backend_result)
+                if use_resume and (not backend_eval.ok or is_backend_failure(backend_result)):
+                    log(f"🔁 GROK_RESUME_FALLBACK (request_id={request_id})")
+                    if conv_key:
+                        get_session_store().clear(conv_key)
+                    prompt = prepare_kilo_prompt(messages, tools=tools or None)
+                    use_resume = False
+                    resume_id = None
+                    backend_result = _invoke_grok_locked(
+                        prompt,
+                        permission_mode=permission_mode,
+                    )
+                    raw_stdout = backend_result.stdout
+                    parse_text, grok_meta = unwrap_grok_cli_stdout(raw_stdout or "", output_fmt)
+                    if grok_meta.get("session_id"):
+                        grok_session_id = grok_meta["session_id"]
+                        log(f"🔗 GROK_SESSION_ID={grok_session_id} (fallback)")
+                    backend_eval = classify_backend_result(backend_result)
+
                 if not backend_eval.ok and backend_eval.retry_planner:
                     log(f"🔁 PLANNER_RETRY (request_id={request_id})")
-                    backend_result = _invoke_grok_locked(prompt + PLANNER_ONLY_SUFFIX)
+                    backend_result = _invoke_grok_locked(
+                        prompt + PLANNER_ONLY_SUFFIX,
+                        permission_mode=permission_mode,
+                    )
+                    repair_text, repair_meta = unwrap_grok_cli_stdout(
+                        backend_result.stdout or "",
+                        output_fmt,
+                    )
+                    if repair_meta.get("session_id"):
+                        grok_session_id = repair_meta["session_id"]
+                    parse_text = repair_text or parse_text
                     backend_eval = classify_backend_result(backend_result)
 
                 if not backend_eval.ok or is_backend_failure(backend_result):
@@ -640,13 +716,19 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 if not clean_response and not tool_calls and (parse_text or "").strip():
                     parse_eval = classify_parse_failure(True)
                     log(f"🔁 JSON_REPAIR_RETRY (request_id={request_id})")
-                    repair_result = _invoke_grok_locked(prompt + JSON_REPAIR_SUFFIX)
+                    repair_result = _invoke_grok_locked(
+                        prompt + JSON_REPAIR_SUFFIX,
+                        resume_session_id=resume_id if use_resume else None,
+                        permission_mode=permission_mode,
+                    )
                     repair_eval = classify_backend_result(repair_result)
                     if repair_eval.ok and not is_backend_failure(repair_result):
-                        repair_text, _ = unwrap_grok_cli_stdout(
+                        repair_text, repair_meta = unwrap_grok_cli_stdout(
                             repair_result.stdout or "",
                             output_fmt,
                         )
+                        if repair_meta.get("session_id"):
+                            grok_session_id = repair_meta["session_id"]
                         if repair_result.stderr:
                             log(f"RAW_BACKEND_STDERR (repair): {repair_result.stderr[:200]}")
                         clean_response, tool_calls = parse_assistant_response(
@@ -676,6 +758,9 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                     _send_provider_error(self, 502, final_eval.message)
                     log(f"📤 RESPONSE_SENT empty_backend total_time={time.time() - start_time:.2f}s")
                     return
+
+                if grok_session_id and conv_key and resume_sessions_enabled():
+                    get_session_store().set(conv_key, grok_session_id)
 
                 cache_ok = should_cache_response(backend_eval)
                 _release_turn(

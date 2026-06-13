@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -95,6 +96,15 @@ _INTENT_PLAN = (
 )
 _READ_TOOL_NAMES = ("read_file", "read_files", "file_read")
 _LIST_TOOL_NAMES = ("list_files", "list_dir", "filesystem_list", "ls")
+_WRITE_TOOL_NAMES = (
+    "write_to_file",
+    "write_file",
+    "apply_diff",
+    "search_and_replace",
+    "insert_content",
+    "edit_file",
+)
+_EXEC_TOOL_NAMES = ("execute_command", "run_command", "terminal", "bash", "shell")
 
 
 def _latest_user_intent(messages: list) -> str:
@@ -138,6 +148,13 @@ def detect_intent(messages: list, tools: list | None = None) -> str:
     if not text:
         return "agent"
     flags = detect_intent_flags(text)
+    mutation_markers = (
+        "создай", "создать", "напиши", "добавь", "измени", "исправь", "удали",
+        "implement", "create", "write", "fix", "edit", "add", "delete",
+        "execute", "выполни", "запусти",
+    )
+    if any(m in text for m in mutation_markers):
+        return "agent"
     if flags["analysis"]:
         return "analysis"
     if flags["plan"]:
@@ -417,6 +434,76 @@ def _user_turn_key(messages: list) -> str:
         return ""
     tail_roles = ",".join(m.get("role", "?") for m in (messages or [])[-5:])
     return f"{text[:200]}|n={len(messages or [])}|{tail_roles}"
+
+
+def conversation_key(messages: list) -> str:
+    """Stable id for a Kilo chat thread (first user task)."""
+    anchor = _first_task_user_message(messages)
+    if not anchor:
+        return ""
+    text = normalize_message_content(anchor.get("content")).strip()
+    text = _ENV_DETAILS_RE.sub("", text).strip()
+    task_m = re.search(r"<task>(.*?)</task>", text, re.DOTALL | re.IGNORECASE)
+    if task_m:
+        text = task_m.group(1).strip()
+    if not text:
+        return ""
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+def is_grok_resume_turn(messages: list) -> bool:
+    """Follow-up in an ongoing Kilo chat (not the opening user turn)."""
+    if not messages or len(messages) < 2:
+        return False
+    if needs_agent_continuation(messages):
+        return True
+    if messages[-1].get("role") != "user":
+        return False
+    for msg in reversed(messages[:-1]):
+        role = msg.get("role")
+        if role == "assistant":
+            return True
+        if role == "tool":
+            return True
+    return False
+
+
+def build_resume_delta_prompt(
+    messages: list,
+    tools: list | None = None,
+    max_chars: int | None = None,
+) -> str:
+    """Short prompt for grok --resume; grok session retains prior turns."""
+    budget = max_chars if max_chars is not None else DEFAULT_MAX_PROMPT_CHARS
+    tail = list(messages or [])[-4:]
+    conv = format_messages_for_prompt(tail, include_system=False)
+    conv = resolve_offloaded_prompts(conv)
+    intent = detect_intent(messages, tools)
+    blocks = [
+        f"SYSTEM:\n{BACKEND_SYSTEM}",
+        (
+            "SESSION CONTINUE (grok --resume is active — prior turns are in grok memory; "
+            "respond to the latest message only):"
+        ),
+    ]
+    if conv:
+        blocks.append(conv)
+    if tools:
+        blocks.append(compress_tools_manifest(tools))
+        blocks.append(build_json_tool_instructions())
+        flags = detect_intent_flags(_latest_user_intent(messages))
+        blocks.append(build_intent_instructions(intent, tools, flags))
+    else:
+        blocks.append(
+            'Reply ONLY JSON: {"content": "your brief answer", "tool_calls": []}'
+        )
+    extra = build_prompt_suffixes(messages, intent)
+    if extra:
+        blocks.append(extra)
+    prompt = "\n\n".join(blocks).strip()
+    prompt = resolve_offloaded_prompts(prompt)
+    return apply_budget(prompt, budget)
 
 
 def already_answered_last_user(messages: list) -> bool:
