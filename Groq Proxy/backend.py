@@ -133,7 +133,7 @@ def invoke_grok_cli_llm(prompt: str, timeout: int = 90) -> BackendResult:
             "--prompt-file",
             prompt_file,
             "--max-turns",
-            "8",
+            "3",
             "--output-format",
             "plain",
         ]

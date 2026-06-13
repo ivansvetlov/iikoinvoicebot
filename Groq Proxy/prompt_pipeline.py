@@ -14,7 +14,7 @@ MAX_HISTORY_MESSAGES = 8
 
 BACKEND_SYSTEM = """You are the autonomous LLM brain for Kilo Code IDE.
 Kilo executes ALL tools locally — you only DECIDE which tool to call next.
-You MUST NOT execute tools yourself.
+You MUST NOT execute tools yourself. NEVER use Grok built-in tools (Read, Write, search_replace, Bash, etc.).
 
 AUTONOMOUS RULES (user phrasing does not matter — interpret intent freely):
 - Greeting/status → attempt_completion with brief reply.

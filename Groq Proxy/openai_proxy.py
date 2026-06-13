@@ -61,6 +61,7 @@ _DEDUP_TTL_S = 180
 _recent_turn_answers: dict[str, tuple[float, str | None, list]] = {}
 _inflight_turns: dict[str, threading.Event] = {}
 _dedup_lock = threading.Lock()
+_grok_call_lock = threading.Lock()
 
 
 def write_openai_sse_stream(wfile, content: str | None, tool_calls: list, finish_reason: str):
@@ -531,7 +532,13 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 log(f"🚀 LLM_BACKEND (request_id={request_id})")
 
                 try:
-                    backend_result = invoke_grok_llm(prompt, timeout=180)
+                    if not _grok_call_lock.acquire(blocking=False):
+                        log(f"⏳ GROK_QUEUE_WAIT (request_id={request_id})")
+                        _grok_call_lock.acquire()
+                    try:
+                        backend_result = invoke_grok_llm(prompt, timeout=180)
+                    finally:
+                        _grok_call_lock.release()
                 except Exception as e:
                     _release_turn(turn_key)
                     if "Timeout" in type(e).__name__:
@@ -559,10 +566,23 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
 
                 if is_backend_failure(backend_result):
                     log(f"❌ BACKEND_FAILED ({backend_result.backend}, {backend_result.stderr[:120]})")
-                    err_msg = (
-                        "Grok не ответил вовремя. Нажми Retry или упрости задачу. "
-                        f"({backend_result.backend}, {backend_result.elapsed_s:.0f}s)"
-                    )
+                    stderr_low = (backend_result.stderr or "").lower()
+                    if "tool_error" in stderr_low or "search_replace" in stderr_low:
+                        err_msg = (
+                            "Grok попытался выполнить внутренний tool вместо JSON для Kilo. "
+                            "Нажми Retry — прокси переспросит в режиме planner-only."
+                        )
+                    elif "max turns" in stderr_low:
+                        err_msg = (
+                            "Grok исчерпал лимит шагов. Упрости задачу или нажми Retry."
+                        )
+                    elif "timeout" in stderr_low:
+                        err_msg = "Grok не ответил вовремя. Нажми Retry."
+                    else:
+                        err_msg = (
+                            "Grok не вернул ответ. Нажми Retry или упрости задачу. "
+                            f"({backend_result.elapsed_s:.0f}s)"
+                        )
                     err_tools = build_kilo_error_tool_response(tools, err_msg)
                     if err_tools:
                         _send_openai_completion(self, stream, None, err_tools)
