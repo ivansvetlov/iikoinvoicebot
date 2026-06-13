@@ -50,9 +50,11 @@ from prompt_pipeline import (
 )
 from response_pipeline import parse_assistant_response
 
-if sys.platform == "win32":
+if sys.platform == "win32" and sys.stdout is not None and sys.stdout.isatty():
     import ctypes
-    ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+    hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+    if hwnd:
+        ctypes.windll.user32.ShowWindow(hwnd, 0)
 
 PROXY_LOG_FILE = log_path("proxy_requests.log")
 _DEDUP_TTL_S = 180
