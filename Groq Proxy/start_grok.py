@@ -92,6 +92,7 @@ def start_proxy(*, visible: bool = False) -> subprocess.Popen | None:
     env.setdefault("GROK_TIMEOUT", "180")
     env.setdefault("GROK_MAX_PROMPT_CHARS", "40000")
     env.setdefault("GROK_MAX_TOOL_RESULT_CHARS", "6000")
+    env["GROK_OUTPUT_FORMAT"] = os.environ.get("GROK_OUTPUT_FORMAT", "json")
 
     popen_kwargs: dict = {
         "env": env,
