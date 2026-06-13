@@ -58,7 +58,7 @@ from prompt_pipeline import (
     JSON_REPAIR_SUFFIX,
     DEFAULT_MAX_PROMPT_CHARS,
 )
-from response_pipeline import parse_assistant_response
+from response_pipeline import parse_assistant_response, unwrap_grok_cli_stdout
 
 if sys.platform == "win32" and sys.stdout is not None and sys.stdout.isatty():
     import ctypes
@@ -497,6 +497,7 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 "uptime_s": uptime,
                 "grok_timeout_s": _GROK_TIMEOUT_S,
                 "prompt_budget": DEFAULT_MAX_PROMPT_CHARS,
+                "grok_output_format": os.environ.get("GROK_OUTPUT_FORMAT", "plain"),
             }
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -605,6 +606,10 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 raw_stdout = backend_result.stdout
                 if backend_result.stderr:
                     log(f"RAW_BACKEND_STDERR: {backend_result.stderr[:400]}")
+                output_fmt = os.environ.get("GROK_OUTPUT_FORMAT", "plain")
+                parse_text, grok_meta = unwrap_grok_cli_stdout(raw_stdout or "", output_fmt)
+                if grok_meta.get("session_id"):
+                    log(f"🔗 GROK_SESSION_ID={grok_meta['session_id']}")
                 if raw_stdout:
                     log(
                         f"RAW_BACKEND_STDOUT ({backend_result.backend}, "
@@ -628,21 +633,24 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                     return
 
                 clean_response, tool_calls = parse_assistant_response(
-                    raw_stdout or backend_result.stderr,
+                    parse_text or backend_result.stderr,
                     allowed_tool_names=allowed_tool_names,
                 )
                 parse_eval: BackendEvaluation | None = None
-                if not clean_response and not tool_calls and (raw_stdout or "").strip():
+                if not clean_response and not tool_calls and (parse_text or "").strip():
                     parse_eval = classify_parse_failure(True)
                     log(f"🔁 JSON_REPAIR_RETRY (request_id={request_id})")
                     repair_result = _invoke_grok_locked(prompt + JSON_REPAIR_SUFFIX)
                     repair_eval = classify_backend_result(repair_result)
                     if repair_eval.ok and not is_backend_failure(repair_result):
-                        raw_stdout = repair_result.stdout
+                        repair_text, _ = unwrap_grok_cli_stdout(
+                            repair_result.stdout or "",
+                            output_fmt,
+                        )
                         if repair_result.stderr:
                             log(f"RAW_BACKEND_STDERR (repair): {repair_result.stderr[:200]}")
                         clean_response, tool_calls = parse_assistant_response(
-                            raw_stdout or repair_result.stderr,
+                            repair_text or repair_result.stderr,
                             allowed_tool_names=allowed_tool_names,
                         )
                     else:

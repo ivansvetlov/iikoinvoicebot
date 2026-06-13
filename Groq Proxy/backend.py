@@ -115,10 +115,23 @@ def invoke_acpx_llm(prompt: str, timeout: int = 90) -> BackendResult:
                 pass
 
 
-def invoke_grok_cli_llm(prompt: str, timeout: int = 90) -> BackendResult:
+def _grok_output_format() -> str:
+    fmt = (os.environ.get("GROK_OUTPUT_FORMAT") or "plain").strip().lower()
+    if fmt in ("plain", "json", "streaming-json"):
+        return fmt
+    return "plain"
+
+
+def invoke_grok_cli_llm(
+    prompt: str,
+    timeout: int = 90,
+    *,
+    output_format: str | None = None,
+) -> BackendResult:
     """Passive LLM via grok --prompt-file (clean JSON stdout)."""
     import time
 
+    fmt = output_format or _grok_output_format()
     prompt_file = None
     t0 = time.time()
     try:
@@ -135,7 +148,7 @@ def invoke_grok_cli_llm(prompt: str, timeout: int = 90) -> BackendResult:
             "--max-turns",
             "1",
             "--output-format",
-            "plain",
+            fmt,
         ]
         disallowed = (os.environ.get("GROK_DISALLOW_TOOLS") or "").strip()
         if disallowed:
@@ -154,7 +167,7 @@ def invoke_grok_cli_llm(prompt: str, timeout: int = 90) -> BackendResult:
             stdout=proc.stdout or "",
             stderr=proc.stderr or "",
             returncode=proc.returncode,
-            backend="grok-cli",
+            backend=f"grok-cli:{fmt}",
             elapsed_s=round(time.time() - t0, 2),
         )
     finally:
@@ -196,4 +209,11 @@ def is_backend_failure(result: BackendResult) -> bool:
 
 def invoke_grok_llm(prompt: str, timeout: int = 120) -> BackendResult:
     """Primary: grok CLI only (fast, clean JSON). No acpx fallback in Kilo path."""
-    return invoke_grok_cli_llm(prompt, timeout=timeout)
+    fmt = _grok_output_format()
+    result = invoke_grok_cli_llm(prompt, timeout=timeout, output_format=fmt)
+    if fmt == "json" and is_backend_failure(result):
+        plain = invoke_grok_cli_llm(prompt, timeout=timeout, output_format="plain")
+        if not is_backend_failure(plain):
+            plain.backend = "grok-cli:plain-fallback"
+            return plain
+    return result

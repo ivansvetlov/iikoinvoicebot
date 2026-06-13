@@ -41,6 +41,7 @@ def main() -> int:
     for test in (
         "test_bridge_guards.py",
         "test_risk_mitigations.py",
+        "test_structured_output.py",
         "test_no_cache_on_tool.py",
         "test_tool_calling.py",
     ):

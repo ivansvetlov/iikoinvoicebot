@@ -220,6 +220,33 @@ def _extract_clean_paragraph(cleaned: str) -> str | None:
     return None
 
 
+def unwrap_grok_cli_stdout(
+    raw: str,
+    output_format: str = "plain",
+) -> tuple[str, dict[str, str | None]]:
+    """Extract assistant payload from grok --output-format json wrapper."""
+    fmt = (output_format or "plain").strip().lower()
+    if fmt != "json" or not (raw or "").strip():
+        return raw or "", {}
+    try:
+        outer = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw or "", {}
+    if not isinstance(outer, dict):
+        return raw or "", {}
+
+    text = outer.get("text") or outer.get("content") or ""
+    if not isinstance(text, str):
+        text = json.dumps(text, ensure_ascii=False)
+
+    meta = {
+        "session_id": outer.get("sessionId") or outer.get("session_id"),
+        "stop_reason": outer.get("stopReason") or outer.get("stop_reason"),
+        "request_id": outer.get("requestId") or outer.get("request_id"),
+    }
+    return text.strip(), meta
+
+
 def parse_assistant_response(
     text: str,
     allowed_tool_names: list[str] | None = None,
