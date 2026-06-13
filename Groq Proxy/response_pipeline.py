@@ -220,6 +220,32 @@ def _extract_clean_paragraph(cleaned: str) -> str | None:
     return None
 
 
+def grok_wrapper_indicates_failure(
+    meta: dict[str, str | None],
+    parse_text: str,
+) -> str | None:
+    """Detect grok-cli agent loop exit with no usable assistant payload."""
+    stop = (meta.get("stop_reason") or "").strip().lower()
+    text = (parse_text or "").strip()
+    if stop in ("cancelled", "canceled", "error", "maxturns", "max_turns"):
+        if not text:
+            return "wrapper_cancelled_empty"
+    if not text and meta.get("session_id") and stop:
+        return f"wrapper_empty_{stop}"
+    return None
+
+
+def unwrap_grok_cli_stdout_auto(
+    raw: str,
+    output_format: str = "plain",
+) -> tuple[str, dict[str, str | None]]:
+    """Unwrap grok stdout; auto-detect JSON wrapper when env format is plain."""
+    parse_text, meta = unwrap_grok_cli_stdout(raw, output_format)
+    if not meta.get("session_id") and (raw or "").strip().startswith("{"):
+        parse_text, meta = unwrap_grok_cli_stdout(raw, "json")
+    return parse_text, meta
+
+
 def unwrap_grok_cli_stdout(
     raw: str,
     output_format: str = "plain",

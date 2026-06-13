@@ -85,7 +85,14 @@ def resolve_grok_phase(messages: list, tools: list | None) -> Phase:
     return "planner"
 
 
+def passive_cli_mode() -> bool:
+    return _env_flag("GROK_PASSIVE_CLI", "1")
+
+
 def grok_permission_mode_for_phase(phase: Phase) -> str | None:
+    """Kilo phase steers prompt instructions; grok-cli stays passive when enabled."""
+    if passive_cli_mode():
+        return "plan"
     if not two_phase_enabled():
         return None
     if phase == "planner":

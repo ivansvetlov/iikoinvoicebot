@@ -16,6 +16,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from response_pipeline import grok_wrapper_indicates_failure
+
 _BUILTIN_LEAK_MARKERS = (
     "tool_error",
     "grok-build",
@@ -51,13 +53,19 @@ def stderr_indicates_builtin_leak(stderr: str | None) -> bool:
     return any(m in low for m in _BUILTIN_LEAK_MARKERS)
 
 
-def classify_backend_result(result) -> BackendEvaluation:
+def classify_backend_result(
+    result,
+    *,
+    parse_text: str = "",
+    grok_meta: dict | None = None,
+) -> BackendEvaluation:
     """Evaluate grok-cli result before trusting stdout."""
     stderr = result.stderr or ""
     stderr_low = stderr.lower()
     elapsed = getattr(result, "elapsed_s", 0.0)
+    timed_out = getattr(result, "timed_out", False)
 
-    if "timeout" in stderr_low:
+    if timed_out or "timeout" in stderr_low:
         return BackendEvaluation(
             ok=False,
             layer="L6",
@@ -84,7 +92,21 @@ def classify_backend_result(result) -> BackendEvaluation:
             layer="L2",
             code="max_turns",
             message="Grok исчерпал лимит шагов. Нажми Retry или упрости задачу.",
-            retry_planner=True,
+            retry_planner=False,
+            cache_allowed=False,
+        )
+
+    wrapper_fail = grok_wrapper_indicates_failure(grok_meta or {}, parse_text)
+    if wrapper_fail:
+        return BackendEvaluation(
+            ok=False,
+            layer="L2",
+            code=wrapper_fail,
+            message=(
+                "Grok CLI ушёл во внутренний agent loop и не вернул JSON для Kilo. "
+                "Нажми Retry."
+            ),
+            retry_planner=False,
             cache_allowed=False,
         )
 

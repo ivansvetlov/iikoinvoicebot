@@ -20,7 +20,7 @@ from bridge_guards import classify_backend_result
 from paths import log_path
 from phase_router import grok_permission_mode_for_phase, resolve_grok_phase
 from prompt_pipeline import BACKEND_SYSTEM, prepare_kilo_prompt
-from response_pipeline import parse_assistant_response, unwrap_grok_cli_stdout
+from response_pipeline import parse_assistant_response, unwrap_grok_cli_stdout_auto
 from session_store import get_session_store, resume_sessions_enabled
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -193,8 +193,12 @@ def handle_grok_complete(arguments: dict[str, Any]) -> str:
         permission_mode=permission_mode,
     )
     raw_stdout = result.stdout or ""
-    parse_text, meta = _unwrap_backend_stdout(raw_stdout)
-    eval_result = classify_backend_result(result)
+    parse_text, meta = unwrap_grok_cli_stdout_auto(raw_stdout)
+    eval_result = classify_backend_result(
+        result,
+        parse_text=parse_text,
+        grok_meta=meta,
+    )
     if not eval_result.ok or is_backend_failure(result):
         raise RuntimeError(eval_result.message or (result.stderr or "backend failed")[:300])
 

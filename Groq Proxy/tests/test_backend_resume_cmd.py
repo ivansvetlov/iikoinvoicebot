@@ -6,16 +6,23 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import backend
+from backend import BackendResult
 
 
 def test_grok_cli_resume_and_permission_flags():
     captured: list[list[str]] = []
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, timeout, cwd=None):
         captured.append(cmd)
-        return mock.Mock(stdout='{"text":"{}"}', stderr="", returncode=0)
+        return BackendResult(
+            stdout='{"text":"{}"}',
+            stderr="",
+            returncode=0,
+            backend="subprocess",
+            elapsed_s=0.1,
+        )
 
-    with mock.patch.object(backend.subprocess, "run", side_effect=fake_run):
+    with mock.patch.object(backend, "_run_subprocess", side_effect=fake_run):
         backend.invoke_grok_cli_llm(
             "hello",
             output_format="json",

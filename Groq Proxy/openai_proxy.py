@@ -66,7 +66,10 @@ from prompt_pipeline import (
     JSON_REPAIR_SUFFIX,
     DEFAULT_MAX_PROMPT_CHARS,
 )
-from response_pipeline import parse_assistant_response, unwrap_grok_cli_stdout
+from response_pipeline import (
+    parse_assistant_response,
+    unwrap_grok_cli_stdout_auto,
+)
 from session_store import get_session_store, resume_sessions_enabled
 
 if sys.platform == "win32" and sys.stdout is not None and sys.stdout.isatty():
@@ -78,6 +81,7 @@ if sys.platform == "win32" and sys.stdout is not None and sys.stdout.isatty():
 PROXY_LOG_FILE = log_path("proxy_requests.log")
 _DEDUP_TTL_S = int(os.environ.get("GROK_DEDUP_TTL_S", "180"))
 _GROK_TIMEOUT_S = int(os.environ.get("GROK_TIMEOUT", "180"))
+_GROK_RETRY_TIMEOUT_S = int(os.environ.get("GROK_RETRY_TIMEOUT_S", "60"))
 _PROMPT_WARN_CHARS = int(os.environ.get("GROK_PROMPT_WARN_CHARS", "28000"))
 _recent_turn_answers: dict[str, tuple[float, str | None, list]] = {}
 _inflight_turns: dict[str, threading.Event] = {}
@@ -219,8 +223,10 @@ def _invoke_grok_locked(
     *,
     resume_session_id: str | None = None,
     permission_mode: str | None = None,
+    retry: bool = False,
 ):
-    timeout = timeout if timeout is not None else _GROK_TIMEOUT_S
+    if timeout is None:
+        timeout = _GROK_RETRY_TIMEOUT_S if retry else _GROK_TIMEOUT_S
     wait_started = None
     if not _grok_call_lock.acquire(blocking=False):
         wait_started = time.time()
@@ -522,6 +528,8 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 "grok_two_phase": two_phase_enabled(),
                 "active_grok_sessions": get_session_store().count(),
                 "grok_mcp_bridge": os.environ.get("GROK_MCP_BRIDGE", "1"),
+                "grok_passive_cli": os.environ.get("GROK_PASSIVE_CLI", "1"),
+                "grok_retry_timeout_s": _GROK_RETRY_TIMEOUT_S,
             }
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -655,7 +663,10 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                     log(f"RAW_BACKEND_STDERR: {backend_result.stderr[:400]}")
                 output_fmt = os.environ.get("GROK_OUTPUT_FORMAT", "plain")
                 grok_session_id = None
-                parse_text, grok_meta = unwrap_grok_cli_stdout(raw_stdout or "", output_fmt)
+                parse_text, grok_meta = unwrap_grok_cli_stdout_auto(
+                    raw_stdout or "",
+                    output_fmt,
+                )
                 grok_session_id = grok_meta.get("session_id")
                 if grok_session_id:
                     log(f"🔗 GROK_SESSION_ID={grok_session_id}")
@@ -665,7 +676,11 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                         f"first 600): {raw_stdout[:600].replace(chr(10), ' ')[:600]}"
                     )
 
-                backend_eval = classify_backend_result(backend_result)
+                backend_eval = classify_backend_result(
+                    backend_result,
+                    parse_text=parse_text,
+                    grok_meta=grok_meta,
+                )
                 if use_resume and (not backend_eval.ok or is_backend_failure(backend_result)):
                     log(f"🔁 GROK_RESUME_FALLBACK (request_id={request_id})")
                     if conv_key:
@@ -678,30 +693,41 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                         permission_mode=permission_mode,
                     )
                     raw_stdout = backend_result.stdout
-                    parse_text, grok_meta = unwrap_grok_cli_stdout(raw_stdout or "", output_fmt)
+                    parse_text, grok_meta = unwrap_grok_cli_stdout_auto(
+                        raw_stdout or "",
+                        output_fmt,
+                    )
                     if grok_meta.get("session_id"):
                         grok_session_id = grok_meta["session_id"]
                         log(f"🔗 GROK_SESSION_ID={grok_session_id} (fallback)")
-                    backend_eval = classify_backend_result(backend_result)
+                    backend_eval = classify_backend_result(
+                        backend_result,
+                        parse_text=parse_text,
+                        grok_meta=grok_meta,
+                    )
 
                 if not backend_eval.ok and backend_eval.retry_planner:
-                    log(f"🔁 PLANNER_RETRY (request_id={request_id})")
+                    log(f"🔁 PLANNER_RETRY (request_id={request_id}, timeout={_GROK_RETRY_TIMEOUT_S}s)")
                     backend_result = _invoke_grok_locked(
                         prompt + PLANNER_ONLY_SUFFIX,
                         permission_mode=permission_mode,
+                        retry=True,
                     )
-                    repair_text, repair_meta = unwrap_grok_cli_stdout(
+                    parse_text, grok_meta = unwrap_grok_cli_stdout_auto(
                         backend_result.stdout or "",
                         output_fmt,
                     )
-                    if repair_meta.get("session_id"):
-                        grok_session_id = repair_meta["session_id"]
-                    parse_text = repair_text or parse_text
-                    backend_eval = classify_backend_result(backend_result)
+                    if grok_meta.get("session_id"):
+                        grok_session_id = grok_meta["session_id"]
+                    backend_eval = classify_backend_result(
+                        backend_result,
+                        parse_text=parse_text,
+                        grok_meta=grok_meta,
+                    )
 
                 if not backend_eval.ok or is_backend_failure(backend_result):
-                    if backend_eval.ok:
-                        backend_eval = classify_backend_result(backend_result)
+                    if backend_eval.layer == "L2" and conv_key:
+                        get_session_store().clear(conv_key)
                     log(f"❌ BACKEND_FAILED ({backend_result.backend}, {backend_result.stderr[:120]})")
                     log_layer_issue(log, backend_eval, request_id)
                     _release_turn(turn_key)
@@ -716,18 +742,23 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 parse_eval: BackendEvaluation | None = None
                 if not clean_response and not tool_calls and (parse_text or "").strip():
                     parse_eval = classify_parse_failure(True)
-                    log(f"🔁 JSON_REPAIR_RETRY (request_id={request_id})")
+                    log(f"🔁 JSON_REPAIR_RETRY (request_id={request_id}, timeout={_GROK_RETRY_TIMEOUT_S}s)")
                     repair_result = _invoke_grok_locked(
                         prompt + JSON_REPAIR_SUFFIX,
                         resume_session_id=resume_id if use_resume else None,
                         permission_mode=permission_mode,
+                        retry=True,
                     )
-                    repair_eval = classify_backend_result(repair_result)
+                    repair_text, repair_meta = unwrap_grok_cli_stdout_auto(
+                        repair_result.stdout or "",
+                        output_fmt,
+                    )
+                    repair_eval = classify_backend_result(
+                        repair_result,
+                        parse_text=repair_text,
+                        grok_meta=repair_meta,
+                    )
                     if repair_eval.ok and not is_backend_failure(repair_result):
-                        repair_text, repair_meta = unwrap_grok_cli_stdout(
-                            repair_result.stdout or "",
-                            output_fmt,
-                        )
                         if repair_meta.get("session_id"):
                             grok_session_id = repair_meta["session_id"]
                         if repair_result.stderr:

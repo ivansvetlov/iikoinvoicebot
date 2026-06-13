@@ -42,17 +42,23 @@ def test_continue_after_read_stays_planner():
 
 
 def test_permission_mode_plan_when_enabled():
-    old = os.environ.get("GROK_TWO_PHASE")
+    old_two = os.environ.get("GROK_TWO_PHASE")
+    old_passive = os.environ.get("GROK_PASSIVE_CLI")
     os.environ["GROK_TWO_PHASE"] = "1"
+    os.environ["GROK_PASSIVE_CLI"] = "1"
     try:
         assert two_phase_enabled() is True
         assert grok_permission_mode_for_phase("planner") == "plan"
-        assert grok_permission_mode_for_phase("agent") is None
+        assert grok_permission_mode_for_phase("agent") == "plan"
     finally:
-        if old is None:
+        if old_two is None:
             os.environ.pop("GROK_TWO_PHASE", None)
         else:
-            os.environ["GROK_TWO_PHASE"] = old
+            os.environ["GROK_TWO_PHASE"] = old_two
+        if old_passive is None:
+            os.environ.pop("GROK_PASSIVE_CLI", None)
+        else:
+            os.environ["GROK_PASSIVE_CLI"] = old_passive
 
 
 if __name__ == "__main__":

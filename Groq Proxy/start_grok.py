@@ -87,7 +87,8 @@ def start_proxy(*, visible: bool = False) -> subprocess.Popen | None:
     env["PYTHONUNBUFFERED"] = "1"
     env.setdefault(
         "GROK_DISALLOW_TOOLS",
-        "Read,Write,Bash,search_replace,Shell,update_goal,ListDir,Glob",
+        "Read,Write,Bash,search_replace,Shell,update_goal,ListDir,Glob,"
+        "Grep,Task,WebFetch,WebSearch,NotebookEdit,DeleteFile",
     )
     env.setdefault("GROK_TIMEOUT", "180")
     env.setdefault("GROK_MAX_PROMPT_CHARS", "40000")
@@ -95,6 +96,8 @@ def start_proxy(*, visible: bool = False) -> subprocess.Popen | None:
     env.setdefault("GROK_RESUME_SESSIONS", "1")
     env.setdefault("GROK_TWO_PHASE", "1")
     env.setdefault("GROK_MCP_BRIDGE", "1")
+    env.setdefault("GROK_PASSIVE_CLI", "1")
+    env.setdefault("GROK_RETRY_TIMEOUT_S", "60")
     env["GROK_OUTPUT_FORMAT"] = os.environ.get("GROK_OUTPUT_FORMAT", "json")
 
     popen_kwargs: dict = {
