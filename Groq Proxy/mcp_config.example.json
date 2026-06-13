@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "grok-bridge": {
+      "command": "python",
+      "args": ["-u", "C:\\Users\\MiBookPro\\PycharmProjects\\PythonProject\\Groq Proxy\\mcp_bridge.py"],
+      "env": {
+        "GROK_OUTPUT_FORMAT": "json",
+        "GROK_RESUME_SESSIONS": "1",
+        "GROK_TWO_PHASE": "1",
+        "GROK_DISALLOW_TOOLS": "Read,Write,Bash,search_replace,Shell,update_goal,ListDir,Glob"
+      },
+      "disabled": false
+    }
+  }
+}

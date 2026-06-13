@@ -20,6 +20,8 @@ def _compile_modules() -> None:
         "bridge_guards.py",
         "session_store.py",
         "phase_router.py",
+        "mcp_bridge.py",
+        "mcp_grok_adapter.py",
         "start_grok.py",
         "paths.py",
     ]
@@ -47,6 +49,7 @@ def main() -> int:
         "test_session_resume.py",
         "test_two_phase.py",
         "test_backend_resume_cmd.py",
+        "test_mcp_bridge.py",
         "test_no_cache_on_tool.py",
         "test_tool_calling.py",
     ):

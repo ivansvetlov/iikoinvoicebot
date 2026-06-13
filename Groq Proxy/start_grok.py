@@ -94,6 +94,7 @@ def start_proxy(*, visible: bool = False) -> subprocess.Popen | None:
     env.setdefault("GROK_MAX_TOOL_RESULT_CHARS", "6000")
     env.setdefault("GROK_RESUME_SESSIONS", "1")
     env.setdefault("GROK_TWO_PHASE", "1")
+    env.setdefault("GROK_MCP_BRIDGE", "1")
     env["GROK_OUTPUT_FORMAT"] = os.environ.get("GROK_OUTPUT_FORMAT", "json")
 
     popen_kwargs: dict = {
@@ -149,6 +150,7 @@ def main():
     if ready:
         print("✅ Grok SuperGrok is ready!")
         print("   Base URL: http://localhost:8080/v1  Model: grok  API Key: dummy")
+        print("   MCP (parallel): mcp_bridge.py — see mcp_config.example.json")
         print("   Логи: logs/proxy_requests.log")
         if daemon:
             print("   Daemon: watching and auto-restarting proxy")

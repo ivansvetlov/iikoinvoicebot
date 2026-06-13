@@ -81,6 +81,10 @@ if not killed_any:
         )
         subprocess.run(
             'wmic process where "name=\'python.exe\' and CommandLine like \'%mcp_grok_adapter%\'" call terminate >nul 2>&1',
+            shell=True,
+        )
+        subprocess.run(
+            'wmic process where "name=\'python.exe\' and CommandLine like \'%mcp_bridge%\'" call terminate >nul 2>&1',
             shell=True
         )
     except Exception:

@@ -15,6 +15,8 @@ python start_grok.py
 
 Kilo Code settings: Provider **OpenAI Compatible**, Base URL above, Model `grok`.
 
+Optional MCP path (other clients): copy `mcp_config.example.json` into your MCP config and point to `mcp_bridge.py`. Kilo OpenAI provider still uses `/v1`, not MCP.
+
 Stop: `python stop_grok.py` or GUI `python scripts/grok_manager.py`.
 
 ## Layout
@@ -25,7 +27,9 @@ Groq Proxy/
 ├── backend.py           # Grok CLI LLM backend
 ├── prompt_pipeline.py   # Kilo prompt compression + intent routing
 ├── response_pipeline.py # JSON tool_calls parsing
-├── mcp_grok_adapter.py  # legacy ACP adapter (optional)
+├── mcp_bridge.py          # MCP stdio bridge (parallel to /v1)
+├── mcp_grok_adapter.py    # legacy entry → mcp_bridge
+├── mcp_config.example.json
 ├── start_grok.py        # start grok agent + proxy
 ├── stop_grok.py
 ├── scripts/             # diagnostics & GUI manager

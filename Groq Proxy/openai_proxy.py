@@ -521,6 +521,7 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 "grok_resume_sessions": resume_sessions_enabled(),
                 "grok_two_phase": two_phase_enabled(),
                 "active_grok_sessions": get_session_store().count(),
+                "grok_mcp_bridge": os.environ.get("GROK_MCP_BRIDGE", "1"),
             }
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
