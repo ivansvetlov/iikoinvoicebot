@@ -69,6 +69,8 @@ def _user_wants_mutation(messages: list) -> bool:
 def resolve_grok_phase(messages: list, tools: list | None) -> Phase:
     if is_kilo_tool_error_turn(messages):
         return "recovery"
+    if _user_wants_mutation(messages):
+        return "agent"
     intent = detect_intent(messages, tools)
     if intent in ("greeting", "analysis", "plan"):
         return "planner"
@@ -78,11 +80,7 @@ def resolve_grok_phase(messages: list, tools: list | None) -> Phase:
             if last_tool in _WRITE_TOOL_NAMES or last_tool in _EXEC_TOOL_NAMES:
                 return "agent"
             if last_tool in _READ_TOOL_NAMES or last_tool in _LIST_TOOL_NAMES:
-                if _user_wants_mutation(messages):
-                    return "agent"
                 return "planner"
-        return "agent"
-    if _user_wants_mutation(messages):
         return "agent"
     return "planner"
 
