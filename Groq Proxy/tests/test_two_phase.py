@@ -48,8 +48,8 @@ def test_permission_mode_plan_when_enabled():
     os.environ["GROK_PASSIVE_CLI"] = "1"
     try:
         assert two_phase_enabled() is True
-        assert grok_permission_mode_for_phase("planner") == "plan"
-        assert grok_permission_mode_for_phase("agent") == "plan"
+        assert grok_permission_mode_for_phase("planner") is None
+        assert grok_permission_mode_for_phase("agent") is None
     finally:
         if old_two is None:
             os.environ.pop("GROK_TWO_PHASE", None)

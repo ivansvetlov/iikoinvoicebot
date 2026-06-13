@@ -10,6 +10,10 @@ import sys
 import tempfile
 from dataclasses import dataclass
 
+from bridge_guards import (
+    stderr_indicates_real_timeout,
+    stderr_indicates_session_build_failure,
+)
 from response_pipeline import grok_wrapper_indicates_failure, unwrap_grok_cli_stdout_auto
 
 
@@ -197,9 +201,19 @@ def _grok_output_format() -> str:
     return "plain"
 
 
+def _passive_permission_mode() -> str | None:
+    """plan mode breaks session creation on some grok-cli builds; use dontAsk."""
+    explicit = (os.environ.get("GROK_CLI_PERMISSION") or "").strip()
+    if explicit:
+        return explicit
+    if passive_cli_mode():
+        return "dontAsk"
+    return None
+
+
 def _effective_permission_mode(permission_mode: str | None) -> str | None:
     if passive_cli_mode():
-        return "plan"
+        return _passive_permission_mode()
     return permission_mode
 
 
@@ -279,9 +293,11 @@ def _stderr_hard_failure(stderr: str | None) -> bool:
 def is_backend_failure(result: BackendResult) -> bool:
     if result.timed_out:
         return True
-    err = (result.stderr or "").lower()
-    if "timeout" in err:
+    if stderr_indicates_real_timeout(result.stderr):
         return True
+    if stderr_indicates_session_build_failure(result.stderr):
+        return True
+    err = (result.stderr or "").lower()
     if _stderr_hard_failure(result.stderr):
         return True
     if "max turns" in err:

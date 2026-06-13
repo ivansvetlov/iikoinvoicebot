@@ -90,9 +90,9 @@ def passive_cli_mode() -> bool:
 
 
 def grok_permission_mode_for_phase(phase: Phase) -> str | None:
-    """Kilo phase steers prompt instructions; grok-cli stays passive when enabled."""
+    """Kilo phase steers prompt instructions; grok-cli permission is env-driven."""
     if passive_cli_mode():
-        return "plan"
+        return None
     if not two_phase_enabled():
         return None
     if phase == "planner":

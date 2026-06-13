@@ -53,6 +53,26 @@ def stderr_indicates_builtin_leak(stderr: str | None) -> bool:
     return any(m in low for m in _BUILTIN_LEAK_MARKERS)
 
 
+def stderr_indicates_real_timeout(stderr: str | None) -> bool:
+    low = (stderr or "").lower()
+    if "timeout after" in low:
+        return True
+    if "timed out" in low:
+        return True
+    if re.search(r"\btimeout\b", low) and "auto_background_on_timeout" not in low:
+        return True
+    return False
+
+
+def stderr_indicates_session_build_failure(stderr: str | None) -> bool:
+    low = (stderr or "").lower()
+    return (
+        "agent building failed" in low
+        or "couldn't create session" in low
+        or "requirements unsatisfied" in low
+    )
+
+
 def classify_backend_result(
     result,
     *,
@@ -65,12 +85,25 @@ def classify_backend_result(
     elapsed = getattr(result, "elapsed_s", 0.0)
     timed_out = getattr(result, "timed_out", False)
 
-    if timed_out or "timeout" in stderr_low:
+    if timed_out or stderr_indicates_real_timeout(stderr):
         return BackendEvaluation(
             ok=False,
             layer="L6",
             code="backend_timeout",
             message="Grok не ответил вовремя. Нажми Retry.",
+        )
+
+    if stderr_indicates_session_build_failure(stderr):
+        return BackendEvaluation(
+            ok=False,
+            layer="L6",
+            code="grok_session_build_failed",
+            message=(
+                "Grok CLI не смог создать сессию (конфиг/permission-mode). "
+                "Нажми Retry."
+            ),
+            retry_planner=False,
+            cache_allowed=False,
         )
 
     if stderr_indicates_builtin_leak(stderr):

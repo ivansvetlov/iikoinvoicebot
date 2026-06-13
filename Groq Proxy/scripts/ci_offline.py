@@ -51,6 +51,7 @@ def main() -> int:
         "test_backend_resume_cmd.py",
         "test_mcp_bridge.py",
         "test_backend_passive.py",
+        "test_stderr_classify.py",
         "test_no_cache_on_tool.py",
         "test_tool_calling.py",
     ):

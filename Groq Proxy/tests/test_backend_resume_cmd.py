@@ -36,7 +36,7 @@ def test_grok_cli_resume_and_permission_flags():
     assert cmd[idx + 1] == "sess-abc"
     assert "--permission-mode" in cmd
     pidx = cmd.index("--permission-mode")
-    assert cmd[pidx + 1] == "plan"
+    assert cmd[pidx + 1] == "dontAsk"
 
 
 if __name__ == "__main__":

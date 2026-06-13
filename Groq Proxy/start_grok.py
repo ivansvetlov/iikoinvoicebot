@@ -81,7 +81,30 @@ def start_grok_agent() -> subprocess.Popen | None:
     return None
 
 
+def kill_all_proxy_processes() -> None:
+    """Prevent duplicate listeners on :8080 (Windows daemon restarts)."""
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                'wmic process where "name=\'python.exe\' and CommandLine like \'%openai_proxy%\'" '
+                "call terminate >nul 2>&1",
+                shell=True,
+                check=False,
+            )
+        except Exception:
+            pass
+    else:
+        pid = read_pid(PROXY_PID_FILE)
+        if pid:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+
+
 def start_proxy(*, visible: bool = False) -> subprocess.Popen | None:
+    kill_all_proxy_processes()
+    time.sleep(0.4)
     proxy_cmd = [sys.executable, "-u", "openai_proxy.py"]
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -97,6 +120,7 @@ def start_proxy(*, visible: bool = False) -> subprocess.Popen | None:
     env.setdefault("GROK_TWO_PHASE", "1")
     env.setdefault("GROK_MCP_BRIDGE", "1")
     env.setdefault("GROK_PASSIVE_CLI", "1")
+    env.setdefault("GROK_CLI_PERMISSION", "dontAsk")
     env.setdefault("GROK_RETRY_TIMEOUT_S", "60")
     env["GROK_OUTPUT_FORMAT"] = os.environ.get("GROK_OUTPUT_FORMAT", "json")
 
