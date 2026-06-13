@@ -85,6 +85,13 @@ def start_proxy(*, visible: bool = False) -> subprocess.Popen | None:
     proxy_cmd = [sys.executable, "-u", "openai_proxy.py"]
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    env.setdefault(
+        "GROK_DISALLOW_TOOLS",
+        "Read,Write,Bash,search_replace,Shell,update_goal,ListDir,Glob",
+    )
+    env.setdefault("GROK_TIMEOUT", "180")
+    env.setdefault("GROK_MAX_PROMPT_CHARS", "40000")
+    env.setdefault("GROK_MAX_TOOL_RESULT_CHARS", "6000")
 
     popen_kwargs: dict = {
         "env": env,
@@ -152,9 +159,23 @@ def main():
         return
 
     print("\n[daemon] Ctrl+C to stop.")
+    last_ok_log = time.time()
     while True:
-        time.sleep(30)
-        if http_ok():
+        time.sleep(10)
+        if http_ok("http://localhost:8080/v1/health"):
+            if time.time() - last_ok_log >= 600:
+                ts = datetime.now().strftime("%H:%M:%S")
+                print(f"[{ts}] daemon ok — proxy healthy")
+                last_ok_log = time.time()
+            pid = read_pid(PROXY_PID_FILE)
+            if pid:
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    print(f"[{ts}] proxy pid {pid} dead — restarting...")
+                    start_proxy(visible=visible)
+                    wait_ready(15)
             continue
         ts = datetime.now().strftime("%H:%M:%S")
         print(f"[{ts}] proxy down — restarting...")

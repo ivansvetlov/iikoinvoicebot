@@ -34,6 +34,14 @@ import threading
 from datetime import datetime
 
 from backend import invoke_grok_llm, is_backend_failure
+from bridge_guards import (
+    BackendEvaluation,
+    classify_backend_result,
+    classify_parse_failure,
+    log_layer_issue,
+    should_cache_response,
+    validate_outbound_tool_calls,
+)
 from paths import log_path
 from prompt_pipeline import (
     prepare_kilo_prompt,
@@ -43,10 +51,12 @@ from prompt_pipeline import (
     coerce_text_to_completion,
     synthesize_tool_error_response,
     synthesize_intent_first_tool,
-    build_kilo_error_tool_response,
     needs_agent_continuation,
     is_simple_user_turn,
     detect_intent,
+    PLANNER_ONLY_SUFFIX,
+    JSON_REPAIR_SUFFIX,
+    DEFAULT_MAX_PROMPT_CHARS,
 )
 from response_pipeline import parse_assistant_response
 
@@ -57,11 +67,14 @@ if sys.platform == "win32" and sys.stdout is not None and sys.stdout.isatty():
         ctypes.windll.user32.ShowWindow(hwnd, 0)
 
 PROXY_LOG_FILE = log_path("proxy_requests.log")
-_DEDUP_TTL_S = 180
+_DEDUP_TTL_S = int(os.environ.get("GROK_DEDUP_TTL_S", "180"))
+_GROK_TIMEOUT_S = int(os.environ.get("GROK_TIMEOUT", "180"))
+_PROMPT_WARN_CHARS = int(os.environ.get("GROK_PROMPT_WARN_CHARS", "28000"))
 _recent_turn_answers: dict[str, tuple[float, str | None, list]] = {}
 _inflight_turns: dict[str, threading.Event] = {}
 _dedup_lock = threading.Lock()
 _grok_call_lock = threading.Lock()
+_proxy_started_at = time.time()
 
 
 def write_openai_sse_stream(wfile, content: str | None, tool_calls: list, finish_reason: str):
@@ -130,10 +143,13 @@ def _get_cached_response(turn_key: str) -> tuple[str | None, list] | None:
 
 def _should_suppress_duplicate(messages: list) -> str | None:
     """Return suppression reason, or None when Grok should answer normally."""
-    if needs_agent_continuation(messages):
-        return None
-
     turn_key = _user_turn_key(messages)
+
+    # Risk #7: Kilo sometimes fires parallel identical continue requests.
+    if needs_agent_continuation(messages):
+        if turn_key and _get_cached_response(turn_key) is not None:
+            return "continue_duplicate_cached"
+        return None
     if not turn_key:
         return None
 
@@ -186,6 +202,36 @@ def _wait_for_turn(turn_key: str, evt: threading.Event) -> tuple[str | None, lis
     if evt.wait(timeout=190):
         return _get_cached_response(turn_key)
     return None
+
+
+def _invoke_grok_locked(prompt: str, timeout: int | None = None):
+    timeout = timeout if timeout is not None else _GROK_TIMEOUT_S
+    wait_started = None
+    if not _grok_call_lock.acquire(blocking=False):
+        wait_started = time.time()
+        log("⏳ GROK_QUEUE_WAIT")
+        _grok_call_lock.acquire()
+        waited = time.time() - wait_started
+        if waited >= 3:
+            log(f"⏳ GROK_QUEUE_WAIT done ({waited:.1f}s)")
+    try:
+        if len(prompt) >= _PROMPT_WARN_CHARS:
+            log(
+                f"⚠️ LARGE_PROMPT len={len(prompt)} "
+                f"(budget={DEFAULT_MAX_PROMPT_CHARS}, timeout={timeout}s)"
+            )
+        return invoke_grok_llm(prompt, timeout=timeout)
+    finally:
+        _grok_call_lock.release()
+
+
+def _send_provider_error(handler, status: int, message: str):
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.end_headers()
+    payload = {"error": {"message": message, "type": "backend_error"}}
+    handler.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
 
 def _send_openai_completion(handler, stream: bool, content: str | None, tool_calls: list):
@@ -444,11 +490,24 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.end_headers()
             self.wfile.write(json.dumps(response).encode())
+        elif self.path in ['/v1/health', '/health']:
+            uptime = round(time.time() - _proxy_started_at, 1)
+            payload = {
+                "status": "ok",
+                "uptime_s": uptime,
+                "grok_timeout_s": _GROK_TIMEOUT_S,
+                "prompt_budget": DEFAULT_MAX_PROMPT_CHARS,
+            }
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode())
         else:
             self.send_error(404)
 
     def do_POST(self):
         if self.path in ['/v1/chat/completions', '/chat/completions']:
+            turn_key = ""
             try:
                 length = int(self.headers['Content-Length'])
                 body = json.loads(self.rfile.read(length).decode('utf-8', errors='replace'))
@@ -532,27 +591,15 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                 log(f"🚀 LLM_BACKEND (request_id={request_id})")
 
                 try:
-                    if not _grok_call_lock.acquire(blocking=False):
-                        log(f"⏳ GROK_QUEUE_WAIT (request_id={request_id})")
-                        _grok_call_lock.acquire()
-                    try:
-                        backend_result = invoke_grok_llm(prompt, timeout=180)
-                    finally:
-                        _grok_call_lock.release()
+                    backend_result = _invoke_grok_locked(prompt)
                 except Exception as e:
                     _release_turn(turn_key)
                     if "Timeout" in type(e).__name__:
-                        log("❌ BACKEND TIMEOUT (180s)")
-                        self.send_response(504)
-                        self.send_header("Content-Type", "application/json; charset=utf-8")
-                        self.end_headers()
-                        self.wfile.write(json.dumps({"error": "backend timeout"}).encode())
+                        log(f"❌ BACKEND TIMEOUT ({_GROK_TIMEOUT_S}s)")
+                        _send_provider_error(self, 504, "Grok не ответил вовремя. Нажми Retry.")
                         return
                     log(f"❌ BACKEND ERROR: {e}")
-                    self.send_response(500)
-                    self.send_header("Content-Type", "application/json; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"error": str(e)}).encode())
+                    _send_provider_error(self, 500, f"Backend error: {e}")
                     return
 
                 raw_stdout = backend_result.stdout
@@ -564,33 +611,19 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                         f"first 600): {raw_stdout[:600].replace(chr(10), ' ')[:600]}"
                     )
 
-                if is_backend_failure(backend_result):
+                backend_eval = classify_backend_result(backend_result)
+                if not backend_eval.ok and backend_eval.retry_planner:
+                    log(f"🔁 PLANNER_RETRY (request_id={request_id})")
+                    backend_result = _invoke_grok_locked(prompt + PLANNER_ONLY_SUFFIX)
+                    backend_eval = classify_backend_result(backend_result)
+
+                if not backend_eval.ok or is_backend_failure(backend_result):
+                    if backend_eval.ok:
+                        backend_eval = classify_backend_result(backend_result)
                     log(f"❌ BACKEND_FAILED ({backend_result.backend}, {backend_result.stderr[:120]})")
-                    stderr_low = (backend_result.stderr or "").lower()
-                    if "tool_error" in stderr_low or "search_replace" in stderr_low:
-                        err_msg = (
-                            "Grok попытался выполнить внутренний tool вместо JSON для Kilo. "
-                            "Нажми Retry — прокси переспросит в режиме planner-only."
-                        )
-                    elif "max turns" in stderr_low:
-                        err_msg = (
-                            "Grok исчерпал лимит шагов. Упрости задачу или нажми Retry."
-                        )
-                    elif "timeout" in stderr_low:
-                        err_msg = "Grok не ответил вовремя. Нажми Retry."
-                    else:
-                        err_msg = (
-                            "Grok не вернул ответ. Нажми Retry или упрости задачу. "
-                            f"({backend_result.elapsed_s:.0f}s)"
-                        )
-                    err_tools = build_kilo_error_tool_response(tools, err_msg)
-                    if err_tools:
-                        _send_openai_completion(self, stream, None, err_tools)
-                    else:
-                        self.send_response(504)
-                        self.send_header("Content-Type", "application/json; charset=utf-8")
-                        self.end_headers()
-                        self.wfile.write(json.dumps({"error": err_msg}).encode())
+                    log_layer_issue(log, backend_eval, request_id)
+                    _release_turn(turn_key)
+                    _send_provider_error(self, 502, backend_eval.message)
                     log(f"📤 RESPONSE_SENT backend_failed total_time={time.time() - start_time:.2f}s")
                     return
 
@@ -598,27 +631,50 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                     raw_stdout or backend_result.stderr,
                     allowed_tool_names=allowed_tool_names,
                 )
+                parse_eval: BackendEvaluation | None = None
+                if not clean_response and not tool_calls and (raw_stdout or "").strip():
+                    parse_eval = classify_parse_failure(True)
+                    log(f"🔁 JSON_REPAIR_RETRY (request_id={request_id})")
+                    repair_result = _invoke_grok_locked(prompt + JSON_REPAIR_SUFFIX)
+                    repair_eval = classify_backend_result(repair_result)
+                    if repair_eval.ok and not is_backend_failure(repair_result):
+                        raw_stdout = repair_result.stdout
+                        if repair_result.stderr:
+                            log(f"RAW_BACKEND_STDERR (repair): {repair_result.stderr[:200]}")
+                        clean_response, tool_calls = parse_assistant_response(
+                            raw_stdout or repair_result.stderr,
+                            allowed_tool_names=allowed_tool_names,
+                        )
+                    else:
+                        log_layer_issue(log, repair_eval, request_id)
                 clean_response, tool_calls = coerce_text_to_completion(
                     clean_response,
                     tool_calls,
                     tools,
                     messages,
                 )
+                tool_calls, validation_err = validate_outbound_tool_calls(tool_calls, tools)
+                if validation_err and tools:
+                    parse_eval = classify_parse_failure(bool(raw_stdout))
+                    log_layer_issue(log, parse_eval, request_id)
+                    _release_turn(turn_key)
+                    _send_provider_error(self, 502, parse_eval.message)
+                    log(f"📤 RESPONSE_SENT invalid_tool total_time={time.time() - start_time:.2f}s")
+                    return
                 if not clean_response and not tool_calls:
-                    err_tools = build_kilo_error_tool_response(
-                        tools, "Пустой ответ от Grok. Нажми Retry."
-                    )
-                    if err_tools:
-                        tool_calls = err_tools
-                        clean_response = None
-                    else:
-                        clean_response = "OK (empty response from grok backend)"
+                    final_eval = parse_eval or classify_parse_failure(bool(raw_stdout))
+                    log_layer_issue(log, final_eval, request_id)
+                    _release_turn(turn_key)
+                    _send_provider_error(self, 502, final_eval.message)
+                    log(f"📤 RESPONSE_SENT empty_backend total_time={time.time() - start_time:.2f}s")
+                    return
 
+                cache_ok = should_cache_response(backend_eval)
                 _release_turn(
                     turn_key,
                     clean_response,
                     tool_calls,
-                    cache=bool(clean_response or tool_calls),
+                    cache=cache_ok and bool(clean_response or tool_calls),
                 )
 
                 total_elapsed = time.time() - start_time
@@ -635,11 +691,9 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 log(f"❌ UNHANDLED ERROR in chat handler: {e}")
                 try:
-                    self.send_response(500)
-                    self.send_header("Content-Type", "application/json; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"error": str(e)}).encode())
-                except:
+                    _release_turn(turn_key)
+                    _send_provider_error(self, 500, f"Proxy error: {e}")
+                except Exception:
                     pass
         else:
             self.send_error(404)

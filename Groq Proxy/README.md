@@ -50,6 +50,9 @@ python -m pytest tests/ -q
 # or run individual scripts, e.g. python tests/test_dedup.py
 ```
 
+## Contributing / Analysis notes
+See detailed project analysis and improvement suggestions in the internal review (run via Kilo or review the agent findings). Key areas: test automation, response pipeline robustness, streaming edge cases, multi-turn state, logging/observability, and packaging.
+
 ## Parent repo
 
 This folder lives inside the [iikoinvoicebot](https://github.com/ivansvetlov/iikoinvoicebot) monorepo as a **standalone dev tool**, unrelated to the Telegram/iiko invoice pipeline. Git branch: `feature/groq-proxy-kilo`.

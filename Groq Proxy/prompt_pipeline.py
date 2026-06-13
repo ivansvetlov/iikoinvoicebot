@@ -9,8 +9,17 @@ import uuid
 from typing import Any
 
 
-DEFAULT_MAX_PROMPT_CHARS = 32_000
-MAX_HISTORY_MESSAGES = 8
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+DEFAULT_MAX_PROMPT_CHARS = _env_int("GROK_MAX_PROMPT_CHARS", 40_000)
+MAX_HISTORY_MESSAGES = _env_int("GROK_MAX_HISTORY", 12)
+MAX_TOOL_RESULT_CHARS = _env_int("GROK_MAX_TOOL_RESULT_CHARS", 6_000)
+LONG_SESSION_TOOL_THRESHOLD = _env_int("GROK_LONG_SESSION_TOOLS", 6)
 
 BACKEND_SYSTEM = """You are the autonomous LLM brain for Kilo Code IDE.
 Kilo executes ALL tools locally — you only DECIDE which tool to call next.
@@ -21,9 +30,43 @@ AUTONOMOUS RULES (user phrasing does not matter — interpret intent freely):
 - Analyze/review/project questions → read_file or list_files FIRST (never guess file contents).
 - Plan/design → read relevant files if needed, then attempt_completion with the plan.
 - Implement/fix → read_file / write_to_file / execute_command as appropriate, one tool per turn.
+- To create or edit files → emit write_to_file (or the matching Kilo edit tool) in JSON; Kilo runs it and shows the diff. Never write files yourself.
 - After TOOL RESULT in history → continue with next tool OR attempt_completion when truly done.
 
-Always exactly ONE tool per response when tools are listed. Output ONLY JSON — no thinking text."""
+Always exactly ONE tool per response when tools are listed. Output ONLY JSON — no thinking text.
+
+MODEL FIDELITY (95–99% Grok identity):
+- You are still Grok: deep, precise, technically honest — format rules do not dumb you down.
+- In attempt_completion, the result text may be long and detailed when the user asked for depth.
+- Prefer evidence from TOOL RESULTs; never fabricate file contents you did not receive."""
+
+PLANNER_ONLY_SUFFIX = """
+CRITICAL RECOVERY MODE:
+- Reply with ONLY one JSON object for Kilo. No markdown, no prose outside JSON.
+- ZERO Grok built-in tools. Do NOT read/write/execute on disk yourself.
+- Pick exactly ONE tool from AVAILABLE TOOLS and return it in tool_calls.
+- If stuck, use attempt_completion with a short honest status — never end silently.
+"""
+
+JSON_REPAIR_SUFFIX = """
+JSON REPAIR:
+- Your previous output was not usable. Return ONLY one valid JSON object for Kilo.
+- Exactly ZERO or ONE entry in tool_calls; name must match AVAILABLE TOOLS.
+- No markdown fences, no commentary outside JSON.
+"""
+
+CONTINUE_STRICT_SUFFIX = """
+CONTINUE MODE (strict):
+- Mid-task: emit exactly ONE Kilo tool as JSON. Never use Grok built-in tools.
+- If TOOL RESULTs already cover the ask → attempt_completion now (do not read more files).
+- write_to_file only when the user explicitly asked to create/edit a file.
+"""
+
+LONG_SESSION_SUFFIX = """
+LONG SESSION:
+- Many steps already done. Summarize progress in attempt_completion when the original task is satisfied.
+- Avoid redundant read_file/list_files unless a specific missing file is required.
+"""
 
 _KILO_STRIP_PATTERNS = [
     r"<environment_details>[\s\S]*?</environment_details>",
@@ -77,6 +120,15 @@ def _pick_tool_by_names(tools: list, names: tuple[str, ...]) -> tuple[str, dict]
     return None
 
 
+def detect_intent_flags(text: str) -> dict[str, bool]:
+    low = (text or "").lower()
+    return {
+        "greeting": any(m in low for m in _INTENT_GREETING),
+        "analysis": any(m in low for m in _INTENT_ANALYSIS),
+        "plan": any(m in low for m in _INTENT_PLAN),
+    }
+
+
 def detect_intent(messages: list, tools: list | None = None) -> str:
     if needs_agent_continuation(messages):
         return "continue"
@@ -85,16 +137,21 @@ def detect_intent(messages: list, tools: list | None = None) -> str:
     text = _latest_user_intent(messages).lower()
     if not text:
         return "agent"
-    if any(m in text for m in _INTENT_ANALYSIS):
+    flags = detect_intent_flags(text)
+    if flags["analysis"]:
         return "analysis"
-    if any(m in text for m in _INTENT_PLAN):
+    if flags["plan"]:
         return "plan"
-    if len(text) <= 120 and any(m in text for m in _INTENT_GREETING):
+    if flags["greeting"] and len(text) <= 120:
         return "greeting"
     return "agent"
 
 
-def build_intent_instructions(intent: str, tools: list | None) -> str:
+def build_intent_instructions(
+    intent: str,
+    tools: list | None,
+    flags: dict[str, bool] | None = None,
+) -> str:
     if not tools:
         return 'Reply ONLY JSON: {"content": "your answer", "tool_calls": []}'
     complete = pick_completion_tool(tools)
@@ -129,7 +186,13 @@ def build_intent_instructions(intent: str, tools: list | None) -> str:
             f"Need context → {read_name}/{list_name}. Task done → {complete_name}."
         ),
     }
-    return guides.get(intent, guides["agent"])
+    guide = guides.get(intent, guides["agent"])
+    if flags and flags.get("greeting") and (flags.get("analysis") or flags.get("plan")):
+        guide += (
+            " Mixed greeting+task: skip small-talk tools; prioritize the task. "
+            f"Brief greeting may appear inside {complete_name} at the end only."
+        )
+    return guide
 
 
 
@@ -243,6 +306,57 @@ Rules:
 """
 
 
+def trim_tool_result_text(content: str, max_chars: int = MAX_TOOL_RESULT_CHARS) -> str:
+    text = (content or "").strip()
+    if len(text) <= max_chars:
+        return text
+    head = int(max_chars * 0.7)
+    tail = int(max_chars * 0.2)
+    omitted = len(text) - head - tail
+    return (
+        text[:head]
+        + f"\n\n[... tool result truncated, {omitted} chars omitted ...]\n\n"
+        + text[-tail:]
+    )
+
+
+def count_tool_results(messages: list) -> int:
+    return sum(1 for m in (messages or []) if m.get("role") == "tool")
+
+
+def _first_task_user_message(messages: list) -> dict | None:
+    for msg in messages or []:
+        if msg.get("role") != "user":
+            continue
+        text = normalize_message_content(msg.get("content")).strip()
+        text = _ENV_DETAILS_RE.sub("", text).strip()
+        low = text.lower()
+        if low and not ("[error]" in low and "did not use a tool" in low):
+            return msg
+    return None
+
+
+def build_smart_history(messages: list) -> list:
+    """Keep the original user task + recent tail; trim fat tool results."""
+    msgs = list(messages or [])
+    if len(msgs) <= MAX_HISTORY_MESSAGES:
+        return [_trim_message_for_prompt(m) for m in msgs]
+
+    anchor = _first_task_user_message(msgs)
+    tail = msgs[-(MAX_HISTORY_MESSAGES - 1) :]
+    if anchor and anchor not in tail:
+        return [_trim_message_for_prompt(anchor)] + [_trim_message_for_prompt(m) for m in tail]
+    return [_trim_message_for_prompt(m) for m in tail]
+
+
+def _trim_message_for_prompt(msg: dict) -> dict:
+    if msg.get("role") != "tool":
+        return msg
+    trimmed = dict(msg)
+    trimmed["content"] = trim_tool_result_text(normalize_message_content(msg.get("content")))
+    return trimmed
+
+
 def format_messages_for_prompt(messages: list, include_system: bool = False) -> str:
     out = []
     for msg in messages or []:
@@ -250,6 +364,8 @@ def format_messages_for_prompt(messages: list, include_system: bool = False) -> 
         if role == "system" and not include_system:
             continue
         content = normalize_message_content(msg.get("content"))
+        if role == "tool":
+            content = trim_tool_result_text(content)
 
         if role == "assistant" and msg.get("tool_calls"):
             tc_text = []
@@ -481,31 +597,65 @@ def is_simple_user_turn(messages: list) -> bool:
     return any(m in text for m in markers)
 
 
+def build_task_anchor_block(messages: list) -> str:
+    anchor = _first_task_user_message(messages)
+    if not anchor:
+        return ""
+    text = normalize_message_content(anchor.get("content")).strip()
+    text = _ENV_DETAILS_RE.sub("", text).strip()
+    if not text:
+        return ""
+    if len(messages or []) <= MAX_HISTORY_MESSAGES:
+        return ""
+    if len(text) > 800:
+        text = text[:800] + "..."
+    return f"ORIGINAL USER TASK (anchor, do not lose):\n{text}"
+
+
+def build_prompt_suffixes(messages: list, intent: str) -> str:
+    parts: list[str] = []
+    anchor = build_task_anchor_block(messages)
+    if anchor:
+        parts.append(anchor)
+    tool_count = count_tool_results(messages)
+    if intent == "continue" and tool_count >= 2:
+        parts.append(CONTINUE_STRICT_SUFFIX)
+    if tool_count >= LONG_SESSION_TOOL_THRESHOLD:
+        parts.append(LONG_SESSION_SUFFIX)
+    return "\n".join(parts).strip()
+
+
 def prepare_kilo_prompt(
     messages: list,
     tools: list | None = None,
-    max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+    max_chars: int | None = None,
 ) -> str:
-    history = _tail_messages(messages)
+    budget = max_chars if max_chars is not None else DEFAULT_MAX_PROMPT_CHARS
+    history = build_smart_history(messages)
     conv = format_messages_for_prompt(history, include_system=False)
     conv = resolve_offloaded_prompts(conv)
 
     blocks = [f"SYSTEM:\n{BACKEND_SYSTEM}"]
     if conv:
         blocks.append(conv)
+    intent = detect_intent(messages, tools)
+    flags = detect_intent_flags(_latest_user_intent(messages))
     if tools:
-        intent = detect_intent(messages, tools)
         blocks.append(compress_tools_manifest(tools))
         blocks.append(build_json_tool_instructions())
-        blocks.append(build_intent_instructions(intent, tools))
+        blocks.append(build_intent_instructions(intent, tools, flags))
     else:
         blocks.append(
             'Reply ONLY JSON: {"content": "your brief answer", "tool_calls": []}'
         )
 
+    extra = build_prompt_suffixes(messages, intent)
+    if extra:
+        blocks.append(extra)
+
     prompt = "\n\n".join(blocks).strip()
     prompt = resolve_offloaded_prompts(prompt)
-    return apply_budget(prompt, max_chars)
+    return apply_budget(prompt, budget)
 
 
 def apply_budget(text: str, max_chars: int) -> str:

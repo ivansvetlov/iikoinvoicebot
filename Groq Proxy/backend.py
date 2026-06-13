@@ -133,10 +133,13 @@ def invoke_grok_cli_llm(prompt: str, timeout: int = 90) -> BackendResult:
             "--prompt-file",
             prompt_file,
             "--max-turns",
-            "3",
+            "1",
             "--output-format",
             "plain",
         ]
+        disallowed = (os.environ.get("GROK_DISALLOW_TOOLS") or "").strip()
+        if disallowed:
+            cmd.extend(["--disallowed-tools", disallowed])
         proc = subprocess.run(
             cmd,
             capture_output=True,
@@ -162,16 +165,33 @@ def invoke_grok_cli_llm(prompt: str, timeout: int = 90) -> BackendResult:
                 pass
 
 
+def _stderr_builtin_leak(stderr: str | None) -> bool:
+    low = (stderr or "").lower()
+    markers = (
+        "tool_error",
+        "grok-build",
+        "search_replace",
+        "update_goal",
+        "execution_failure",
+    )
+    return any(m in low for m in markers)
+
+
 def is_backend_failure(result: BackendResult) -> bool:
     err = (result.stderr or "").lower()
     if "timeout" in err:
+        return True
+    # L2: never trust stdout if grok-cli ran builtin agent tools on disk.
+    if _stderr_builtin_leak(result.stderr):
+        return True
+    if "max turns" in err:
         return True
     # grok-cli may exit non-zero while still returning valid JSON on stdout.
     if _has_useful_output(result.stdout):
         return False
     if result.returncode != 0:
         return True
-    return "max turns" in err
+    return False
 
 
 def invoke_grok_llm(prompt: str, timeout: int = 120) -> BackendResult:

@@ -1,0 +1,42 @@
+name: Groq Proxy CI
+
+on:
+  push:
+    paths:
+      - "Groq Proxy/**"
+      - ".github/workflows/groq-proxy.yml"
+  pull_request:
+    paths:
+      - "Groq Proxy/**"
+      - ".github/workflows/groq-proxy.yml"
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Groq Proxy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Offline unit checks
+        run: python scripts/ci_offline.py
+
+  offline-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: Groq Proxy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Offline unit checks (Windows)
+        run: python scripts/ci_offline.py
