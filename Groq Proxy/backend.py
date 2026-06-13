@@ -163,12 +163,15 @@ def invoke_grok_cli_llm(prompt: str, timeout: int = 90) -> BackendResult:
 
 
 def is_backend_failure(result: BackendResult) -> bool:
+    err = (result.stderr or "").lower()
+    if "timeout" in err:
+        return True
+    # grok-cli may exit non-zero while still returning valid JSON on stdout.
+    if _has_useful_output(result.stdout):
+        return False
     if result.returncode != 0:
         return True
-    if not _has_useful_output(result.stdout):
-        return True
-    err = (result.stderr or "").lower()
-    return "timeout" in err or "max turns" in err
+    return "max turns" in err
 
 
 def invoke_grok_llm(prompt: str, timeout: int = 120) -> BackendResult:
