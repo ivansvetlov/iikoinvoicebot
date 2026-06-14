@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 """
-OpenAI-compatible proxy for Grok (SuperGrok via local acpx + grok agent stdio).
-Works with Continue.dev, Kilo Code, Cline and other OpenAI-compatible clients in PyCharm / VSCode.
+OpenAI-compatible proxy for Grok + Kilo Code (synthesis-only architecture).
 
-Ключевые исправления (2026-06):
-- Прямой вызов acpx (без промежуточного mcp_grok_adapter.py на каждый запрос) — убрали один spawn процесса.
-- Правильное размещение --append-system-prompt (глобальный флаг перед "exec").
-- Улучшенный clean_acpx_output: возвращает ПОЛНЫЙ текст ответа, а не обрезанную последнюю строку.
-- Подробные логи + тайминги всегда пишутся в proxy_requests.log (даже когда окно скрыто).
-- Стабильный запуск: рекомендуется python -u openai_proxy.py или через обновлённый start_grok.py.
-- Поддержка строгого правила Kilo Code "exactly one tool call per assistant response" (см. build_tools_block + extract_tool_calls).
+Branch: feature/synthesis-only-orchestrator
 
-SYSTEM support:
-  - System messages → --append-system-prompt (правильный уровень в ACP).
-  - Tool instructions тоже попадают в system prompt (ш shim "tool call name with \\n arg is val").
-  - Инструкции обновлены под Kilo Code: ровно один tool call на ответ (без "multiple").
+  Kilo executes tools → proxy gathers context mechanically → Grok synthesizes ONCE.
 
-Run: python openai_proxy.py   (или через start_grok.py)
-Слушает: http://localhost:8080/v1  (модель: grok)
+  - orchestrator.py   — list/read mechanics, synthesis gate
+  - synthesis_pipeline.py — Grok-voice final prompts
+  - kilo_handler.py   — turn processor
+  - backend.invoke_synthesis_llm — acpx passive primary
+
+Run: python start_grok.py --daemon
+Listen: http://localhost:8080/v1  (model: grok)
 """
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,50 +22,26 @@ import time
 import re
 import sys
 import os
+import socket
 import uuid
 import shutil
 import tempfile
 import threading
 from datetime import datetime
 
-from backend import invoke_grok_llm, is_backend_failure
-from bridge_guards import (
-    BackendEvaluation,
-    classify_backend_result,
-    classify_parse_failure,
-    log_layer_issue,
-    should_cache_response,
-    validate_outbound_tool_calls,
-)
+from backend import invoke_synthesis_llm
+from kilo_handler import failure_as_kilo_tool, process_chat_turn
+from orchestrator import synthesis_orchestrator_enabled
 from paths import log_path
-from phase_router import (
-    grok_permission_mode_for_phase,
-    resolve_grok_phase,
-    two_phase_enabled,
-)
 from prompt_pipeline import (
-    prepare_kilo_prompt,
-    build_resume_delta_prompt,
-    conversation_key,
-    is_grok_resume_turn,
     normalize_message_content as _normalize_content,
     _user_turn_key,
     already_answered_last_user,
-    coerce_text_to_completion,
-    synthesize_tool_error_response,
-    synthesize_intent_first_tool,
     needs_agent_continuation,
     is_simple_user_turn,
     detect_intent,
-    PLANNER_ONLY_SUFFIX,
-    JSON_REPAIR_SUFFIX,
     DEFAULT_MAX_PROMPT_CHARS,
 )
-from response_pipeline import (
-    parse_assistant_response,
-    unwrap_grok_cli_stdout_auto,
-)
-from session_store import get_session_store, resume_sessions_enabled
 
 if sys.platform == "win32" and sys.stdout is not None and sys.stdout.isatty():
     import ctypes
@@ -95,7 +66,7 @@ def write_openai_sse_stream(wfile, content: str | None, tool_calls: list, finish
     chunk_id = f"chatcmpl-{int(time.time())}"
     created = int(time.time())
 
-    def _emit(delta: dict, finish: str | None = None):
+    def _emit(delta: dict, finish: str | None = None) -> bool:
         payload = {
             "id": chunk_id,
             "object": "chat.completion.chunk",
@@ -103,10 +74,13 @@ def write_openai_sse_stream(wfile, content: str | None, tool_calls: list, finish
             "model": "grok",
             "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
         }
-        wfile.write(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8"))
-        wfile.flush()
+        return _safe_write(
+            wfile,
+            f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8"),
+        )
 
-    _emit({"role": "assistant"}, None)
+    if not _emit({"role": "assistant"}, None):
+        return
 
     if content:
         # Kilo expects string content deltas; send in one chunk for short replies.
@@ -135,8 +109,7 @@ def write_openai_sse_stream(wfile, content: str | None, tool_calls: list, finish
             }, None)
 
     _emit({}, finish_reason)
-    wfile.write(b"data: [DONE]\n\n")
-    wfile.flush()
+    _safe_write(wfile, b"data: [DONE]\n\n")
 
 
 def _message_roles_summary(messages: list) -> str:
@@ -217,82 +190,123 @@ def _wait_for_turn(turn_key: str, evt: threading.Event) -> tuple[str | None, lis
     return None
 
 
-def _invoke_grok_locked(
-    prompt: str,
-    timeout: int | None = None,
-    *,
-    resume_session_id: str | None = None,
-    permission_mode: str | None = None,
-    retry: bool = False,
-):
-    if timeout is None:
-        timeout = _GROK_RETRY_TIMEOUT_S if retry else _GROK_TIMEOUT_S
+def _invoke_synthesis_locked(prompt: str, *, retry: bool = False):
     wait_started = None
     if not _grok_call_lock.acquire(blocking=False):
         wait_started = time.time()
-        log("⏳ GROK_QUEUE_WAIT")
+        log("⏳ SYNTHESIS_QUEUE_WAIT")
         _grok_call_lock.acquire()
         waited = time.time() - wait_started
         if waited >= 3:
-            log(f"⏳ GROK_QUEUE_WAIT done ({waited:.1f}s)")
+            log(f"⏳ SYNTHESIS_QUEUE_WAIT done ({waited:.1f}s)")
     try:
         if len(prompt) >= _PROMPT_WARN_CHARS:
-            log(
-                f"⚠️ LARGE_PROMPT len={len(prompt)} "
-                f"(budget={DEFAULT_MAX_PROMPT_CHARS}, timeout={timeout}s)"
-            )
-        return invoke_grok_llm(
-            prompt,
-            timeout=timeout,
-            resume_session_id=resume_session_id,
-            permission_mode=permission_mode,
-        )
+            log(f"⚠️ LARGE_SYNTHESIS_PROMPT len={len(prompt)}")
+        return invoke_synthesis_llm(prompt, retry=retry)
     finally:
         _grok_call_lock.release()
 
 
-def _send_provider_error(handler, status: int, message: str):
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.end_headers()
-    payload = {"error": {"message": message, "type": "backend_error"}}
-    handler.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+_CLIENT_GONE_WINERRORS = frozenset({10053, 10054})
 
 
-def _send_openai_completion(handler, stream: bool, content: str | None, tool_calls: list):
-    finish_reason = "tool_calls" if tool_calls else "stop"
-    if stream:
-        handler.send_response(200)
-        handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        handler.send_header("Cache-Control", "no-cache")
-        handler.send_header("Connection", "close")
+def _client_gone(exc: BaseException) -> bool:
+    if isinstance(exc, (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+        return True
+    if isinstance(exc, OSError):
+        winerr = getattr(exc, "winerror", None)
+        if winerr in _CLIENT_GONE_WINERRORS:
+            return True
+    return False
+
+
+def _safe_write(wfile, data: bytes) -> bool:
+    try:
+        wfile.write(data)
+        wfile.flush()
+        return True
+    except Exception as exc:
+        if _client_gone(exc):
+            log(f"⚠️ CLIENT_DISCONNECTED during write: {exc}")
+            return False
+        raise
+
+
+def _send_provider_error(handler, status: int, message: str) -> bool:
+    try:
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
         handler.send_header("Access-Control-Allow-Origin", "*")
         handler.end_headers()
-        write_openai_sse_stream(handler.wfile, content, tool_calls, finish_reason)
-        handler.close_connection = True
-        return
+        payload = {"error": {"message": message, "type": "backend_error"}}
+        return _safe_write(
+            handler.wfile,
+            json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        )
+    except Exception as exc:
+        if _client_gone(exc):
+            log(f"⚠️ CLIENT_DISCONNECTED before error response: {exc}")
+            return False
+        raise
 
-    message = {"role": "assistant", "content": content if content else None}
-    if tool_calls:
-        message["tool_calls"] = tool_calls
-    response = {
-        "id": f"chatcmpl-{int(time.time())}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": "grok",
-        "choices": [{
-            "index": 0,
-            "message": message,
-            "finish_reason": finish_reason,
-        }],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-    }
-    handler.send_response(200)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.end_headers()
-    handler.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+
+def _send_kilo_failure(
+    handler,
+    stream: bool,
+    tools: list | None,
+    message: str,
+    *,
+    status: int = 502,
+) -> bool:
+    """Agent mode: return attempt_completion instead of bare HTTP error when possible."""
+    fallback = failure_as_kilo_tool(tools, message)
+    if fallback:
+        return _send_openai_completion(handler, stream, fallback.content, fallback.tool_calls)
+    return _send_provider_error(handler, status, message)
+
+
+def _send_openai_completion(handler, stream: bool, content: str | None, tool_calls: list) -> bool:
+    finish_reason = "tool_calls" if tool_calls else "stop"
+    try:
+        if stream:
+            handler.send_response(200)
+            handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            handler.send_header("Cache-Control", "no-cache")
+            handler.send_header("Connection", "close")
+            handler.send_header("Access-Control-Allow-Origin", "*")
+            handler.end_headers()
+            write_openai_sse_stream(handler.wfile, content, tool_calls, finish_reason)
+            handler.close_connection = True
+            return True
+
+        message = {"role": "assistant", "content": content if content else None}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        response = {
+            "id": f"chatcmpl-{int(time.time())}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": "grok",
+            "choices": [{
+                "index": 0,
+                "message": message,
+                "finish_reason": finish_reason,
+            }],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+        handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.end_headers()
+        return _safe_write(
+            handler.wfile,
+            json.dumps(response, ensure_ascii=False).encode("utf-8"),
+        )
+    except Exception as exc:
+        if _client_gone(exc):
+            log(f"⚠️ CLIENT_DISCONNECTED during completion: {exc}")
+            return False
+        raise
 
 
 def _get_acpx_path():
@@ -520,15 +534,13 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
             uptime = round(time.time() - _proxy_started_at, 1)
             payload = {
                 "status": "ok",
+                "architecture": "synthesis-only",
                 "uptime_s": uptime,
-                "grok_timeout_s": _GROK_TIMEOUT_S,
+                "grok_orchestrator": os.environ.get("GROK_ORCHESTRATOR", "synthesis"),
+                "grok_synthesis_timeout_s": int(os.environ.get("GROK_SYNTHESIS_TIMEOUT", "240")),
                 "prompt_budget": DEFAULT_MAX_PROMPT_CHARS,
                 "grok_output_format": os.environ.get("GROK_OUTPUT_FORMAT", "plain"),
-                "grok_resume_sessions": resume_sessions_enabled(),
-                "grok_two_phase": two_phase_enabled(),
-                "active_grok_sessions": get_session_store().count(),
                 "grok_mcp_bridge": os.environ.get("GROK_MCP_BRIDGE", "1"),
-                "grok_passive_cli": os.environ.get("GROK_PASSIVE_CLI", "1"),
                 "grok_retry_timeout_s": _GROK_RETRY_TIMEOUT_S,
             }
             self.send_response(200)
@@ -541,6 +553,8 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path in ['/v1/chat/completions', '/chat/completions']:
             turn_key = ""
+            stream = False
+            tools: list = []
             try:
                 length = int(self.headers['Content-Length'])
                 body = json.loads(self.rfile.read(length).decode('utf-8', errors='replace'))
@@ -558,63 +572,17 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                         messages[-1] = dict(messages[-1])
                         messages[-1]['content'] = task_match.group(1).strip()
 
-                # Passive LLM pipeline: compress Kilo prompt, Grok decides, Kilo executes tools
-                conv_key = conversation_key(messages)
-                phase = resolve_grok_phase(messages, tools)
-                permission_mode = grok_permission_mode_for_phase(phase)
-                resume_id: str | None = None
-                use_resume = False
-                if resume_sessions_enabled() and conv_key and is_grok_resume_turn(messages):
-                    resume_id = get_session_store().get(conv_key)
-                    if resume_id:
-                        use_resume = True
-                        prompt = build_resume_delta_prompt(messages, tools=tools or None)
-                    else:
-                        prompt = prepare_kilo_prompt(messages, tools=tools or None)
-                else:
-                    prompt = prepare_kilo_prompt(messages, tools=tools or None)
-                if not prompt and messages:
-                    prompt = normalize_message_content(messages[-1].get("content")) or str(body)
-
-                allowed_tool_names = [
-                    (t.get("function", t) or {}).get("name", "")
-                    for t in (tools or [])
-                ]
-                allowed_tool_names = [n for n in allowed_tool_names if n]
                 turn_key = _user_turn_key(messages)
                 roles = _message_roles_summary(messages)
-
-                log(
-                    f"📥 REQUEST (tools={len(tools)}, prompt_len={len(prompt)}, "
-                    f"roles={roles}, intent={detect_intent(messages, tools)}, "
-                    f"phase={phase}, two_phase={two_phase_enabled()}, "
-                    f"resume={use_resume}, conv_key={conv_key[:12]!r}, "
-                    f"turn_key={turn_key[:48]!r}, mode=llm-only): {prompt[:160]}..."
-                )
-
                 start_time = time.time()
                 request_id = f"req-{int(time.time()*1000)}"
 
-                tool_error = synthesize_tool_error_response(messages, tools)
-                if tool_error:
-                    clean_response, tool_calls = tool_error
-                    log(f"🔧 TOOL_ERROR_RECOVERY (request_id={request_id}) → {tool_calls[0]['function']['name']}")
-                    _release_turn(turn_key, clean_response, tool_calls, cache=True)
-                    _send_openai_completion(self, stream, clean_response, tool_calls)
-                    log(f"📤 RESPONSE_SENT tool_error_recovery total_time={time.time() - start_time:.2f}s")
-                    return
-
-                intent_tool = synthesize_intent_first_tool(messages, tools)
-                if intent_tool:
-                    clean_response, tool_calls = intent_tool
-                    log(
-                        f"🎯 INTENT_ROUTED (request_id={request_id}, intent={detect_intent(messages, tools)}) "
-                        f"→ {tool_calls[0]['function']['name']}"
-                    )
-                    _release_turn(turn_key, clean_response, tool_calls, cache=True)
-                    _send_openai_completion(self, stream, clean_response, tool_calls)
-                    log(f"📤 RESPONSE_SENT intent_routed total_time={time.time() - start_time:.2f}s")
-                    return
+                log(
+                    f"📥 REQUEST (tools={len(tools)}, roles={roles}, "
+                    f"intent={detect_intent(messages, tools)}, "
+                    f"orchestrator={synthesis_orchestrator_enabled()}, "
+                    f"turn_key={turn_key[:48]!r}, mode=synthesis-only)"
+                )
 
                 suppress_reason = _should_suppress_duplicate(messages)
                 if suppress_reason:
@@ -636,190 +604,57 @@ class OpenAIProxyHandler(BaseHTTPRequestHandler):
                         log(f"📤 RESPONSE_SENT cached total_time={time.time() - start_time:.2f}s")
                         return
 
-                log(
-                    f"🚀 LLM_BACKEND (request_id={request_id}, "
-                    f"resume_id={resume_id[:12] + '...' if resume_id else 'none'}, "
-                    f"permission_mode={permission_mode or 'default'})"
-                )
+                def _invoke(prompt, retry=False):
+                    return _invoke_synthesis_locked(prompt, retry=retry)
 
-                try:
-                    backend_result = _invoke_grok_locked(
-                        prompt,
-                        resume_session_id=resume_id if use_resume else None,
-                        permission_mode=permission_mode,
-                    )
-                except Exception as e:
-                    _release_turn(turn_key)
-                    if "Timeout" in type(e).__name__:
-                        log(f"❌ BACKEND TIMEOUT ({_GROK_TIMEOUT_S}s)")
-                        _send_provider_error(self, 504, "Grok не ответил вовремя. Нажми Retry.")
-                        return
-                    log(f"❌ BACKEND ERROR: {e}")
-                    _send_provider_error(self, 500, f"Backend error: {e}")
-                    return
-
-                raw_stdout = backend_result.stdout
-                if backend_result.stderr:
-                    log(f"RAW_BACKEND_STDERR: {backend_result.stderr[:400]}")
-                output_fmt = os.environ.get("GROK_OUTPUT_FORMAT", "plain")
-                grok_session_id = None
-                parse_text, grok_meta = unwrap_grok_cli_stdout_auto(
-                    raw_stdout or "",
-                    output_fmt,
-                )
-                grok_session_id = grok_meta.get("session_id")
-                if grok_session_id:
-                    log(f"🔗 GROK_SESSION_ID={grok_session_id}")
-                if raw_stdout:
-                    log(
-                        f"RAW_BACKEND_STDOUT ({backend_result.backend}, "
-                        f"first 600): {raw_stdout[:600].replace(chr(10), ' ')[:600]}"
-                    )
-
-                backend_eval = classify_backend_result(
-                    backend_result,
-                    parse_text=parse_text,
-                    grok_meta=grok_meta,
-                )
-                if use_resume and (not backend_eval.ok or is_backend_failure(backend_result)):
-                    log(f"🔁 GROK_RESUME_FALLBACK (request_id={request_id})")
-                    if conv_key:
-                        get_session_store().clear(conv_key)
-                    prompt = prepare_kilo_prompt(messages, tools=tools or None)
-                    use_resume = False
-                    resume_id = None
-                    backend_result = _invoke_grok_locked(
-                        prompt,
-                        permission_mode=permission_mode,
-                    )
-                    raw_stdout = backend_result.stdout
-                    parse_text, grok_meta = unwrap_grok_cli_stdout_auto(
-                        raw_stdout or "",
-                        output_fmt,
-                    )
-                    if grok_meta.get("session_id"):
-                        grok_session_id = grok_meta["session_id"]
-                        log(f"🔗 GROK_SESSION_ID={grok_session_id} (fallback)")
-                    backend_eval = classify_backend_result(
-                        backend_result,
-                        parse_text=parse_text,
-                        grok_meta=grok_meta,
-                    )
-
-                if not backend_eval.ok and backend_eval.retry_planner:
-                    log(f"🔁 PLANNER_RETRY (request_id={request_id}, timeout={_GROK_RETRY_TIMEOUT_S}s)")
-                    backend_result = _invoke_grok_locked(
-                        prompt + PLANNER_ONLY_SUFFIX,
-                        permission_mode=permission_mode,
-                        retry=True,
-                    )
-                    parse_text, grok_meta = unwrap_grok_cli_stdout_auto(
-                        backend_result.stdout or "",
-                        output_fmt,
-                    )
-                    if grok_meta.get("session_id"):
-                        grok_session_id = grok_meta["session_id"]
-                    backend_eval = classify_backend_result(
-                        backend_result,
-                        parse_text=parse_text,
-                        grok_meta=grok_meta,
-                    )
-
-                if not backend_eval.ok or is_backend_failure(backend_result):
-                    if backend_eval.layer == "L2" and conv_key:
-                        get_session_store().clear(conv_key)
-                    log(f"❌ BACKEND_FAILED ({backend_result.backend}, {backend_result.stderr[:120]})")
-                    log_layer_issue(log, backend_eval, request_id)
-                    _release_turn(turn_key)
-                    _send_provider_error(self, 502, backend_eval.message)
-                    log(f"📤 RESPONSE_SENT backend_failed total_time={time.time() - start_time:.2f}s")
-                    return
-
-                clean_response, tool_calls = parse_assistant_response(
-                    parse_text or backend_result.stderr,
-                    allowed_tool_names=allowed_tool_names,
-                )
-                parse_eval: BackendEvaluation | None = None
-                if not clean_response and not tool_calls and (parse_text or "").strip():
-                    parse_eval = classify_parse_failure(True)
-                    log(f"🔁 JSON_REPAIR_RETRY (request_id={request_id}, timeout={_GROK_RETRY_TIMEOUT_S}s)")
-                    repair_result = _invoke_grok_locked(
-                        prompt + JSON_REPAIR_SUFFIX,
-                        resume_session_id=resume_id if use_resume else None,
-                        permission_mode=permission_mode,
-                        retry=True,
-                    )
-                    repair_text, repair_meta = unwrap_grok_cli_stdout_auto(
-                        repair_result.stdout or "",
-                        output_fmt,
-                    )
-                    repair_eval = classify_backend_result(
-                        repair_result,
-                        parse_text=repair_text,
-                        grok_meta=repair_meta,
-                    )
-                    if repair_eval.ok and not is_backend_failure(repair_result):
-                        if repair_meta.get("session_id"):
-                            grok_session_id = repair_meta["session_id"]
-                        if repair_result.stderr:
-                            log(f"RAW_BACKEND_STDERR (repair): {repair_result.stderr[:200]}")
-                        clean_response, tool_calls = parse_assistant_response(
-                            repair_text or repair_result.stderr,
-                            allowed_tool_names=allowed_tool_names,
-                        )
-                    else:
-                        log_layer_issue(log, repair_eval, request_id)
-                clean_response, tool_calls = coerce_text_to_completion(
-                    clean_response,
-                    tool_calls,
-                    tools,
+                turn = process_chat_turn(
                     messages,
+                    tools or None,
+                    log=log,
+                    invoke_synthesis=_invoke,
+                    request_id=request_id,
                 )
-                tool_calls, validation_err = validate_outbound_tool_calls(tool_calls, tools)
-                if validation_err and tools:
-                    parse_eval = classify_parse_failure(bool(raw_stdout))
-                    log_layer_issue(log, parse_eval, request_id)
+
+                if turn.error_message:
                     _release_turn(turn_key)
-                    _send_provider_error(self, 502, parse_eval.message)
-                    log(f"📤 RESPONSE_SENT invalid_tool total_time={time.time() - start_time:.2f}s")
-                    return
-                if not clean_response and not tool_calls:
-                    final_eval = parse_eval or classify_parse_failure(bool(raw_stdout))
-                    log_layer_issue(log, final_eval, request_id)
-                    _release_turn(turn_key)
-                    _send_provider_error(self, 502, final_eval.message)
-                    log(f"📤 RESPONSE_SENT empty_backend total_time={time.time() - start_time:.2f}s")
+                    fallback = failure_as_kilo_tool(tools, turn.error_message)
+                    if fallback:
+                        _release_turn(turn_key, fallback.content, fallback.tool_calls, cache=False)
+                        _send_openai_completion(self, stream, fallback.content, fallback.tool_calls)
+                        log(f"📤 RESPONSE_SENT synthesis_failure_tool total_time={time.time() - start_time:.2f}s")
+                        return
+                    _send_kilo_failure(self, stream, tools, turn.error_message, status=turn.error_status)
+                    log(f"📤 RESPONSE_SENT error total_time={time.time() - start_time:.2f}s")
                     return
 
-                if grok_session_id and conv_key and resume_sessions_enabled():
-                    get_session_store().set(conv_key, grok_session_id)
-
-                cache_ok = should_cache_response(backend_eval)
                 _release_turn(
                     turn_key,
-                    clean_response,
-                    tool_calls,
-                    cache=cache_ok and bool(clean_response or tool_calls),
+                    turn.content,
+                    turn.tool_calls,
+                    cache=turn.cache,
                 )
-
-                total_elapsed = time.time() - start_time
+                _send_openai_completion(self, stream, turn.content, turn.tool_calls)
                 log(
-                    f"🏁 FINAL_RESPONSE (request_id={request_id}, backend={backend_result.backend}, "
-                    f"total={total_elapsed:.2f}s, tools={len(tool_calls)}): "
-                    f"{(clean_response or '')[:120]}..."
+                    f"📤 RESPONSE_SENT action={turn.action} "
+                    f"tools={len(turn.tool_calls)} total_time={time.time() - start_time:.2f}s"
                 )
-                log(f"✅ RESPONSE_PREPARED tools={len(tool_calls)} len={len(clean_response or '')}")
-
-                _send_openai_completion(self, stream, clean_response, tool_calls)
-
-                log(f"📤 RESPONSE_SENT tools={len(tool_calls)} total_time={total_elapsed:.2f}s")
             except Exception as e:
                 log(f"❌ UNHANDLED ERROR in chat handler: {e}")
                 try:
                     _release_turn(turn_key)
-                    _send_provider_error(self, 500, f"Proxy error: {e}")
-                except Exception:
-                    pass
+                    if _client_gone(e):
+                        log(f"⚠️ CLIENT_DISCONNECTED in chat handler: {e}")
+                    else:
+                        _send_kilo_failure(
+                            self,
+                            stream,
+                            tools or None,
+                            f"Proxy error: {e}",
+                            status=500,
+                        )
+                except Exception as inner:
+                    if not _client_gone(inner):
+                        log(f"❌ ERROR while sending failure response: {inner}")
         else:
             self.send_error(404)
 
@@ -872,21 +707,46 @@ def extract_tool_calls(text):
     return tool_calls
 
 
+def _serve_on(host: str, port: int) -> None:
+    try:
+        server = ThreadingHTTPServer((host, port), OpenAIProxyHandler)
+    except OSError as e:
+        print(f"  ! bind {host}:{port} failed: {e}")
+        return
+    print(f"  → listening on http://{host}:{port}/v1")
+    server.serve_forever()
+
+
 if __name__ == '__main__':
-    server = ThreadingHTTPServer(('localhost', 8080), OpenAIProxyHandler)
+    port = int(os.environ.get("GROK_PROXY_PORT", "8080"))
     print("=" * 68)
-    print("OpenAI proxy for Grok (acpx + grok agent stdio) — http://localhost:8080/v1")
-    print("Model: grok")
-    print("  - Прямой вызов acpx (без mcp_grok_adapter на каждый запрос)")
+    print("OpenAI proxy — synthesis-only orchestrator (branch feature/synthesis-only-orchestrator)")
+    print("Model: grok | Orchestrator:", os.environ.get("GROK_ORCHESTRATOR", "synthesis"))
+    print("  - Mechanical: list_files / read_file (proxy)")
+    print("  - Grok: single synthesis call (acpx primary)")
     print("  - System prompt через --append-system-prompt (глобальный флаг)")
     print("  - Полные ответы (без обрезки до последней строки)")
     print("  - Все тайминги и сырой вывод пишутся в proxy_requests.log")
     print("  - Kilo Code: строго один tool call на ответ (см. build_tools_block и extract_tool_calls)")
     print()
-    print("Continue / Kilo Code настройка:")
+    print("Kilo / OpenAI-compatible client:")
     print("  Provider: OpenAI Compatible")
-    print("  Base URL: http://localhost:8080/v1")
+    print("  Base URL: http://127.0.0.1:8080/v1  (prefer over localhost on Windows)")
     print("  API Key : dummy")
     print("  Model   : grok")
     print("=" * 68)
-    server.serve_forever()
+
+    # Windows Node/Kilo often resolves localhost → ::1 (IPv6); bind both stacks.
+    hosts = ["127.0.0.1"]
+    if socket.has_ipv6:
+        hosts.append("::1")
+    if len(hosts) == 1:
+        _serve_on(hosts[0], port)
+    else:
+        threads = []
+        for host in hosts:
+            t = threading.Thread(target=_serve_on, args=(host, port), daemon=True)
+            t.start()
+            threads.append(t)
+        while True:
+            time.sleep(3600)

@@ -22,6 +22,7 @@ os.chdir(os.path.dirname(__file__))
 
 PROXY_PID_FILE = log_path("proxy.pid")
 GROK_PID_FILE = log_path("grok.pid")
+DAEMON_PID_FILE = log_path("daemon.pid")
 
 # Must live for the whole parent process lifetime (Windows closes inherited handles on exit).
 _KEEP_HANDLES: list = []
@@ -40,7 +41,7 @@ def read_pid(path):
         return None
 
 
-def http_ok(url="http://localhost:8080/v1/models", timeout=1.2):
+def http_ok(url="http://127.0.0.1:8080/v1/models", timeout=1.2):
     try:
         with urllib.request.urlopen(url, timeout=timeout):
             return True
@@ -81,6 +82,31 @@ def start_grok_agent() -> subprocess.Popen | None:
     return None
 
 
+def _kill_pid(pid: int, label: str = "process") -> None:
+    if not pid or pid == os.getpid():
+        return
+    try:
+        subprocess.run(
+            ["taskkill", "/F", "/PID", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        print(f"  ✓ killed {label} (pid {pid})")
+    except Exception:
+        pass
+
+
+def ensure_single_daemon() -> None:
+    """Only one start_grok.py --daemon may run (prevents duplicate :8080 listeners)."""
+    old = read_pid(DAEMON_PID_FILE)
+    if old and old != os.getpid():
+        _kill_pid(old, "old daemon")
+        time.sleep(0.5)
+    kill_all_proxy_processes()
+    write_pid(DAEMON_PID_FILE, os.getpid())
+
+
 def kill_all_proxy_processes() -> None:
     """Prevent duplicate listeners on :8080 (Windows daemon restarts)."""
     if sys.platform == "win32":
@@ -108,21 +134,17 @@ def start_proxy(*, visible: bool = False) -> subprocess.Popen | None:
     proxy_cmd = [sys.executable, "-u", "openai_proxy.py"]
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
-    env.setdefault(
-        "GROK_DISALLOW_TOOLS",
-        "Read,Write,Bash,search_replace,Shell,update_goal,ListDir,Glob,"
-        "Grep,Task,WebFetch,WebSearch,NotebookEdit,DeleteFile",
-    )
+    env["GROK_ORCHESTRATOR"] = "synthesis"
+    env["GROK_OUTPUT_FORMAT"] = "plain"
+    env.setdefault("GROK_SYNTHESIS_TIMEOUT", "240")
     env.setdefault("GROK_TIMEOUT", "180")
     env.setdefault("GROK_MAX_PROMPT_CHARS", "40000")
     env.setdefault("GROK_MAX_TOOL_RESULT_CHARS", "6000")
-    env.setdefault("GROK_RESUME_SESSIONS", "1")
-    env.setdefault("GROK_TWO_PHASE", "1")
+    env["GROK_RESUME_SESSIONS"] = "0"
+    env["GROK_TWO_PHASE"] = "0"
     env.setdefault("GROK_MCP_BRIDGE", "1")
     env.setdefault("GROK_PASSIVE_CLI", "1")
-    env.setdefault("GROK_CLI_PERMISSION", "dontAsk")
-    env.setdefault("GROK_RETRY_TIMEOUT_S", "60")
-    env["GROK_OUTPUT_FORMAT"] = os.environ.get("GROK_OUTPUT_FORMAT", "json")
+    env.setdefault("GROK_RETRY_TIMEOUT_S", "90")
 
     popen_kwargs: dict = {
         "env": env,
@@ -163,6 +185,9 @@ def main():
     visible = "--visible" in sys.argv
     daemon = "--daemon" in sys.argv
 
+    if daemon:
+        ensure_single_daemon()
+
     print("Starting Grok ACP agent (grok agent stdio)...")
     start_grok_agent()
     time.sleep(2.2)
@@ -176,7 +201,7 @@ def main():
     print()
     if ready:
         print("✅ Grok SuperGrok is ready!")
-        print("   Base URL: http://localhost:8080/v1  Model: grok  API Key: dummy")
+        print("   Base URL: http://127.0.0.1:8080/v1  Model: grok  API Key: dummy")
         print("   MCP (parallel): mcp_bridge.py — see mcp_config.example.json")
         print("   Логи: logs/proxy_requests.log")
         if daemon:
@@ -194,7 +219,7 @@ def main():
     last_ok_log = time.time()
     while True:
         time.sleep(10)
-        if http_ok("http://localhost:8080/v1/health"):
+        if http_ok("http://127.0.0.1:8080/v1/health"):
             if time.time() - last_ok_log >= 600:
                 ts = datetime.now().strftime("%H:%M:%S")
                 print(f"[{ts}] daemon ok — proxy healthy")

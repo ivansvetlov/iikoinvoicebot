@@ -20,6 +20,9 @@ def _compile_modules() -> None:
         "bridge_guards.py",
         "session_store.py",
         "phase_router.py",
+        "orchestrator.py",
+        "synthesis_pipeline.py",
+        "kilo_handler.py",
         "mcp_bridge.py",
         "mcp_grok_adapter.py",
         "start_grok.py",
@@ -35,6 +38,7 @@ def _run(script: str) -> None:
     path = os.path.join(ROOT, "tests", script)
     env = os.environ.copy()
     env["PYTHONPATH"] = ROOT
+    env.setdefault("PYTHONUTF8", "1")
     print(f"run: {script}")
     subprocess.run([sys.executable, path], cwd=ROOT, env=env, check=True)
 
@@ -52,7 +56,10 @@ def main() -> int:
         "test_mcp_bridge.py",
         "test_backend_passive.py",
         "test_stderr_classify.py",
+        "test_disallow_tools.py",
         "test_no_cache_on_tool.py",
+        "test_continue_routing.py",
+        "test_orchestrator.py",
         "test_tool_calling.py",
     ):
         _run(test)

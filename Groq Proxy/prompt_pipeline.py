@@ -592,6 +592,116 @@ def build_kilo_error_tool_response(tools: list | None, message: str) -> list | N
     return [build_completion_tool_call(name, fn, message)]
 
 
+def synthesize_backend_failure_response(
+    tools: list | None,
+    message: str,
+) -> tuple[str | None, list] | None:
+    """Kilo agent mode needs a tool_call — not a bare HTTP 502."""
+    tool_calls = build_kilo_error_tool_response(tools, message)
+    if not tool_calls:
+        return None
+    return None, tool_calls
+
+
+def _last_executed_tool_name(messages: list) -> str | None:
+    tool_names: dict[str, str] = {}
+    for msg in messages or []:
+        if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+            continue
+        for tc in msg.get("tool_calls", []):
+            fn = tc.get("function", {}) or {}
+            name = fn.get("name", "")
+            tc_id = tc.get("id")
+            if name and tc_id:
+                tool_names[tc_id] = name
+    for msg in reversed(messages or []):
+        if msg.get("role") != "tool":
+            continue
+        tc_id = msg.get("tool_call_id")
+        if tc_id and tc_id in tool_names:
+            return tool_names[tc_id]
+    return None
+
+
+def _last_tool_result_text(messages: list) -> str:
+    for msg in reversed(messages or []):
+        if msg.get("role") == "tool":
+            return normalize_message_content(msg.get("content"))
+    return ""
+
+
+_ANALYSIS_FILE_HINTS = ("analysis", "progress", "audit", "readme", "improvement")
+_PATH_IN_LINE_RE = re.compile(
+    r"([\w./\\-]+\.(?:md|txt|py|json|yml|yaml))",
+    re.IGNORECASE,
+)
+
+
+def _extract_paths_from_listing(listing: str) -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    for line in (listing or "").splitlines():
+        s = line.strip().strip("-•* ")
+        if not s:
+            continue
+        match = _PATH_IN_LINE_RE.search(s)
+        if match:
+            path = match.group(1).replace("\\", "/")
+        elif "/" in s or "\\" in s:
+            path = s.replace("\\", "/")
+        elif "." in s and len(s) < 120:
+            path = s
+        else:
+            continue
+        if path not in seen:
+            seen.add(path)
+            paths.append(path)
+    return paths
+
+
+def _pick_read_target(messages: list, listing: str) -> str:
+    user = _latest_user_intent(messages).lower()
+    paths = _extract_paths_from_listing(listing)
+    if paths:
+        scored: list[tuple[int, str]] = []
+        for path in paths:
+            low = path.lower()
+            score = sum(10 for hint in _ANALYSIS_FILE_HINTS if hint in low)
+            if "анализ" in user or "analysis" in user:
+                if "analysis" in low or "audit" in low or "improvement" in low:
+                    score += 25
+            if "progress" in low:
+                score += 8
+            scored.append((score, path))
+        scored.sort(key=lambda item: (-item[0], -len(item[1])))
+        return scored[0][1]
+    if "анализ" in user or "analysis" in user or "audit" in user:
+        return "ANALYSIS_AND_IMPROVEMENTS.md"
+    return "README.md"
+
+
+def synthesize_continue_tool(
+    messages: list,
+    tools: list | None,
+) -> tuple[str | None, list] | None:
+    """Deterministic next tool after list_files — avoids grok-cli agent-loop on continue."""
+    if not tools or not needs_agent_continuation(messages):
+        return None
+    last_tool = _last_executed_tool_name(messages)
+    if last_tool not in _LIST_TOOL_NAMES:
+        return None
+    intent = detect_intent(messages, tools)
+    if intent not in ("continue", "analysis", "plan", "agent"):
+        return None
+    read_t = _pick_tool_by_names(tools, _READ_TOOL_NAMES)
+    if not read_t:
+        return None
+    name, fn = read_t
+    key = _first_string_param(fn, ("path", "file", "filepath", "target_file"))
+    target = _pick_read_target(messages, _last_tool_result_text(messages))
+    return None, [build_tool_call(name, fn, {key: target})]
+
+
 def synthesize_intent_first_tool(
     messages: list,
     tools: list | None,

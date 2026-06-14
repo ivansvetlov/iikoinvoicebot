@@ -10,10 +10,6 @@ import sys
 import tempfile
 from dataclasses import dataclass
 
-from bridge_guards import (
-    stderr_indicates_real_timeout,
-    stderr_indicates_session_build_failure,
-)
 from response_pipeline import grok_wrapper_indicates_failure, unwrap_grok_cli_stdout_auto
 
 
@@ -293,11 +289,9 @@ def _stderr_hard_failure(stderr: str | None) -> bool:
 def is_backend_failure(result: BackendResult) -> bool:
     if result.timed_out:
         return True
-    if stderr_indicates_real_timeout(result.stderr):
-        return True
-    if stderr_indicates_session_build_failure(result.stderr):
-        return True
     err = (result.stderr or "").lower()
+    if "timeout" in err:
+        return True
     if _stderr_hard_failure(result.stderr):
         return True
     if "max turns" in err:
@@ -312,6 +306,45 @@ def is_backend_failure(result: BackendResult) -> bool:
     return False
 
 
+def _acpx_passive_fallback(prompt: str, timeout: int, tag: str) -> BackendResult | None:
+    """Passive acpx when grok-cli enters its internal agent loop (L2 leak)."""
+    budget = min(timeout, 90)
+    acpx = invoke_acpx_llm(prompt, timeout=budget)
+    if is_backend_failure(acpx) and not _has_useful_output(acpx.stdout):
+        return None
+    acpx.backend = tag
+    return acpx
+
+
+def invoke_synthesis_llm(prompt: str, timeout: int | None = None, *, retry: bool = False) -> BackendResult:
+    """Synthesis-only path: acpx passive first (no agent loop), grok-cli plain fallback."""
+    import os as _os
+
+    base = int(_os.environ.get("GROK_SYNTHESIS_TIMEOUT", "240"))
+    retry_s = int(_os.environ.get("GROK_RETRY_TIMEOUT_S", "90"))
+    budget = retry_s if retry else (timeout if timeout is not None else base)
+
+    acpx = invoke_acpx_llm(prompt, timeout=min(budget, 120))
+    if not is_backend_failure(acpx) or _has_useful_output(acpx.stdout):
+        acpx.backend = "synthesis:acpx"
+        return acpx
+
+    plain = invoke_grok_cli_llm(
+        prompt,
+        timeout=budget,
+        output_format="plain",
+        permission_mode=_passive_permission_mode(),
+    )
+    if not is_backend_failure(plain) or _has_useful_output(plain.stdout):
+        plain.backend = "synthesis:grok-cli"
+        return plain
+
+    acpx2 = _acpx_passive_fallback(prompt, budget, "synthesis:acpx-retry")
+    if acpx2 is not None:
+        return acpx2
+    return plain
+
+
 def invoke_grok_llm(
     prompt: str,
     timeout: int = 120,
@@ -319,7 +352,7 @@ def invoke_grok_llm(
     resume_session_id: str | None = None,
     permission_mode: str | None = None,
 ) -> BackendResult:
-    """Primary: grok CLI only (fast, clean JSON). No acpx fallback in Kilo path."""
+    """Primary: grok CLI; fall back to passive acpx on agent-loop leaks."""
     fmt = _grok_output_format()
     result = invoke_grok_cli_llm(
         prompt,
@@ -328,6 +361,10 @@ def invoke_grok_llm(
         resume_session_id=resume_session_id,
         permission_mode=permission_mode,
     )
+    if is_backend_failure(result) and _stderr_hard_failure(result.stderr):
+        acpx = _acpx_passive_fallback(prompt, timeout, "acpx-llm:L2-fallback")
+        if acpx is not None:
+            return acpx
     if fmt == "json" and is_backend_failure(result) and not _stderr_hard_failure(result.stderr):
         plain = invoke_grok_cli_llm(
             prompt,
@@ -339,4 +376,8 @@ def invoke_grok_llm(
         if not is_backend_failure(plain):
             plain.backend = "grok-cli:plain-fallback"
             return plain
+        if _stderr_hard_failure(plain.stderr):
+            acpx = _acpx_passive_fallback(prompt, timeout, "acpx-llm:L2-fallback")
+            if acpx is not None:
+                return acpx
     return result

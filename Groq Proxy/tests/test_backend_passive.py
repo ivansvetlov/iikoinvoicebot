@@ -12,17 +12,14 @@ from response_pipeline import grok_wrapper_indicates_failure, unwrap_grok_cli_st
 
 
 def test_passive_cli_default_on():
-    old_passive = os.environ.pop("GROK_PASSIVE_CLI", None)
-    old_perm = os.environ.pop("GROK_CLI_PERMISSION", None)
+    old = os.environ.pop("GROK_PASSIVE_CLI", None)
     try:
         assert passive_cli_mode() is True
-        assert _effective_permission_mode(None) == "dontAsk"
-        assert grok_permission_mode_for_phase("agent") is None
+        assert _effective_permission_mode(None) == "plan"
+        assert grok_permission_mode_for_phase("agent") == "plan"
     finally:
-        if old_passive is not None:
-            os.environ["GROK_PASSIVE_CLI"] = old_passive
-        if old_perm is not None:
-            os.environ["GROK_CLI_PERMISSION"] = old_perm
+        if old is not None:
+            os.environ["GROK_PASSIVE_CLI"] = old
 
 
 def test_wrapper_cancelled_is_failure():
@@ -35,13 +32,7 @@ def test_wrapper_cancelled_is_failure():
     )
     text, meta = unwrap_grok_cli_stdout_auto(raw, "json")
     assert grok_wrapper_indicates_failure(meta, text) == "wrapper_cancelled_empty"
-    result = BackendResult(
-        stdout=raw,
-        stderr="Error: max turns reached\n",
-        returncode=1,
-        backend="grok-cli:json",
-        elapsed_s=50,
-    )
+    result = BackendResult(stdout=raw, stderr="Error: max turns reached\n", returncode=1, backend="grok-cli:json", elapsed_s=50)
     assert is_backend_failure(result)
     ev = classify_backend_result(result, parse_text=text, grok_meta=meta)
     assert not ev.ok
@@ -49,13 +40,7 @@ def test_wrapper_cancelled_is_failure():
 
 
 def test_max_turns_no_planner_retry():
-    result = BackendResult(
-        stdout="",
-        stderr="Error: max turns reached\n",
-        returncode=1,
-        backend="grok-cli:json",
-        elapsed_s=50,
-    )
+    result = BackendResult(stdout="", stderr="Error: max turns reached\n", returncode=1, backend="grok-cli:json", elapsed_s=50)
     ev = classify_backend_result(result)
     assert ev.code == "max_turns"
     assert not ev.retry_planner
