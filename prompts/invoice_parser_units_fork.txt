@@ -1,0 +1,15 @@
+Unit and header extraction rules:
+1. Extract and return header fields when visible:
+- vendor_name (supplier)
+- consignee (customer/receiver)
+- delivery_address
+- invoice_number
+- invoice_date
+2. For each item preserve explicit quantity and explicit mass/volume independently.
+3. Return `unit_measure` for each row when visible in unit column or near quantity (e.g. sht, kg, g, l, ml, pack).
+4. If unit is missing in the source row, return `unit_measure` as null.
+5. If name contains pack size markers (0.99l, 1l, 18.9l, 500g, 1kg) do NOT replace row quantity with pack size value.
+6. Keep row count in `quantity`; keep mass/volume values in `mass` when clearly present in document.
+7. If line has both count and pack size in name, keep count as quantity (e.g. 48 pcs) and do not collapse to 1.
+8. For ambiguous rows return numeric fields exactly as seen; never normalize counts to one.
+9. Normalize obvious OCR typo inside numeric-unit fragments: letter O should be treated as zero (example: 30Oml -> 300ml).

@@ -6,6 +6,8 @@ from app.services.invoice_flow.models import (
     FlowMode,
     FlowSuggestion,
 )
+from app.services.invoice_flow.llm_unit_resolver import LlmUnitDecision, LlmUnitResolver
+from app.services.invoice_flow.owner_rules import OwnerRuleBook
 from app.services.invoice_flow.runner import InvoiceFlowRunner, resolve_flow_mode
 
 __all__ = [
@@ -14,5 +16,8 @@ __all__ = [
     "FlowMode",
     "FlowSuggestion",
     "InvoiceFlowRunner",
+    "LlmUnitDecision",
+    "LlmUnitResolver",
+    "OwnerRuleBook",
     "resolve_flow_mode",
 ]

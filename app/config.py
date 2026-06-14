@@ -67,6 +67,17 @@ class Settings(BaseSettings):
     invoice_flow_mode: str = Field(default="legacy", alias="INVOICE_FLOW_MODE")
     invoice_flow_enable_unit_conversion: bool = Field(default=True, alias="INVOICE_FLOW_ENABLE_UNIT_CONVERSION")
     invoice_flow_enable_catalog_match: bool = Field(default=True, alias="INVOICE_FLOW_ENABLE_CATALOG_MATCH")
+    invoice_flow_enable_llm_fallback: bool = Field(default=False, alias="INVOICE_FLOW_ENABLE_LLM_FALLBACK")
+    invoice_flow_llm_model: str = Field(default="", alias="INVOICE_FLOW_LLM_MODEL")
+    invoice_flow_llm_timeout_sec: int = Field(default=20, alias="INVOICE_FLOW_LLM_TIMEOUT_SEC")
+    invoice_flow_llm_prompt_fork_path: str = Field(
+        default="prompts/invoice_unit_resolution_fork.txt",
+        alias="INVOICE_FLOW_LLM_PROMPT_FORK_PATH",
+    )
+    invoice_flow_owner_rules_path: str = Field(
+        default="data/invoice_flow_owner_rules.json",
+        alias="INVOICE_FLOW_OWNER_RULES_PATH",
+    )
 
     use_webhook: bool = Field(default=False, alias="USE_WEBHOOK")
     webhook_url: str = Field(default="", alias="WEBHOOK_URL")

@@ -1,0 +1,15 @@
+# Default ownership
+* @ivansvetlov
+
+# Core runtime
+/app/ @ivansvetlov
+/scripts/ @ivansvetlov
+
+# Tests and QA
+/tests/ @ivansvetlov
+
+# Documentation and governance
+/docs/ @ivansvetlov
+/SECURITY.md @ivansvetlov
+/CONTRIBUTING.md @ivansvetlov
+/LICENSE @ivansvetlov

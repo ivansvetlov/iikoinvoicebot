@@ -40,6 +40,8 @@ dialogue_dump.jsonl
 
 # --- Agent chat dumps (eat context, not needed at runtime) ---
 dump_chat_*
+dump stage*
+last chat
 docs/dumps/
 
 # --- IDE/agent local metadata ---
