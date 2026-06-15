@@ -44,6 +44,14 @@ class _BalanceTarget:
     expected_amount: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class NomenclatureSyncResult:
+    items: list[InvoiceItem]
+    matched: int
+    created: int
+    total_rows: int
+
+
 @dataclass(slots=True)
 class IikoUploadResult:
     document_number: str
@@ -77,6 +85,46 @@ class IikoServerClient:
         async with httpx.AsyncClient(timeout=timeout, verify=verify_tls) as client:
             token = await self._authenticate(client, auth_url, username, password)
             await self._logout(client, token)
+
+    async def sync_nomenclature(
+        self,
+        items: list[InvoiceItem],
+        username: str,
+        password: str,
+    ) -> NomenclatureSyncResult:
+        """Match or create iiko products for invoice rows without posting stock."""
+        if not items:
+            return NomenclatureSyncResult(items=[], matched=0, created=0, total_rows=0)
+        if not settings.iiko_api_base_url.strip():
+            raise RuntimeError("IIKO_API_BASE_URL is not configured")
+        if not username or not password:
+            raise RuntimeError("IIKO credentials are not configured")
+
+        timeout = max(5, int(settings.iiko_api_timeout_sec or 30))
+        verify_tls = bool(settings.iiko_api_verify_tls)
+        auth_url = self._build_url(settings.iiko_api_base_url, settings.iiko_api_auth_path)
+
+        sync_stats = {"matched": 0, "created": 0}
+        async with httpx.AsyncClient(timeout=timeout, verify=verify_tls) as client:
+            token = ""
+            try:
+                token = await self._authenticate(client, auth_url, username, password)
+                resolved_items = await self._resolve_items_for_upload(
+                    client=client,
+                    token=token,
+                    username=username,
+                    items=items,
+                    sync_stats=sync_stats,
+                )
+                return NomenclatureSyncResult(
+                    items=resolved_items,
+                    matched=int(sync_stats.get("matched") or 0),
+                    created=int(sync_stats.get("created") or 0),
+                    total_rows=len(items),
+                )
+            finally:
+                if token:
+                    await self._logout(client, token)
 
     async def upload_invoice_items(
         self,
@@ -153,6 +201,7 @@ class IikoServerClient:
         token: str,
         username: str,
         items: list[InvoiceItem],
+        sync_stats: dict[str, int] | None = None,
     ) -> list[InvoiceItem]:
         if not items:
             return items
@@ -211,6 +260,8 @@ class IikoServerClient:
                 merged_extras["store"] = default_store_id
 
             resolved_by_row[index] = item.model_copy(update={"extras": merged_extras})
+            if sync_stats is not None:
+                sync_stats["matched"] = int(sync_stats.get("matched") or 0) + 1
 
         if bool(settings.iiko_autocreate_products):
             unresolved_after_match = [(idx, it, ex) for idx, it, ex in unresolved if idx not in resolved_by_row]
@@ -244,6 +295,8 @@ class IikoServerClient:
                     if default_store_id and not self._first_non_empty(extras, keys=("store", "storeid", "storeguid")):
                         merged_extras["store"] = default_store_id
                     resolved_by_row[index] = item.model_copy(update={"extras": merged_extras})
+                    if sync_stats is not None:
+                        sync_stats["created"] = int(sync_stats.get("created") or 0) + 1
 
         if not resolved_by_row:
             unresolved_rows = [f"{index}:{(item.name or '').strip()[:80]}" for index, item, _extras in unresolved]

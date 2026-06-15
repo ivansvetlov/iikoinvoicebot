@@ -4,8 +4,10 @@
 
 ## Каноническая документация
 - Канонические Markdown-доки живут в `docs/`.
-- В корне оставляем только `README.md`.
+- В корне оставляем только `README.md` + GitHub-governance файлы (`LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`).
+- Аудит и планы: `docs/COMPREHENSIVE_AUDIT.md`, `docs/AUDIT_REMEDIATION_PLAN.md`, `docs/TODO.md`.
 - Проверенные команды запуска/диагностики — в `docs/DEBUG.md`.
+- Промпты LLM: `prompts/` (описание — в `docs/README.md`, раздел Prompts).
 
 ## Когда обновлять документацию
 Если меняете поведение, структуру, конфигурацию или операционные процедуры, обновляйте:

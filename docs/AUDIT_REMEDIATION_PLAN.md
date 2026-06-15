@@ -1,6 +1,6 @@
 # Post-Audit Remediation Plan (2026-04-26)
 
-Источник аудита: `COMPREHENSIVE_AUDIT.md`.
+Источник аудита: `docs/COMPREHENSIVE_AUDIT.md`.
 
 Этот документ фиксирует:
 - что исправляем сразу;
@@ -11,10 +11,10 @@
 
 ### Git hygiene и артефакты
 - [x] Добавлен ignore для локальных dump-артефактов формата `dump stage*` (`.gitignore`).
+- [x] `COMPREHENSIVE_AUDIT.md` перенесён в `docs/` (канон по `docs/AGENTS.md`).
 - [ ] Удалить локальный `dump stage6` из рабочей директории (не runtime-артефакт).
-- [ ] Разнести untracked-файлы по двум группам:
-- `must-commit` (новый код/тесты/docs),
-- `local-only` (временные дампы/локальные кэши).
+- [ ] Закоммитить `must-commit` группу (post-recognition UX, тесты, `invoice_keyboards.py`, `invoice_posting.py`).
+- [ ] Разнести оставшиеся untracked по `must-commit` / `local-only`.
 
 ### Security baseline
 - [x] Добавить `SECURITY.md` (канал репорта уязвимостей + SLA реакции).
@@ -39,7 +39,7 @@
 
 ### Документация и структура
 - [ ] Зафиксировать статус документов: canonical / historical / experimental.
-- [ ] Для `prompts/` добавить явное описание назначения и правил изменений.
+- [x] Для `prompts/` добавить явное описание назначения и правил изменений (`docs/README.md`, раздел Prompts).
 - [x] Добавить отдельный blueprint-док с prompt для переносимого high-standard skeleton (`docs/PROJECT_CLONE_PROMPT.md`).
 
 ## 3) Что делать, чтобы ошибки не повторялись

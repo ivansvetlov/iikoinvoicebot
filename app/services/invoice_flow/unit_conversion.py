@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
 
+_DEFAULT_LIQUID_DENSITY_G_PER_ML = Decimal("1.03")
 
 _UNIT_ALIASES: dict[str, str] = {
     "pcs": "pcs",
@@ -70,6 +71,15 @@ def normalize_unit(raw_unit: str | None) -> str | None:
     return _UNIT_ALIASES.get(key)
 
 
+def infer_source_unit(raw_unit: str | None, item_name: str) -> str | None:
+    normalized = normalize_unit(raw_unit)
+    if normalized:
+        return normalized
+    if infer_pack_size(item_name):
+        return "pcs"
+    return None
+
+
 def convert_between_units(quantity: Decimal, source_unit: str, target_unit: str) -> Decimal | None:
     if source_unit == target_unit:
         return quantity
@@ -101,18 +111,57 @@ def infer_pack_size(item_name: str) -> tuple[str, Decimal] | None:
     return None
 
 
+def _to_ml(quantity: Decimal, unit: str) -> Decimal:
+    if unit == "l":
+        return quantity * Decimal("1000")
+    return quantity
+
+
+def _from_ml(quantity_ml: Decimal, unit: str) -> Decimal:
+    if unit == "l":
+        return quantity_ml / Decimal("1000")
+    return quantity_ml
+
+
+def _volume_pack_to_mass(
+    *,
+    quantity: Decimal,
+    pack_unit: str,
+    pack_amount: Decimal,
+    target_unit: str,
+    density_g_per_ml: Decimal,
+) -> ConversionResult:
+    ml_qty = quantity * _to_ml(pack_amount, pack_unit)
+    grams = ml_qty * density_g_per_ml
+    if target_unit == "kg":
+        target_quantity = grams / Decimal("1000")
+    else:
+        target_quantity = grams
+    return ConversionResult(
+        source_unit="pcs",
+        target_unit=target_unit,
+        source_quantity=quantity,
+        target_quantity=target_quantity,
+        factor=target_quantity / quantity if quantity else Decimal("1"),
+        confidence="medium",
+        reason="piece_to_mass_conversion",
+    )
+
+
 def propose_conversion(
     *,
     quantity: Decimal | None,
     source_unit: str | None,
     item_name: str,
     preferred_stock_unit: str | None,
+    density_g_per_ml: Decimal | None = None,
 ) -> ConversionResult | None:
     if quantity is None or quantity <= 0:
         return None
 
     normalized_source = normalize_unit(source_unit)
     normalized_target = normalize_unit(preferred_stock_unit)
+
     if normalized_source and normalized_target:
         direct_qty = convert_between_units(quantity, normalized_source, normalized_target)
         if direct_qty is not None:
@@ -126,23 +175,63 @@ def propose_conversion(
                 reason="direct_unit_conversion",
             )
 
+    density = density_g_per_ml
+    if normalized_source in {"l", "ml"} and normalized_target in {"g", "kg"}:
+        density = density or _DEFAULT_LIQUID_DENSITY_G_PER_ML
+        ml_qty = _to_ml(quantity, normalized_source)
+        grams = ml_qty * density
+        target_unit = normalized_target or "g"
+        target_quantity = grams / Decimal("1000") if target_unit == "kg" else grams
+        return ConversionResult(
+            source_unit=normalized_source,
+            target_unit=target_unit,
+            source_quantity=quantity,
+            target_quantity=target_quantity,
+            factor=(target_quantity / quantity) if quantity else Decimal("1"),
+            confidence="high",
+            reason="density_unit_conversion",
+        )
+
     if normalized_source in {"pcs", "pack"}:
         pack = infer_pack_size(item_name)
         if pack:
             inferred_unit, inferred_amount = pack
-            if normalized_target and normalize_unit(normalized_target) == inferred_unit:
+            if normalized_target in {"g", "kg"} and inferred_unit in {"ml", "l"}:
+                return _volume_pack_to_mass(
+                    quantity=quantity,
+                    pack_unit=inferred_unit,
+                    pack_amount=inferred_amount,
+                    target_unit=normalized_target,
+                    density_g_per_ml=density or _DEFAULT_LIQUID_DENSITY_G_PER_ML,
+                )
+
+            if normalized_target in {"g", "kg"} and inferred_unit in {"g", "kg"}:
+                grams = quantity * _to_ml(inferred_amount, inferred_unit)
                 target_unit = normalized_target
-            else:
-                target_unit = inferred_unit
-            target_qty = quantity * inferred_amount
+                target_quantity = grams / Decimal("1000") if target_unit == "kg" else grams
+                return ConversionResult(
+                    source_unit=normalized_source,
+                    target_unit=target_unit,
+                    source_quantity=quantity,
+                    target_quantity=target_quantity,
+                    factor=(target_quantity / quantity) if quantity else Decimal("1"),
+                    confidence="medium",
+                    reason="piece_to_mass_conversion",
+                )
+
+            target_unit = normalized_target if normalized_target in {"ml", "l"} else inferred_unit
+            target_qty = quantity * _to_ml(inferred_amount, inferred_unit)
+            if target_unit == "l":
+                target_qty = _from_ml(target_qty, "l")
+            reason = "piece_to_volume_conversion" if inferred_unit in {"ml", "l"} else "inferred_from_item_name"
             return ConversionResult(
                 source_unit=normalized_source,
                 target_unit=target_unit,
                 source_quantity=quantity,
                 target_quantity=target_qty,
-                factor=inferred_amount,
+                factor=(target_qty / quantity) if quantity else Decimal("1"),
                 confidence="medium",
-                reason="inferred_from_item_name",
+                reason=reason,
             )
 
     if normalized_source and normalized_target and normalized_source == normalized_target:

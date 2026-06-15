@@ -23,7 +23,25 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
-from app.bot.backend_client import send_batch_to_backend, send_file_to_backend, send_request_to_iiko
+from app.bot.backend_client import (
+    send_batch_to_backend,
+    send_file_to_backend,
+    send_request_to_iiko,
+    sync_nomenclature_request,
+)
+from app.bot.invoice_keyboards import (
+    build_back_confirm_actions,
+    build_invoice_actions,
+    build_posting_review_actions,
+    build_service_menu_actions,
+    build_sync_confirm_actions,
+)
+from app.bot.invoice_posting import (
+    append_sync_note,
+    count_posting_rows,
+    format_posting_review_text,
+    format_sync_note,
+)
 from app.bot.event_codes import BOT_BACKEND_UNAVAILABLE, BOT_NO_PENDING, BOT_RATE_LIMIT, event_meta, with_event_code
 from app.bot.file_storage import PendingSplitStorage
 from app.bot.messages import Msg
@@ -1167,15 +1185,37 @@ class TelegramBotManager:
         if not query.from_user:
             return
         user_id = str(query.from_user.id)
-        parts = data.split(":", 2)
+        parts = data.split(":")
+        if len(parts) < 3:
+            await query.answer(Msg.BAD_COMMAND)
+            return
+        await query.answer()
+
+        if parts[1] == "service":
+            await self._handle_service_action(query, user_id, parts[2:])
+            return
+        if parts[1] == "back" and len(parts) >= 3:
+            request_id = parts[2]
+            if len(parts) >= 4 and parts[3] == "stay":
+                payload = self._load_request_payload(request_id)
+                if payload:
+                    await self._show_recognition_card(query.message, payload)
+                return
+            await self._show_back_confirm(query.message, request_id)
+            return
+
         if len(parts) < 3:
             await query.answer(Msg.BAD_COMMAND)
             return
         action, request_id = parts[1], parts[2]
-        await query.answer()
 
         if action == "cancel":
-            await query.message.edit_text(Msg.ACTION_CANCELLED, reply_markup=None)
+            await self._show_back_confirm(query.message, request_id)
+            self._edit_state.pop(user_id, None)
+            return
+
+        if action == "backconfirm":
+            await query.message.edit_text(Msg.BACK_CONFIRM_DONE, reply_markup=None)
             self._edit_state.pop(user_id, None)
             return
 
@@ -1189,8 +1229,37 @@ class TelegramBotManager:
             await self._show_edit_menu(query.message, state)
             return
 
+        if action == "syncnom":
+            await self._show_sync_confirm(query.message, request_id, user_id=user_id)
+            return
+
+        if action == "syncnomconfirm":
+            await self._run_sync_nomenclature(query.message, request_id, user_id=user_id)
+            return
+
         if action == "send":
+            await self._show_posting_review(query.message, request_id, user_id=user_id)
+            return
+
+        if action == "postconfirm":
+            _ready, blocked = self._posting_counts(request_id)
+            if blocked > 0:
+                self._log_status(user_id, "inv_send_blocked_red_rows", {"request_id": request_id, "red_rows": blocked})
+                await self._reply(query.message, Msg.POSTING_BLOCKED.format(blocked=blocked))
+                return
             await self._send_to_iiko(query.message, request_id, user_id=user_id)
+            return
+
+        if action == "refreshunits":
+            await self._show_posting_review(query.message, request_id, user_id=user_id, refresh_units=True)
+            return
+
+        if action == "retry":
+            await self._retry_status_request(query.message, user_id, request_id)
+            return
+
+        if action == "service":
+            await self._show_service_menu(query.message, request_id, user_id=user_id)
             return
 
     async def _handle_edit_actions(self, query: CallbackQuery, data: str) -> None:
@@ -1361,7 +1430,15 @@ class TelegramBotManager:
         )
         # Keep "send to iiko" available for import-fallback cases.
         allow_send = not bool(state.payload.get("iiko_uploaded"))
-        await self._reply(message, text, reply_markup=self._invoice_actions(state.request_id, allow_send=allow_send))
+        await self._reply(
+            message,
+            text,
+            reply_markup=self._invoice_actions(
+                state.request_id,
+                allow_send=allow_send,
+                payload=state.payload,
+            ),
+        )
 
     async def _reply(
         self,
@@ -1376,21 +1453,40 @@ class TelegramBotManager:
             pass
         await message.answer(text, reply_markup=reply_markup)
 
-    def _invoice_actions(self, request_id: str, *, allow_send: bool = True) -> InlineKeyboardMarkup:
-        first_row = [
-            InlineKeyboardButton(text=Msg.BTN_INV_EDIT, callback_data=f"inv:edit:{request_id}", style="primary"),
-        ]
-        if allow_send:
-            first_row.append(
-                InlineKeyboardButton(text=Msg.BTN_INV_SEND, callback_data=f"inv:send:{request_id}", style="success")
-            )
-        return InlineKeyboardMarkup(
-            inline_keyboard=[
-                first_row,
-                [
-                    InlineKeyboardButton(text=Msg.BTN_CANCEL, callback_data=f"inv:cancel:{request_id}", style="danger"),
-                ],
+    @staticmethod
+    def _markup_from_dict(markup_dict: dict[str, Any] | None) -> InlineKeyboardMarkup | None:
+        if not markup_dict:
+            return None
+        rows = markup_dict.get("inline_keyboard", [])
+        buttons = [
+            [
+                InlineKeyboardButton(
+                    text=str(btn.get("text") or ""),
+                    callback_data=str(btn.get("callback_data") or ""),
+                    style=btn.get("style"),
+                )
+                for btn in row
             ]
+            for row in rows
+        ]
+        return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    def _invoice_actions(
+        self,
+        request_id: str,
+        *,
+        allow_send: bool = True,
+        allow_sync: bool = True,
+        payload: dict[str, Any] | None = None,
+    ) -> InlineKeyboardMarkup | None:
+        if payload and payload.get("nomenclature_synced"):
+            allow_sync = False
+        return self._markup_from_dict(
+            build_invoice_actions(
+                request_id,
+                allow_send=allow_send,
+                allow_sync=allow_sync,
+            )
         )
 
     def _cancel_keyboard(self) -> InlineKeyboardMarkup:
@@ -1488,6 +1584,149 @@ class TelegramBotManager:
                 self._log_status(payload_user_id, "inv_send_failed", {"request_id": request_id})
         finally:
             self._iiko_send_inflight.discard(request_id)
+
+    def _recognition_payload_for_view(self, payload: dict[str, Any]) -> dict[str, Any]:
+        view = dict(payload)
+        parsed = view.get("parsed")
+        if not isinstance(parsed, dict):
+            parsed = {}
+            view["parsed"] = parsed
+        if not parsed.get("items"):
+            parsed["items"] = list(view.get("items") or [])
+        return view
+
+    async def _show_recognition_card(self, message: Message, payload: dict[str, Any]) -> None:
+        view = self._recognition_payload_for_view(payload)
+        text = format_invoice_markdown(view)
+        sync_note = str(payload.get("nomenclature_sync_note") or "").strip()
+        if sync_note:
+            text = append_sync_note(text, sync_note)
+        allow_send = not bool(payload.get("iiko_uploaded"))
+        markup = self._invoice_actions(
+            str(payload.get("request_id") or ""),
+            allow_send=allow_send,
+            payload=payload,
+        )
+        await self._reply(message, text, reply_markup=markup)
+
+    async def _show_sync_confirm(self, message: Message, request_id: str, *, user_id: str) -> None:
+        self._log_status(user_id, "inv_sync_nom_confirm_shown", {"request_id": request_id})
+        await self._reply(
+            message,
+            Msg.SYNC_NOM_CONFIRM,
+            reply_markup=self._markup_from_dict(build_sync_confirm_actions(request_id)),
+        )
+
+    async def _run_sync_nomenclature(self, message: Message, request_id: str, *, user_id: str) -> None:
+        await self._reply(message, Msg.SYNC_NOM_PROGRESS, reply_markup=None)
+        try:
+            result = await sync_nomenclature_request(self._backend_url, request_id, user_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to sync nomenclature")
+            await message.answer(Msg.IIKO_FAILED.format(code_line=""))
+            self._log_status(user_id, "inv_sync_nom_failed", {"request_id": request_id})
+            return
+
+        if str(result.get("status") or "").lower() != "ok":
+            await message.edit_text(self._format_response(result), reply_markup=None)
+            self._log_status(user_id, "inv_sync_nom_failed", {"request_id": request_id})
+            return
+
+        payload = self._load_request_payload(request_id) or {"request_id": request_id}
+        stats = payload.get("nomenclature_sync_stats") or {}
+        note = format_sync_note(
+            total_rows=int(stats.get("total_rows") or 0),
+            matched=int(stats.get("matched") or 0),
+            created=int(stats.get("created") or 0),
+        )
+        payload["nomenclature_sync_note"] = note
+        payload["nomenclature_synced"] = True
+        self._save_request_payload(request_id, payload)
+        self._log_status(user_id, "inv_sync_nom_done", {"request_id": request_id})
+        await self._show_recognition_card(message, payload)
+
+    def _posting_counts(self, request_id: str) -> tuple[int, int]:
+        payload = self._load_request_payload(request_id) or {}
+        items = list((payload.get("parsed") or {}).get("items") or payload.get("items") or [])
+        return count_posting_rows(items)
+
+    async def _show_posting_review(
+        self,
+        message: Message,
+        request_id: str,
+        *,
+        user_id: str,
+        refresh_units: bool = False,
+    ) -> None:
+        payload = self._load_request_payload(request_id)
+        if not payload:
+            await message.answer(Msg.EDIT_NOT_FOUND_REQUEST)
+            return
+        units = self._default_iiko_units()
+        if refresh_units:
+            self._log_status(user_id, "inv_refresh_units", {"request_id": request_id})
+        view = self._recognition_payload_for_view(payload)
+        text = format_posting_review_text(view, units=units)
+        _ready, blocked = self._posting_counts(request_id)
+        await self._reply(
+            message,
+            text,
+            reply_markup=self._markup_from_dict(
+                build_posting_review_actions(request_id, can_confirm=blocked == 0)
+            ),
+        )
+
+    async def _show_back_confirm(self, message: Message, request_id: str) -> None:
+        await self._reply(
+            message,
+            Msg.BACK_CONFIRM,
+            reply_markup=self._markup_from_dict(build_back_confirm_actions(request_id)),
+        )
+
+    async def _show_service_menu(self, message: Message, request_id: str, *, user_id: str) -> None:
+        payload = self._load_request_payload(request_id) or {}
+        allow_rollback = bool(payload.get("iiko_uploaded"))
+        self._log_status(
+            user_id,
+            "inv_service_menu_shown",
+            {"request_id": request_id, "allow_rollback": allow_rollback},
+        )
+        await self._reply(
+            message,
+            Msg.SERVICE_MENU,
+            reply_markup=self._markup_from_dict(
+                build_service_menu_actions(request_id, allow_rollback=allow_rollback)
+            ),
+        )
+
+    async def _handle_service_action(self, query: CallbackQuery, user_id: str, tail: list[str]) -> None:
+        if not tail:
+            await query.answer(Msg.BAD_COMMAND)
+            return
+        if len(tail) == 1:
+            await self._show_service_menu(query.message, tail[0], user_id=user_id)
+            return
+        action, request_id = tail[0], tail[1]
+        if action == "rollback":
+            markup = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=Msg.BTN_BACK, callback_data=f"inv:service:{request_id}", style="default")]
+                ]
+            )
+            await self._reply(query.message, Msg.SERVICE_ROLLBACK_EMPTY, reply_markup=markup)
+            return
+        if action == "clear":
+            await self._reply(query.message, Msg.SERVICE_CLEAR_STOCK_WARN, reply_markup=None)
+            self._log_status(user_id, "inv_clear_stock_prompt", {"request_id": request_id})
+            return
+
+    @staticmethod
+    def _default_iiko_units() -> list[str]:
+        return ["г", "кг", "л", "мл", "шт"]
+
+    def _save_request_payload(self, request_id: str, payload: dict[str, Any]) -> None:
+        path = Path(__file__).resolve().parents[2] / "logs" / "requests" / f"{request_id}.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
     def _load_request_payload(self, request_id: str) -> dict[str, Any] | None:
         path = Path(__file__).resolve().parents[2] / "logs" / "requests" / f"{request_id}.json"

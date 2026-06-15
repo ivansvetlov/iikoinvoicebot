@@ -139,6 +139,42 @@ async def send_batch_to_backend(
                 return _common_http_error_response(status_code, batch=True)
 
 
+async def sync_nomenclature_request(
+    backend_url: str,
+    request_id: str,
+    user_id: str | None = None,
+) -> dict:
+    """Синхронизирует номенклатуру iiko для распознанной заявки."""
+    logger.info("Sync nomenclature for request: %s", request_id)
+
+    async with httpx.AsyncClient(timeout=300) as client:
+        for attempt in range(3):
+            try:
+                data: dict[str, str] = {"request_id": request_id}
+                if user_id:
+                    data["user_id"] = user_id
+
+                response = await client.post(
+                    f"{backend_url.rstrip('/')}/iiko-sync-nomenclature",
+                    data=data,
+                )
+                try:
+                    return response.json()
+                except ValueError:
+                    response.raise_for_status()
+                    raise
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                logger.warning("Backend unavailable, attempt %s", attempt + 1)
+                if attempt < 2:
+                    await asyncio.sleep(1 + attempt)
+                    continue
+                raise exc
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                logger.warning("Backend status error: %s", status_code)
+                return _common_http_error_response(status_code, batch=False)
+
+
 async def send_request_to_iiko(
     backend_url: str,
     request_id: str,

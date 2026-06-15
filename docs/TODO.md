@@ -1,5 +1,72 @@
 # TODO / План работ (декомпозиция)
 
+## Текущий статус (2026-06-15)
+
+- **Активная ветка:** `feature/stage6-iiko-import-readiness-kickoff` (локально, ahead of origin).
+- **Последний коммит:** `32b0569` — governance + LLM unit resolver + planning docs.
+- **Незакоммичено:** post-recognition UX (`invoice_keyboards.py`, `invoice_posting.py`, правки `manager.py`/`pipeline.py`/тесты).
+- **Следующий шаг:** закоммитить UX-слой → ручное тестирование на demo stand → push.
+
+Детальный post-audit трек: `docs/AUDIT_REMEDIATION_PLAN.md` (не дублировать чеклисты здесь).
+
+## Post-audit remediation (summary)
+
+Источник: `docs/COMPREHENSIVE_AUDIT.md` → трек: `docs/AUDIT_REMEDIATION_PLAN.md`.
+
+- [x] Governance baseline: `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, PR template
+- [x] `docs/PROJECT_CLONE_PROMPT.md` (skeleton blueprint)
+- [x] Ignore `dump stage*` / `last chat` в `.gitignore`
+- [x] `COMPREHENSIVE_AUDIT.md` → `docs/`
+- [ ] CI: tests + lint на push/PR
+- [ ] Branch protection на main
+- [ ] `requirements-dev.txt` + pre-commit
+- [ ] Документировать `prompts/` в `docs/README.md`
+- [ ] Удалить локальный `dump stage6`
+
+## Этап 6 kickoff — post-recognition UX и iiko import (текущий спринт)
+
+### Сделано локально (нужен коммит)
+- [x] Клавиатуры post-recognition: `app/bot/invoice_keyboards.py`
+- [x] Проверка готовности строк: `app/bot/invoice_posting.py`
+- [x] Callback-flow в `manager.py`: редактировать → синхронизировать → оприходовать → сервис → назад
+- [x] Экран review перед оприходованием (`inv:send` → posting review → `inv:postconfirm`)
+- [x] Sync nomenclature: confirm → `/iiko-sync-nomenclature`
+- [x] Worker отдаёт те же кнопки после распознавания (`tasks.py`)
+- [x] `user_store`: профили категорий + global category bank
+- [x] `resolver` + `unit_conversion`: owner rules, density, LLM fallback (тесты `test_invoice_flow_conversion.py`)
+
+### Осталось в этом спринте
+- [ ] Закоммитить и запушить post-recognition UX + тесты
+- [ ] Ручной прогон по `docs/INVOICE_FLOW_TESTING.md` на demo stand
+- [ ] Подключить `INVOICE_FLOW_MODE=modular` в production pipeline (сейчас runner standalone)
+- [ ] НДС: парсинг из колонки «Сумма», не «Сумма с НДС»; строки «В том числе НДС» (заявка 83565)
+- [ ] Убрать дубли сообщений при переходе к posting review (worker + bot race)
+- [ ] Сервисное меню: реализовать rollback/clear-stock (сейчас заглушки)
+- [ ] E2E scaffold: довести `tests/test_e2e_invoice_posting.py` или пометить `@pytest.mark.e2e` + skip без env
+- [ ] Решение по iiko posting policy: `NEW` draft vs `PROCESSED` auto-post
+
+### Из планов Codex (отдельные ветки / следующие слои)
+
+См. также `docs/BRANCH_WAIT_OPTIMIZATION_PLAN.md`, `docs/MENU_DOMAIN_EXPANSION_PLAN.md`, `docs/DEFERRED_BRANCH_NOTES.md`.
+
+#### Invoice flow / единицы измерения
+- [ ] `data/invoice_flow_owner_rules.json` — заполнить правила для реальных SKU клиента
+- [ ] Подключить `prompts/invoice_unit_resolution_fork.txt` в dev/staging
+- [ ] Метрики: `flowConversionReason`, retry count, cost delta (см. `DEFERRED_BRANCH_NOTES`)
+
+#### Оптимизация ожидания распознавания (`BRANCH_WAIT_OPTIMIZATION_PLAN`)
+- [ ] Ветка: bounded LLM retry budget (max calls / max truncation retries)
+- [ ] Dynamic initial `max_output_tokens` по сложности документа
+- [ ] Метрики p95 latency до/после
+
+#### Категории и меню (`MENU_DOMAIN_EXPANSION_PLAN`)
+- [ ] Подключить `category_onboarding.py` в первый запуск бота
+- [ ] UX: optional-шаг «введите свои категории»
+- [ ] `tenant_category_map` (сейчас только `global_category_bank` в `user_store`)
+- [ ] UX: ручной выбор категории по позиции
+- [ ] `product_type_classifier`: INGREDIENT / SEMI_FINISHED / DISH
+- [ ] Discovery endpoint'ов техкарт перед `techcard_linker`
+
 ## Текущий фокус MVP (апрель 2026)
 - [ ] Не расширять production-сценарии за пределы текущего MVP до закрытия Этапов 3/4/6
 - [ ] Довести стабильный контур: распознавание → валидация → выгрузка в учетную систему

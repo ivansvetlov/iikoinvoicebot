@@ -2,6 +2,37 @@
 
 > Цель этого файла — чтобы новый агент/разработчик за 10–15 минут понял текущее состояние проекта, решения и где искать причины ошибок.
 
+## 51) Post-audit governance + planning artifacts (2026-06-15, commit `32b0569`)
+- Files:
+  - `docs/COMPREHENSIVE_AUDIT.md` (перенесён из корня),
+  - `docs/AUDIT_REMEDIATION_PLAN.md`, `docs/PROJECT_CLONE_PROMPT.md`,
+  - `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `.github/CODEOWNERS`, PR template,
+  - `app/services/invoice_flow/llm_unit_resolver.py`, `owner_rules.py`,
+  - `prompts/invoice_unit_resolution_fork.txt`, `prompts/invoice_parser_units_fork.txt`,
+  - planning: `docs/BRANCH_WAIT_OPTIMIZATION_PLAN.md`, `docs/MENU_DOMAIN_EXPANSION_PLAN.md`, `docs/DEFERRED_BRANCH_NOTES.md`, `docs/INVOICE_FLOW_TESTING.md`.
+- Behavior:
+  - post-audit трек вынесен в `AUDIT_REMEDIATION_PLAN.md`; `docs/TODO.md` — только summary;
+  - LLM unit fallback и owner rules добавлены как standalone модуль (ещё не wired в `pipeline.py`).
+- Check:
+  - `python -m unittest discover -s tests -p "test_*.py"` (исключая e2e scaffold без pytest).
+
+## 50) Post-recognition UX layer (2026-06-15, локально, не закоммичено)
+- Files:
+  - `app/bot/invoice_keyboards.py`, `app/bot/invoice_posting.py`,
+  - updates: `app/bot/manager.py`, `app/bot/messages.py`, `app/bot/backend_client.py`,
+  - `app/tasks.py`, `app/api.py`, `app/services/pipeline.py`, `app/iiko/server_client.py`,
+  - `app/services/user_store.py`, `app/services/invoice_flow/resolver.py`, `unit_conversion.py`,
+  - tests: `tests/test_worker_facts.py`, `tests/test_user_store.py`, `tests/test_invoice_flow_conversion.py`.
+- Behavior:
+  - после распознавания: `✏ Редактировать` / `✅ Оприходовать` / `🔄 Синхронизировать` / `🛠 Сервис` / `Назад`;
+  - `✅ Оприходовать` открывает review-экран; confirm только при 0 красных строк;
+  - sync nomenclature через `/iiko-sync-nomenclature`;
+  - `_markup_from_dict()` унифицирует inline-клавиатуры.
+- Why:
+  - UX из Codex-сессий (`dump stage6`, `last chat`) не был в git; восстановлен и дописан по `INVOICE_FLOW_TESTING.md`.
+- Open:
+  - commit + push; NDS parsing (83565); duplicate review messages; service rollback stubs; wire modular flow into pipeline.
+
 ## 49) iiko transport: Playwright removed, API-first mode (2026-04-18)
 - Files:
   - removed `app/iiko/playwright_client.py`;

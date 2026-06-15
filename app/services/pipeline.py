@@ -1147,7 +1147,7 @@ class InvoicePipelineService:
                 hint="Попробуйте отправить фото ещё раз или отправьте PDF.",
                 code="llm_bad_response",
             )
- 
+
         if usage:
             parsed["_usage"] = usage
         if data.get("_cost"):
@@ -1850,6 +1850,112 @@ class InvoicePipelineService:
                     error_code="iiko_upload_failed",
                     message="Не удалось загрузить позиции в iiko. Попробуйте позже.",
                 )
+
+    def _persist_request_payload(self, request_id: str, payload: dict[str, Any]) -> None:
+        (REQUESTS_DIR / f"{request_id}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+
+    async def sync_nomenclature_for_request(
+        self,
+        *,
+        request_id: str,
+        user_id: str | None = None,
+    ) -> ProcessResponse:
+        request_id = str(request_id or "").strip()
+        if not request_id:
+            return ProcessResponse(
+                request_id=uuid4().hex,
+                status="error",
+                parsed=self._empty_parsed_result(),
+                iiko_uploaded=False,
+                error_code="request_id_missing",
+                message="Не удалось определить заявку для синхронизации.",
+            )
+
+        payload = self._load_saved_request_payload(request_id)
+        if not payload:
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=self._empty_parsed_result(),
+                iiko_uploaded=False,
+                error_code="request_not_found",
+                message="Не нашел сохраненные данные по этой заявке.",
+            )
+
+        _parsed, items = self._build_parsed_from_saved_payload(payload)
+        if not items:
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=_parsed,
+                iiko_uploaded=False,
+                error_code="request_items_missing",
+                message="Не нашел товарные позиции для синхронизации.",
+            )
+
+        effective_user_id = str(user_id or payload.get("user_id") or "").strip() or None
+        creds = get_iiko_credentials(effective_user_id)
+        if not creds:
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=_parsed,
+                iiko_uploaded=False,
+                error_code="iiko_auth_missing",
+                message="Нет данных для входа в iiko. Нажмите /start и введите логин/пароль.",
+            )
+
+        if not self._is_direct_iiko_api_enabled():
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=_parsed,
+                iiko_uploaded=False,
+                error_code="iiko_upload_disabled",
+                message="Синхронизация номенклатуры доступна только при IIKO_TRANSPORT=api.",
+            )
+
+        username, password = creds
+        try:
+            sync_result = await self._iiko_client.sync_nomenclature(items, username, password)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("nomenclature sync failed", extra={"request_id": request_id})
+            return ProcessResponse(
+                request_id=request_id,
+                status="error",
+                parsed=_parsed,
+                iiko_uploaded=False,
+                iiko_error=str(exc),
+                error_code="iiko_sync_failed",
+                message="Не удалось синхронизировать номенклатуру в iiko.",
+            )
+
+        payload["items"] = [item.model_dump(mode="json") for item in sync_result.items]
+        payload["nomenclature_synced"] = True
+        payload["nomenclature_sync_stats"] = {
+            "total_rows": sync_result.total_rows,
+            "matched": sync_result.matched,
+            "created": sync_result.created,
+        }
+        self._persist_request_payload(request_id, payload)
+
+        parsed = _parsed.model_copy(
+            update={"items": sync_result.items},
+        )
+        return ProcessResponse(
+            request_id=request_id,
+            status="ok",
+            parsed=parsed,
+            iiko_uploaded=False,
+            error_code=None,
+            message=(
+                f"Номенклатура синхронизирована.\n"
+                f"Строк: {sync_result.total_rows}, сопоставлено: {sync_result.matched}, создано товаров: {sync_result.created}."
+            ),
+        )
 
     async def process(
         self,

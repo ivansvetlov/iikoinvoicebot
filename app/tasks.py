@@ -22,6 +22,7 @@ from app.config import settings
 from app.observability import track_metric
 from app.services.pipeline import InvoicePipelineService
 from app.task_store import mark_done, mark_error, mark_processing
+from app.bot.invoice_keyboards import build_invoice_actions, build_retry_actions
 from app.utils.user_messages import format_user_response, format_invoice_markdown
 
 logger = logging.getLogger(__name__)
@@ -185,9 +186,18 @@ def process_invoice_task(payload_path: str) -> dict[str, Any]:
         reply_markup = None
         if result_payload.get("status") == "ok":
             text = format_invoice_markdown(result_payload)
-            # Keep "send to iiko" available for import-fallback cases.
             allow_send = not bool(result_payload.get("iiko_uploaded"))
-            reply_markup = _build_invoice_actions(result_payload.get("request_id"), allow_send=allow_send)
+            allow_sync = not bool(result_payload.get("nomenclature_synced"))
+            reply_markup = build_invoice_actions(
+                result_payload.get("request_id"),
+                allow_send=allow_send,
+                allow_sync=allow_sync,
+            )
+        elif result_payload.get("status") == "error":
+            reply_markup = build_retry_actions(
+                result_payload.get("request_id"),
+                result_payload.get("error_code"),
+            )
         if status_message_id:
             if not _edit_telegram_message(chat_id, status_message_id, text, reply_markup):
                 _send_telegram_message(chat_id, text, reply_markup)
@@ -218,17 +228,4 @@ def _format_response(payload: dict[str, Any]) -> str:
     return format_user_response(payload)
 
 
-def _build_invoice_actions(request_id: str | None, *, allow_send: bool = True) -> dict | None:
-    if not request_id:
-        return None
-    first_row = [{"text": "✏ Редактировать", "callback_data": f"inv:edit:{request_id}"}]
-    if allow_send:
-        first_row.append({"text": "✅ Оприходовать", "callback_data": f"inv:send:{request_id}"})
-    return {
-        "inline_keyboard": [
-            first_row,
-            [
-                {"text": "✖ Отмена", "callback_data": f"inv:cancel:{request_id}"},
-            ],
-        ]
-    }
+

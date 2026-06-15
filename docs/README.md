@@ -14,6 +14,23 @@
 - Краткий обзор модулей и потоков: `docs/ARCHITECTURE.md`
 - Текущие пробелы по iiko API: `docs/IIKO_API_GAPS.md`
 
+## Планы и аудит
+| Документ | Назначение | Статус |
+|----------|------------|--------|
+| `docs/TODO.md` | Dashboard + приоритеты | canonical |
+| `docs/AUDIT_REMEDIATION_PLAN.md` | Post-audit трек | canonical |
+| `docs/COMPREHENSIVE_AUDIT.md` | Полный аудит 2026-04-26 | historical snapshot |
+| `docs/INVOICE_FLOW_TESTING.md` | Тестирование unit flow + UX | active runbook |
+| `docs/MENU_DOMAIN_EXPANSION_PLAN.md` | Категории, типы продуктов, техкарты | planned |
+| `docs/BRANCH_WAIT_OPTIMIZATION_PLAN.md` | Оптимизация LLM wait time | separate branch |
+| `docs/DEFERRED_BRANCH_NOTES.md` | Отложенные решения | reference |
+| `docs/PROJECT_CLONE_PROMPT.md` | Blueprint для нового проекта | reference |
+
+## Prompts
+- `prompts/invoice_unit_resolution_fork.txt` — LLM fallback для неоднозначных единиц (`INVOICE_FLOW_LLM_PROMPT_FORK_PATH`).
+- `prompts/invoice_parser_units_fork.txt` — экспериментальный fork парсера единиц.
+- Правило: менять только через PR; не коммитить секреты и client-specific данные.
+
 ## Структура
 
 ### Корень проекта

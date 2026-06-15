@@ -282,3 +282,18 @@ async def iiko_upload_request(
         )
     except Exception as exc:  # noqa: BLE001
         return _error_response("Ошибка отправки в iiko на сервере.", exc)
+
+
+@app.post("/iiko-sync-nomenclature", response_model=ProcessResponse)
+async def iiko_sync_nomenclature(
+    request_id: str = Form(...),
+    user_id: str | None = Form(default=None),
+) -> ProcessResponse:
+    """Синхронизирует номенклатуру iiko для ранее распознанной заявки."""
+    try:
+        return await pipeline.sync_nomenclature_for_request(
+            request_id=request_id,
+            user_id=user_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _error_response("Ошибка синхронизации номенклатуры на сервере.", exc)
