@@ -53,7 +53,6 @@ BOT_MARKERS = (
     "app\\entrypoints\\bot.py",
     "app/entrypoints/bot.py",
     "app.entrypoints.bot",
-    "bot.py",
 )
 ORCHESTRATOR_MARKERS = (
     "dev_run_all.py",
@@ -89,9 +88,13 @@ def _list_python_processes() -> list[dict[str, Any]]:
         "ConvertTo-Json -Compress"
     )
     try:
-        raw = subprocess.check_output(["powershell", "-NoProfile", "-Command", ps], text=True)
+        raw = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", ps],
+            text=True,
+            timeout=30,
+        )
     except Exception as exc:  # noqa: BLE001
-        print(f"[dev_run_all] process scan failed: {exc.__class__.__name__}: {exc}")
+        print(f"[dev_run_all] process scan failed: {exc.__class__.__name__}: {exc}", flush=True)
         return []
 
     raw = raw.strip()
@@ -100,7 +103,7 @@ def _list_python_processes() -> list[dict[str, Any]]:
     try:
         data = json.loads(raw)
     except Exception as exc:  # noqa: BLE001
-        print(f"[dev_run_all] process scan invalid JSON: {exc.__class__.__name__}")
+        print(f"[dev_run_all] process scan invalid JSON: {exc.__class__.__name__}", flush=True)
         return []
 
     return [data] if isinstance(data, dict) else data
@@ -125,6 +128,29 @@ def _matches_markers(cmdline: str, markers: tuple[str, ...]) -> bool:
     return any(marker in cmd for marker in markers)
 
 
+def _protected_pids(processes: list[dict[str, Any]]) -> set[int]:
+    """PID'ы, которые нельзя убивать: self, предки и уже запущенные нами дети."""
+    current_pid = os.getpid()
+    by_pid: dict[int, int] = {}
+    for proc in processes:
+        try:
+            by_pid[int(proc.get("ProcessId"))] = int(proc.get("ParentProcessId") or 0)
+        except Exception:
+            continue
+
+    protected = {current_pid}
+    parent = by_pid.get(current_pid, 0)
+    while parent and parent not in protected:
+        protected.add(parent)
+        parent = by_pid.get(parent, 0)
+
+    for pid, ppid in by_pid.items():
+        if ppid == current_pid:
+            protected.add(pid)
+
+    return protected
+
+
 def _classify_dev_process(cmdline: str, exe_path: str) -> str | None:
     if not _is_project_interpreter(exe_path) and not _cmdline_has_project_marker(cmdline):
         return None
@@ -142,30 +168,27 @@ def _classify_dev_process(cmdline: str, exe_path: str) -> str | None:
 def _taskkill_tree(pids: list[int], label: str) -> None:
     unique = sorted({pid for pid in pids if pid > 0 and pid != os.getpid()})
     if not unique:
-        print(f"[dev_run_all] {label}: nothing to stop")
+        print(f"[dev_run_all] {label}: nothing to stop", flush=True)
         return
 
-    print(f"[dev_run_all] {label}: stopping {unique}")
+    print(f"[dev_run_all] {label}: stopping {unique}", flush=True)
     for pid in unique:
-        subprocess.run(
-            ["taskkill", "/PID", str(pid), "/T"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    time.sleep(1)
-    for pid in unique:
-        subprocess.run(
-            ["taskkill", "/PID", str(pid), "/T", "/F"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[dev_run_all] {label}: taskkill PID={pid} failed: {exc.__class__.__name__}", flush=True)
     time.sleep(0.5)
 
 
 def _kill_all_project_dev_processes(*, reuse_backend: bool) -> None:
     """Pre-kill: backend, worker, bot и другие dev_run_all этого проекта."""
     processes = _list_python_processes()
-    current_pid = os.getpid()
+    protected = _protected_pids(processes)
     to_kill: list[int] = []
 
     for proc in processes:
@@ -176,7 +199,7 @@ def _kill_all_project_dev_processes(*, reuse_backend: bool) -> None:
         except Exception:
             continue
 
-        if pid == current_pid:
+        if pid in protected:
             continue
 
         kind = _classify_dev_process(cmdline, exe_path)
@@ -187,7 +210,7 @@ def _kill_all_project_dev_processes(*, reuse_backend: bool) -> None:
         to_kill.append(pid)
 
     if not to_kill:
-        print("[dev_run_all] pre-kill: no matching project processes found")
+        print("[dev_run_all] pre-kill: no matching project processes found", flush=True)
         return
 
     _taskkill_tree(to_kill, "pre-kill")
@@ -263,7 +286,7 @@ def _kill_duplicate_role_processes(role: str, markers: tuple[str, ...]) -> None:
         except Exception:
             continue
 
-        if pid == os.getpid():
+        if pid in _protected_pids(processes):
             continue
         if not _is_project_interpreter(exe_path):
             continue
