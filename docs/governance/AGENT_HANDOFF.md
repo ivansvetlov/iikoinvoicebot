@@ -2,16 +2,47 @@
 
 > Цель этого файла — чтобы новый агент/разработчик за 10–15 минут понял текущее состояние проекта, решения и где искать причины ошибок.
 
+## 54) dev_run_all hardening: lock + full pre-kill (2026-06-18)
+- Files:
+  - updated `scripts/dev_run_all.py`;
+  - docs: `docs/operations/DEV_SETUP.md`, `docs/operations/DEBUG.md`, `scripts/README.md`,
+    `docs/architecture/ARCHITECTURE.md`, `docs/architecture/OPTIMIZATION.md`, `docs/planning/TODO.md`.
+- Behavior:
+  - restored single-instance lock `tmp/dev_run_all.lock` with PID + stale cleanup + `--force`;
+  - pre-kill now stops other `dev_run_all`, uvicorn, worker, bot (project venv);
+  - default: always fresh backend; `--reuse-backend` skips uvicorn kill/start when `/health` OK;
+  - worker duplicate-kill before start; shutdown uses `taskkill /T /F` on Windows;
+  - lock only on orchestrator (not `bot.py` entrypoint) — PyCharm can still run bot alone for debug.
+- Why lock was removed earlier (§36): stale lock after crash + `bot.lock` blocked restarts;
+  mitigations now: PID check, auto stale removal, `--force`, no entrypoint lock.
+- Quick check:
+  - `.venv\\Scripts\\python.exe -m py_compile scripts\\dev_run_all.py`
+  - `.venv\\Scripts\\python.exe scripts\\dev_run_all.py --help`
+
+## 53) Docs folder restructure (2026-06-17)
+- Moved flat `docs/*.md` into subfolders: `governance/`, `operations/`, `architecture/`, `iiko/`, `planning/`, `assets/`.
+- Kept at `docs/` root: `README.md`, `AGENTS.md`.
+- Updated cross-links in `README.md`, `CONTRIBUTING.md`, scripts, `data/README.md` (test invoice catalog).
+- Check: open `docs/README.md` → table of subfolders.
+
+## 52) Focus shift: stage6 main line; favorites research paused (2026-06-17)
+- **Active track:** stage6 iiko demo stand E2E (`docs/iiko/INVOICE_FLOW_TESTING.md`).
+- **Demo stand:** API host `840-786-070.iiko.it` restored; `IIKO_AUTH_OK`; warehouse UI:
+  `https://840-786-070.iikoweb.ru/lite-stock/index.html#/stock` (see `docs/iiko/IIKO_DEMO_STAND.md`).
+- **Paused:** Telegram Saved Messages research (`scripts/export_telegram_saved.py`).
+  Blocker: `TELEGRAM_API_ID/HASH`; resume via Telethon or Desktop export — details in `docs/governance/DEFERRED_BRANCH_NOTES.md`.
+- **Next ops:** `scripts/iiko_reset_stock.py` (dry-run → optional `--apply`) → `scripts/dev_run_all.py` → manual UX test.
+
 ## 51) Post-audit governance + planning artifacts (2026-06-15, commit `32b0569`)
 - Files:
-  - `docs/COMPREHENSIVE_AUDIT.md` (перенесён из корня),
-  - `docs/AUDIT_REMEDIATION_PLAN.md`, `docs/PROJECT_CLONE_PROMPT.md`,
+  - `docs/governance/COMPREHENSIVE_AUDIT.md` (перенесён из корня),
+  - `docs/governance/AUDIT_REMEDIATION_PLAN.md`, `docs/governance/PROJECT_CLONE_PROMPT.md`,
   - `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `.github/CODEOWNERS`, PR template,
   - `app/services/invoice_flow/llm_unit_resolver.py`, `owner_rules.py`,
   - `prompts/invoice_unit_resolution_fork.txt`, `prompts/invoice_parser_units_fork.txt`,
-  - planning: `docs/BRANCH_WAIT_OPTIMIZATION_PLAN.md`, `docs/MENU_DOMAIN_EXPANSION_PLAN.md`, `docs/DEFERRED_BRANCH_NOTES.md`, `docs/INVOICE_FLOW_TESTING.md`.
+  - planning: `docs/planning/BRANCH_WAIT_OPTIMIZATION_PLAN.md`, `docs/planning/MENU_DOMAIN_EXPANSION_PLAN.md`, `docs/governance/DEFERRED_BRANCH_NOTES.md`, `docs/iiko/INVOICE_FLOW_TESTING.md`.
 - Behavior:
-  - post-audit трек вынесен в `AUDIT_REMEDIATION_PLAN.md`; `docs/TODO.md` — только summary;
+  - post-audit трек вынесен в `AUDIT_REMEDIATION_PLAN.md`; `docs/planning/TODO.md` — только summary;
   - LLM unit fallback и owner rules добавлены как standalone модуль (ещё не wired в `pipeline.py`).
 - Check:
   - `python -m unittest discover -s tests -p "test_*.py"` (исключая e2e scaffold без pytest).
@@ -44,11 +75,11 @@
   - safe default mode is `IIKO_TRANSPORT=import_only` with CSV/XLSX fallback generation.
 - Notes:
   - current `iiko_server_docs` cache does not provide full endpoint/payload contracts;
-  - integration gaps are listed in `docs/IIKO_API_GAPS.md`.
+  - integration gaps are listed in `docs/iiko/IIKO_API_GAPS.md`.
 
 ## 0) Главные правила
 - Основные правила для агентов/разработчиков: `docs/AGENTS.md`.
-- Проверенные команды запуска/диагностики: `docs/DEBUG.md`.
+- Проверенные команды запуска/диагностики: `docs/operations/DEBUG.md`.
 
 ## 0) Важно про секреты
 - **Нельзя коммитить**: `.env`, `id_ed25519*`, папки `logs/`, `data/`, `tmp/`, `.venv/`.
@@ -79,7 +110,7 @@
   - rate-limit/идемпотентность/логирование событий.
 - `app/bot/backend_client.py` — HTTP‑клиент для `/process` и `/process-batch` (бот → backend).
 - `app/bot/file_storage.py` — файловое хранилище pending/split (bot side).
-- `docs/ARCHITECTURE.md` — краткий обзор модулей и потоков.
+- `docs/architecture/ARCHITECTURE.md` — краткий обзор модулей и потоков.
 
 ## 3) Что добавили для устойчивости (негативные кейсы)
 ### 3.1 User-friendly ошибки + error_code
@@ -118,7 +149,7 @@
 
 ## 6) IDE workflows
 - Воркфлоу Veai удалены из репозитория как неиспользуемые.
-- Для операционных сценариев используйте `docs/DEBUG.md` и `docs/DEV_SETUP.md`.
+- Для операционных сценариев используйте `docs/operations/DEBUG.md` и `docs/operations/DEV_SETUP.md`.
 
 ## 7) Git-процесс (как не бояться откатов)
 - `main` — стабильная ветка.
@@ -133,7 +164,7 @@
 - Переработан pending-UX в боте: вместо скрытого таймера — явные кнопки "Обработать/Добавить ещё", и явный выбор режима при 2+ файлах. Файлы: `app/bot/manager.py`, `app/bot/backend_client.py`, `app/bot/file_storage.py`.
 - Лог стоимости LLM переведён в append-only (без перечтения CSV). Файл: `app/services/pipeline.py`.
 - `.env` читается с `utf-8-sig` из-за BOM; добавлены утилиты `scripts/check_bom.py` и `scripts/strip_bom.py`.
-- Архитектурный обзор перенесён в `docs/ARCHITECTURE.md`.
+- Архитектурный обзор перенесён в `docs/architecture/ARCHITECTURE.md`.
 - Добавлен `.gitattributes` для LF в репозитории; локально `core.autocrlf=false` рекомендован для чистых диффов.
 - Добавлен `logs/llm_costs_summary.json` (итоги LLM без пересчёта CSV) + `scripts/llm_costs_rebuild.py` для пересборки.
 - Упрощён UX: убран режим `/multi`, в split добавлены кнопки «Завершить/Добавить ещё/Отменить».
@@ -154,15 +185,15 @@
 - Git/ветки:
   - текущий рабочий трек распознавания: `feature/recognition-improvements`;
   - ветка `exp/topic-mcp-iiko-gateway` признана отдельным контекстом (не для recognition-задач);
-  - статусы и новые этапы (MAX, МойСклад, 1С, коммерциализация) добавлены в `docs/TODO.md`.
+  - статусы и новые этапы (MAX, МойСклад, 1С, коммерциализация) добавлены в `docs/planning/TODO.md`.
 
 ## 11) Roadmap refocus (2026-04-06)
-- В `docs/TODO.md` уточнён приоритет: масштабирование через процессные модели (`cross-vertical modeling`), а не через набор разрозненных фич.
+- В `docs/planning/TODO.md` уточнён приоритет: масштабирование через процессные модели (`cross-vertical modeling`), а не через набор разрозненных фич.
 - Voice-сценарии зафиксированы как канал входа в унифицированный процессный конвейер, а не отдельный продукт.
 - В интеграционном треке добавлен явный контур `iiko + r_keeper/StoreHouse + МойСклад + 1С` с приоритетом для РФ-сегмента: `MAX + МойСклад + 1С`.
 
 ## 12) Stage 3 final closure (2026-04-06)
-- Stage 3 в `docs/TODO.md` помечен как закрытый по MVP scope.
+- Stage 3 в `docs/planning/TODO.md` помечен как закрытый по MVP scope.
 - Невыполненные ранее пункты Stage 3 (`гибридный парсер`, `метрики стоимости`) перенесены в `Этап 12 — Post-stage3 optimization backlog`.
 
 ## 13) Post-stage3 backlog execution (2026-04-06)
@@ -179,18 +210,18 @@
 - Точки входа переведены на единый logging: `app/api.py`, `app/entrypoints/bot.py`, `app/entrypoints/worker.py`.
 - Добавлен middleware в backend для метрик HTTP времени/статусов (`http_request`).
 - Добавлены метрики воркера (`worker_job`) в `app/tasks.py` (время обработки, статус, error_code).
-- Коды событий бота вынесены в `app/bot/event_codes.py`; справочник добавлен в `docs/BOT_EVENT_CODES.md`.
+- Коды событий бота вынесены в `app/bot/event_codes.py`; справочник добавлен в `docs/operations/BOT_EVENT_CODES.md`.
 - Добавлены скрипты:
   - `scripts/metrics_report.py` (сводка p50/p95 и ошибок);
   - `scripts/archive_logs.py` (архивация логов в `logs/archive/`).
-- `docs/DEV_SETUP.md` дополнен повторяемым чек-листом старта для нового разработчика.
+- `docs/operations/DEV_SETUP.md` дополнен повторяемым чек-листом старта для нового разработчика.
 
 ## 15) Stage 5 UX closure (2026-04-06)
 - Файлы:
   - обновлён `app/bot/manager.py` (split-агрегация альбомов, мягкая дедупликация, flush split-альбомов перед `/done`);
   - добавлены контрольные файлы `fixtures/smoke/invoice_control.txt`, `fixtures/smoke/receipt_control.txt`, `fixtures/smoke/duplicate_blob.bin`;
   - добавлен тестовый модуль `tests/test_bot_stage5.py`;
-  - обновлён статус в `docs/TODO.md` (три незакрытых пункта Stage 5 отмечены как выполненные).
+  - обновлён статус в `docs/planning/TODO.md` (три незакрытых пункта Stage 5 отмечены как выполненные).
 - Поведение:
   - в split-режиме альбом (`media_group`) больше не спамит серией prompt-сообщений: обновление прогресса делается один раз после сборки группы;
   - дедупликация работает в soft-режиме: дубликаты не блокируются, но пользователь получает предупреждение, и событие фиксируется в mailbox-логе;
@@ -222,7 +253,7 @@
 
 ## 18) Request code format update (2026-04-06)
 - Файлы:
-  - обновлены `app/utils/user_messages.py`, `scripts/diagnose_request.py`, `docs/DEBUG.md`.
+  - обновлены `app/utils/user_messages.py`, `scripts/diagnose_request.py`, `docs/operations/DEBUG.md`.
 - Поведение:
   - пользовательский `Код заявки` переведён в формат **5 цифр** (вместо `HHMMSS_mmm`);
   - `scripts/diagnose_request.py` поддерживает и новый 5-значный код, и legacy-код `HHMMSS_mmm`;
@@ -382,7 +413,7 @@
 
 ## 34) Batch wording for error/not-invoice messages (2026-04-07)
 - Files:
-  - updated `app/bot/messages.py`, `app/utils/user_messages.py`, `docs/TODO.md`.
+  - updated `app/bot/messages.py`, `app/utils/user_messages.py`, `docs/planning/TODO.md`.
 - Behavior:
   - for multi-file/batch responses, generic error line is now plural (`Не получилось обработать файлы.`);
   - batch not-invoice message is now plural and uses `файлы/документы` wording;
@@ -438,7 +469,7 @@
 
 ## 40) Stage 6 kickoff: /status command for queue and last request (2026-04-08)
 - Files:
-  - updated `app/task_store.py`, `app/bot/manager.py`, `app/bot/messages.py`, `tests/test_bot_stage5.py`, `docs/TODO.md`.
+  - updated `app/task_store.py`, `app/bot/manager.py`, `app/bot/messages.py`, `tests/test_bot_stage5.py`, `docs/planning/TODO.md`.
 - Behavior:
   - added `/status` command in bot menu and handler;
   - user now sees queue aggregates (`queued`/`processing`), pending draft file count, and last request status/message;
@@ -477,7 +508,7 @@
 
 ## 44) /status: stale-task reaper + optional pinned card (2026-04-08)
 - Files:
-  - updated `app/task_store.py`, `app/bot/manager.py`, `app/bot/messages.py`, `app/config.py`, `.env.example`, `tests/test_bot_stage5.py`, `docs/TODO.md`.
+  - updated `app/task_store.py`, `app/bot/manager.py`, `app/bot/messages.py`, `app/config.py`, `.env.example`, `tests/test_bot_stage5.py`, `docs/planning/TODO.md`.
 - Behavior:
   - `/status` now auto-reaps stale `queued/processing` tasks to timeout error (configurable);
   - status card can be pinned (`STATUS_PIN_MESSAGE=true`) with safe fallback if chat permissions do not allow pinning;
@@ -487,7 +518,7 @@
 
 ## 45) /status retry action for last failed request (2026-04-08)
 - Files:
-  - updated `app/bot/manager.py`, `app/bot/messages.py`, `tests/test_bot_stage5.py`, `docs/TODO.md`.
+  - updated `app/bot/manager.py`, `app/bot/messages.py`, `tests/test_bot_stage5.py`, `docs/planning/TODO.md`.
 - Behavior:
   - status card now shows `Повторить обработку` for the last failed request (if source payload exists);
   - retry callback resubmits original file/batch to backend and refreshes status card in-place;
@@ -498,7 +529,7 @@
 ## 46) Stage 6: iiko import fallback via CSV/XLSX (2026-04-08)
 - Files:
   - added `app/iiko/import_export.py`, `tests/test_iiko_import_export.py`;
-  - updated `app/services/pipeline.py`, `app/config.py`, `app/schemas.py`, `app/bot/messages.py`, `app/bot/manager.py`, `app/utils/user_messages.py`, `tests/test_invoice_recognition.py`, `tests/test_user_messages.py`, `.env.example`, `docs/TODO.md`, `docs/README.md`, `docs/ARCHITECTURE.md`.
+  - updated `app/services/pipeline.py`, `app/config.py`, `app/schemas.py`, `app/bot/messages.py`, `app/bot/manager.py`, `app/utils/user_messages.py`, `tests/test_invoice_recognition.py`, `tests/test_user_messages.py`, `.env.example`, `docs/planning/TODO.md`, `docs/README.md`, `docs/architecture/ARCHITECTURE.md`.
 - Behavior:
   - if direct iiko upload via server API fails after retries, pipeline can return successful fallback with generated import file (`CSV` or `XLSX`) instead of hard error;
   - fallback behavior is configurable via `IIKO_IMPORT_FALLBACK_ENABLED`, `IIKO_IMPORT_FORMAT`, `IIKO_IMPORT_EXPORT_DIR`;
@@ -508,7 +539,7 @@
 
 ## 47) dev_run_all: module-based worker/bot startup (2026-04-08)
 - Files:
-  - updated `scripts/dev_run_all.py`, `docs/DEBUG.md`.
+  - updated `scripts/dev_run_all.py`, `docs/operations/DEBUG.md`.
 - Behavior:
   - `dev_run_all` now starts worker/bot as modules (`-m app.entrypoints.worker`, `-m app.entrypoints.bot`) instead of direct file execution;
   - prevents `ModuleNotFoundError: No module named 'app'` in local orchestration and aligns standalone runbook commands with runtime behavior.
@@ -518,7 +549,7 @@
 
 ## 50) iiko API contract confirmed from PDF + /article pages (2026-04-18)
 - Files:
-  - updated `app/iiko/server_client.py`, `app/config.py`, `.env.example`, `docs/IIKO_API_GAPS.md`, `iiko_server_docs/README.md`, `iiko_server_docs/INDEX.md`;
+  - updated `app/iiko/server_client.py`, `app/config.py`, `.env.example`, `docs/iiko/IIKO_API_GAPS.md`, `iiko_server_docs/README.md`, `iiko_server_docs/INDEX.md`;
   - added `tests/test_iiko_server_client.py`.
 - Behavior:
   - auth now follows official iikoServer contract: `POST /resto/api/auth?login=...&pass=<sha1(password)>`;
@@ -533,7 +564,7 @@
 
 ## 51) Demo stand CRMID 8950663 integrated into local env (2026-04-18)
 - Files:
-  - added `docs/IIKO_DEMO_STAND.md` (sanitized stand metadata + links);
+  - added `docs/iiko/IIKO_DEMO_STAND.md` (sanitized stand metadata + links);
   - added `data/private/iiko_demo_stand_8950663.md` (full letter with access details, local only);
   - updated local `.env` to new API transport keys:
     - `IIKO_API_BASE_URL=https://840-786-070.iiko.it`
@@ -547,7 +578,7 @@
 
 ## 52) Live smoke on demo stand: auth OK, import requires payload hardening (2026-04-18)
 - Files:
-  - updated `app/iiko/server_client.py`, `docs/IIKO_API_GAPS.md`.
+  - updated `app/iiko/server_client.py`, `docs/iiko/IIKO_API_GAPS.md`.
 - Behavior:
   - auth now tries `form-urlencoded` first (compatible with 9.4 demo stand), then query fallback;
   - live check confirmed `auth_status=200` on `https://840-786-070.iiko.it/resto/api/auth` with `login=user`, `pass=sha1(user#test)`;
@@ -557,7 +588,7 @@
 
 ## 53) iiko incomingInvoice made production-usable on demo stand (2026-04-18)
 - Files:
-  - updated `app/iiko/server_client.py`, `app/config.py`, `.env.example`, `app/iiko/README.md`, `tests/test_iiko_server_client.py`, `docs/IIKO_API_GAPS.md`.
+  - updated `app/iiko/server_client.py`, `app/config.py`, `.env.example`, `app/iiko/README.md`, `tests/test_iiko_server_client.py`, `docs/iiko/IIKO_API_GAPS.md`.
 - Behavior:
   - added catalog auto-resolve (`IIKO_AUTORESOLVE_PRODUCTS=true`):
     - pulls `/resto/api/v2/entities/products/list`;
@@ -573,7 +604,7 @@
 
 ## 54) iiko incomingInvoice posting and stock verification (2026-04-18)
 - Files:
-  - updated `app/iiko/server_client.py`, `app/services/pipeline.py`, `app/schemas.py`, `app/config.py`, `.env.example`, `tests/test_iiko_server_client.py`, `docs/IIKO_API_GAPS.md`, `docs/TODO.md`.
+  - updated `app/iiko/server_client.py`, `app/services/pipeline.py`, `app/schemas.py`, `app/config.py`, `.env.example`, `tests/test_iiko_server_client.py`, `docs/iiko/IIKO_API_GAPS.md`, `docs/planning/TODO.md`.
 - Business finding:
   - `documentValidationResult.valid=true` only proves that iiko accepted the XML;
   - exported document `status=NEW` means draft/not posted;

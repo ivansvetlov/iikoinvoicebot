@@ -3,6 +3,9 @@
 Вспомогательные скрипты для разработчика и эксплуатации.
 
 Основные:
+- `dev_run_all.py` — локальный оркестратор backend + worker + bot (PyCharm «0. all»).
+  Pre-kill старых процессов, lock на один экземпляр, флаги `--force` / `--reuse-backend`.
+  См. `docs/operations/DEV_SETUP.md`.
 - `diagnose_request.py` — диагностика по `request_id`/коду заявки:
   - читает `TaskRecord` из БД,
   - читает payload из `data/jobs/<request_id>/payload.json`,
@@ -14,5 +17,7 @@
 - `llm_costs_rebuild.py` — пересборка `logs/llm_costs_summary.json` из CSV.
 - `git.ps1` — враппер над git, использующий встроенный git из GitHub Desktop.
 - `set_mode.ps1` — переключение режима polling/webhook (правит `.env`).
+- `export_telegram_saved.py` — экспорт Telegram «Избранного» (Saved Messages) в `data/private/telegram_favorites/`.
+  **Статус: пауза** (research track, не stage6). См. `docs/planning/TODO.md` и `docs/governance/DEFERRED_BRANCH_NOTES.md`.
 
 Сюда же можно добавлять другие dev-скрипты (миграции, утилиты и т.д.).

@@ -84,23 +84,41 @@ curl http://127.0.0.1:8000/health
 
 ## Dev-оркестратор: `scripts/dev_run_all.py` (backend + worker + bot)
 
-Особенность (проверено): перед запуском `app/entrypoints/bot.py` скрипт пытается остановить другие
-процессы бота (в том же venv/проекте), чтобы не ловить `TelegramConflictError`.
+PyCharm **«0. all»** = этот скрипт.
+
+Поведение (2026-06):
+- lock `tmp/dev_run_all.lock` — один оркестратор; stale lock снимается автоматически;
+- pre-kill всех процессов проекта: `dev_run_all`, uvicorn (`app.api:app`), worker, bot;
+- по умолчанию всегда свежий backend (без `backend already up, skipping`);
+- `--reuse-backend` — не трогать uvicorn, если `/health` уже OK;
+- `--force` — заменить работающий `dev_run_all`;
+- shutdown через `taskkill /T /F` на Windows.
 
 ### Запуск всех компонент одной командой
 
 ```bash
 .venv\Scripts\python.exe scripts\dev_run_all.py
+.venv\Scripts\python.exe scripts\dev_run_all.py --force
+.venv\Scripts\python.exe scripts\dev_run_all.py --reuse-backend
 ```
 
 Проверено:
-- скрипт последовательно запускает backend и ждёт `/health`;
+- скрипт последовательно запускает backend и ждёт `/health` (или переиспользует с `--reuse-backend`);
 - затем запускает worker и бота;
-- в случае ошибки на любом шаге пишет `ERROR` и пытается остановить
-  уже запущенные процессы.
+- в случае ошибки на любом шаге пишет `ERROR` и останавливает дочерние процессы.
 
 После успешного старта показывает PID'ы и ждёт `Ctrl+C` для остановки
 всех процессов.
+
+### Ручная зачистка (если зоопарк уже есть)
+
+```powershell
+Get-CimInstance Win32_Process |
+  Where-Object { $_.CommandLine -match 'PycharmProjects\\PythonProject' -and
+                 $_.CommandLine -match 'dev_run_all|uvicorn|entrypoints\.(bot|worker)' } |
+  ForEach-Object { taskkill /PID $_.ProcessId /T /F }
+Remove-Item -Force tmp\dev_run_all.lock -ErrorAction SilentlyContinue
+```
 
 ---
 
@@ -160,4 +178,4 @@ worker: OK (workers: ...)
 - Для чисто ботовых ошибок пользователю показывается короткий код (4 цифры, формат `Код: 4xxx`).
   В логах сохраняются и короткий код, и внутренний `BOT_*` код.
 - Поиск делаем по `event_short` или `event_code` в `logs/mailbox/*.jsonl` и `logs/bot.log`.
-- Полный справочник соответствий: `docs/BOT_EVENT_CODES.md`.
+- Полный справочник соответствий: `docs/operations/BOT_EVENT_CODES.md`.

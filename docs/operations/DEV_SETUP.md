@@ -7,22 +7,22 @@
 
 Проект состоит из трёх процессов:
 
-1. **Backend (FastAPI + uvicorn)**  
-   Файл входа: `app/api.py`  
+1. **Backend (FastAPI + uvicorn)**
+   Файл входа: `app/api.py`
    Запускается как:
    ```bash
    uvicorn app.api:app --host 127.0.0.1 --port 8000 --reload
    ```
 
-2. **Worker (RQ-воркер)**  
-   Файл: `app/entrypoints/worker.py`  
+2. **Worker (RQ-воркер)**
+   Файл: `app/entrypoints/worker.py`
    Берёт задачи из Redis и выполняет пайплайн.
    ```bash
    python app/entrypoints/worker.py
    ```
 
-3. **Telegram-бот (polling)**  
-   Файл: `app/entrypoints/bot.py`  
+3. **Telegram-бот (polling)**
+   Файл: `app/entrypoints/bot.py`
    Забирает обновления у Telegram и ходит в backend.
    ```bash
    python app/entrypoints/bot.py
@@ -33,8 +33,8 @@
 
 ## 2. Быстрый запуск всех компонентов одной командой
 
-> Важно: `scripts/dev_run_all.py` перед запуском бота пытается остановить другие процессы `bot.py`/`app/entrypoints/bot.py` (в том же venv/проекте),
-> чтобы не ловить `TelegramConflictError`.
+> **Рекомендуемый способ.** PyCharm Run-конфигурация **«0. all (backend+worker+bot)»** запускает тот же скрипт:
+> `scripts/dev_run_all.py`.
 
 Для локальной разработки можно запустить backend, worker и бота одной командой:
 
@@ -43,11 +43,23 @@
 ```
 
 Скрипт делает:
-- стартует backend (uvicorn) и ждёт, пока `/health` начнёт отвечать;
-- запускает worker (`app/entrypoints/worker.py`);
-- запускает бота (`app/entrypoints/bot.py`);
-- если на любом шаге ошибка (порт занят, backend не поднимается и т.п.) —
-  останавливает уже запущенные процессы и печатает сообщение.
+- проверяет lock `tmp/dev_run_all.lock` (один активный оркестратор на проект);
+- **pre-kill**: останавливает предыдущие `dev_run_all`, uvicorn, worker и bot этого проекта;
+- по умолчанию поднимает **свежий** стек backend + worker + bot;
+- при `Ctrl+C` гасит всё дерево процессов через `taskkill /T` (Windows).
+
+Полезные флаги:
+
+```powershell
+# Заменить уже работающий dev_run_all (второй терминал / зависший lock)
+.\.venv\Scripts\python.exe scripts\dev_run_all.py --force
+
+# Backend уже запущен отдельно в PyCharm — не перезапускать uvicorn
+.\.venv\Scripts\python.exe scripts\dev_run_all.py --reuse-backend
+```
+
+> Не запускайте `dev_run_all.py` параллельно в нескольких терминалах без `--force`.
+> Два polling-бота на один токен дают `TelegramConflictError`.
 
 После запуска скрипта можно работать с ботом, не думая о частичных запусках.
 
@@ -56,14 +68,14 @@
 ### Run-конфигурации
 Создай в PyCharm три Run-конфигурации:
 
-- **backend**  
-  `Module name`: `uvicorn`  
+- **backend**
+  `Module name`: `uvicorn`
   `Parameters`: `app.api:app --host 127.0.0.1 --port 8000 --reload`
 
-- **worker**  
+- **worker**
   `Script path`: `app/entrypoints/worker.py`
 
-- **bot**  
+- **bot**
   `Script path`: `app/entrypoints/bot.py`
 
 ### Правило
@@ -163,9 +175,9 @@ curl http://127.0.0.1:8000/health
 
 ## 6. Если нужно вспомнить логику обработки
 
-- Архитектура и пайплайн: `docs/AGENT_HANDOFF.md`
-- Команды бота и сценарии: `docs/BOT_COMMAND_MATRIX.md`
-- Диагностика по коду заявки: `scripts/diagnose_request.py` + `docs/AGENT_HANDOFF.md`
+- Архитектура и пайплайн: `docs/governance/AGENT_HANDOFF.md`
+- Команды бота и сценарии: `docs/operations/BOT_COMMAND_MATRIX.md`
+- Диагностика по коду заявки: `scripts/diagnose_request.py` + `docs/governance/AGENT_HANDOFF.md`
 
 ## 7. Повторяемый сценарий для нового разработчика (чек-лист)
 

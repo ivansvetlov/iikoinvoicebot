@@ -7,7 +7,7 @@
 
 ### Верхний уровень
 - `app/api.py`: FastAPI‑приложение с `/health`, `/process`, `/process-batch`, `/telegram/webhook` и инициализацией БД/вебхука.
-- `app/entrypoints/bot.py`: точка входа Telegram‑бота (polling), защита от дублей через lock‑файл.
+- `app/entrypoints/bot.py`: точка входа Telegram‑бота (polling); дубли предотвращает `scripts/dev_run_all.py` (pre-kill).
 - `app/entrypoints/worker.py`: точка входа RQ‑воркера, слушающего очередь Redis.
 - `app/entrypoints/main.py`: ASGI‑обёртка (`app` из `app.api`) для uvicorn/gunicorn.
 
@@ -33,7 +33,7 @@
 - `app/tasks.py`: `process_invoice_task(payload_path)` — целевая функция для RQ, вызывает `InvoicePipelineService`, обновляет БД и шлёт сообщения пользователю.
 
 ### Скрипты разработки и утилиты
-- `scripts/dev_run_all.py`: запуск backend + worker + bot одним скриптом, убийство дубликатов бота на Windows.
+- `scripts/dev_run_all.py`: запуск backend + worker + bot одним скриптом; lock + pre-kill дублей (Windows).
 - `scripts/dev_status.py`: проверка, запущены ли backend и worker.
 - Прочие утилиты: `scripts/check_bom.py`, `scripts/strip_bom.py`, `scripts/cleanup_dev_artifacts.py`, `scripts/dump_task_results.py`, `scripts/diagnose_request.py`.
 

@@ -2,24 +2,26 @@ r"""Запуск backend, worker и бота одной командой (для
 
 Запуск:
     .venv\Scripts\python.exe scripts\dev_run_all.py
+    .venv\Scripts\python.exe scripts\dev_run_all.py --force
+    .venv\Scripts\python.exe scripts\dev_run_all.py --reuse-backend
 
 Скрипт:
-- запускает backend (uvicorn app.api:app --host 127.0.0.1 --port 8000);
-- ждёт, пока /health начнёт отвечать;
-- запускает worker (`app/entrypoints/worker.py`);
-- запускает bot (`app/entrypoints/bot.py`);
-- если на любом шаге ошибка — останавливает уже запущенные процессы и
-  печатает понятное сообщение.
+- гарантирует один активный оркестратор (lock + pre-kill);
+- по умолчанию поднимает свежий стек backend + worker + bot;
+- при ошибке на любом шаге останавливает уже запущенные процессы.
 
-Доп. защита:
-- перед запуском `app/entrypoints/bot.py` пытается найти и остановить **другие**
-  процессы бота этого проекта, чтобы не ловить TelegramConflictError.
+Флаги:
+- ``--force`` — заменить уже работающий ``dev_run_all`` (убить старый оркестратор).
+- ``--reuse-backend`` — не трогать существующий uvicorn, если ``/health`` отвечает
+  (удобно, когда backend запущен отдельно в PyCharm).
 
 Это НЕ прод-оркестратор, а удобный помощник для локальной отладки.
 """
 
 from __future__ import annotations
 
+import argparse
+import atexit
 import json
 import os
 import subprocess
@@ -27,6 +29,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -36,72 +39,242 @@ import httpx
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
 PROJECT_ROOT_LOW = str(PROJECT_ROOT).lower()
+SYS_EXE_LOW = (sys.executable or "").lower()
+LOCK_PATH = PROJECT_ROOT / "tmp" / "dev_run_all.lock"
+IS_WINDOWS = os.name == "nt"
+
+BACKEND_MARKERS = ("app.api:app",)
+WORKER_MARKERS = (
+    "app\\entrypoints\\worker.py",
+    "app/entrypoints/worker.py",
+    "app.entrypoints.worker",
+)
+BOT_MARKERS = (
+    "app\\entrypoints\\bot.py",
+    "app/entrypoints/bot.py",
+    "app.entrypoints.bot",
+    "bot.py",
+)
+ORCHESTRATOR_MARKERS = (
+    "dev_run_all.py",
+    "scripts\\dev_run_all.py",
+    "scripts/dev_run_all.py",
+)
 
 
-def _is_project_runtime_process(command_line: str) -> bool:
-    cmd = (command_line or "").lower()
-    if "pycharmprojects\\pythonproject" not in cmd and PROJECT_ROOT_LOW not in cmd:
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
         return False
-    markers = (
-        "app.api:app",
-        "app\\entrypoints\\worker.py",
-        "app/entrypoints/worker.py",
-        "app.entrypoints.worker",
-        "app\\entrypoints\\bot.py",
-        "app/entrypoints/bot.py",
-        "app.entrypoints.bot",
-    )
-    return any(marker in cmd for marker in markers)
+    if IS_WINDOWS:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    else:
+        return True
 
 
-def _kill_existing_project_processes() -> None:
-    """Убивает запущенные процессы проекта перед новым стартом (pre-kill)."""
+def _list_python_processes() -> list[dict[str, Any]]:
     ps = (
         "Get-CimInstance Win32_Process | "
         "Where-Object { $_.Name -in @('python.exe','pythonw.exe') } | "
-        "Select-Object ProcessId,ParentProcessId,CommandLine | "
+        "Select-Object ProcessId,ParentProcessId,CommandLine,ExecutablePath,Name | "
         "ConvertTo-Json -Compress"
     )
     try:
         raw = subprocess.check_output(["powershell", "-NoProfile", "-Command", ps], text=True)
     except Exception as exc:  # noqa: BLE001
-        print(f"[dev_run_all] pre-kill scan failed: {exc.__class__.__name__}: {exc}")
-        return
+        print(f"[dev_run_all] process scan failed: {exc.__class__.__name__}: {exc}")
+        return []
 
     raw = raw.strip()
     if not raw or raw == "null":
-        return
+        return []
     try:
         data = json.loads(raw)
     except Exception as exc:  # noqa: BLE001
-        print(f"[dev_run_all] pre-kill scan invalid JSON: {exc.__class__.__name__}")
+        print(f"[dev_run_all] process scan invalid JSON: {exc.__class__.__name__}")
+        return []
+
+    return [data] if isinstance(data, dict) else data
+
+
+def _is_project_interpreter(exe_path: str) -> bool:
+    exe_low = (exe_path or "").lower()
+    if not exe_low:
+        return False
+    if SYS_EXE_LOW and exe_low == SYS_EXE_LOW:
+        return True
+    return exe_low.startswith(PROJECT_ROOT_LOW)
+
+
+def _cmdline_has_project_marker(cmdline: str) -> bool:
+    cmd = (cmdline or "").lower()
+    return PROJECT_ROOT_LOW in cmd or "pycharmprojects\\pythonproject" in cmd
+
+
+def _matches_markers(cmdline: str, markers: tuple[str, ...]) -> bool:
+    cmd = (cmdline or "").lower()
+    return any(marker in cmd for marker in markers)
+
+
+def _classify_dev_process(cmdline: str, exe_path: str) -> str | None:
+    if not _is_project_interpreter(exe_path) and not _cmdline_has_project_marker(cmdline):
+        return None
+    if _matches_markers(cmdline, ORCHESTRATOR_MARKERS):
+        return "orchestrator"
+    if _matches_markers(cmdline, BACKEND_MARKERS):
+        return "backend"
+    if _matches_markers(cmdline, WORKER_MARKERS):
+        return "worker"
+    if _matches_markers(cmdline, BOT_MARKERS):
+        return "bot"
+    return None
+
+
+def _taskkill_tree(pids: list[int], label: str) -> None:
+    unique = sorted({pid for pid in pids if pid > 0 and pid != os.getpid()})
+    if not unique:
+        print(f"[dev_run_all] {label}: nothing to stop")
         return
 
-    processes = [data] if isinstance(data, dict) else data
+    print(f"[dev_run_all] {label}: stopping {unique}")
+    for pid in unique:
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    time.sleep(1)
+    for pid in unique:
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    time.sleep(0.5)
+
+
+def _kill_all_project_dev_processes(*, reuse_backend: bool) -> None:
+    """Pre-kill: backend, worker, bot и другие dev_run_all этого проекта."""
+    processes = _list_python_processes()
     current_pid = os.getpid()
     to_kill: list[int] = []
+
     for proc in processes:
         try:
             pid = int(proc.get("ProcessId"))
             cmdline = proc.get("CommandLine") or ""
+            exe_path = proc.get("ExecutablePath") or ""
         except Exception:
             continue
+
         if pid == current_pid:
             continue
-        if _is_project_runtime_process(cmdline):
-            to_kill.append(pid)
+
+        kind = _classify_dev_process(cmdline, exe_path)
+        if kind is None:
+            continue
+        if reuse_backend and kind == "backend":
+            continue
+        to_kill.append(pid)
+
+    if not to_kill:
+        print("[dev_run_all] pre-kill: no matching project processes found")
+        return
+
+    _taskkill_tree(to_kill, "pre-kill")
+
+
+def _read_lock_pid() -> int | None:
+    if not LOCK_PATH.exists():
+        return None
+    try:
+        first_line = LOCK_PATH.read_text(encoding="utf-8").splitlines()[0].strip()
+        return int(first_line)
+    except Exception:
+        return None
+
+
+def _is_project_orchestrator_pid(pid: int) -> bool:
+    for proc in _list_python_processes():
+        try:
+            proc_pid = int(proc.get("ProcessId"))
+            cmdline = proc.get("CommandLine") or ""
+            exe_path = proc.get("ExecutablePath") or ""
+        except Exception:
+            continue
+        if proc_pid != pid:
+            continue
+        return _classify_dev_process(cmdline, exe_path) == "orchestrator"
+    return False
+
+
+def _release_instance_lock() -> None:
+    if not LOCK_PATH.exists():
+        return
+    try:
+        lock_pid = _read_lock_pid()
+    except Exception:
+        lock_pid = None
+    if lock_pid is None or lock_pid == os.getpid():
+        LOCK_PATH.unlink(missing_ok=True)
+
+
+def _acquire_instance_lock(*, force: bool) -> None:
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    existing_pid = _read_lock_pid()
+
+    if existing_pid and existing_pid != os.getpid():
+        if _pid_alive(existing_pid) and _is_project_orchestrator_pid(existing_pid):
+            if force:
+                _taskkill_tree([existing_pid], "replacing orchestrator (--force)")
+                _release_instance_lock()
+            else:
+                print(
+                    f"[dev_run_all] already running (PID={existing_pid}). "
+                    "Stop it or rerun with --force."
+                )
+                sys.exit(1)
+        else:
+            print(f"[dev_run_all] removing stale lock (PID={existing_pid})")
+            _release_instance_lock()
+
+    LOCK_PATH.write_text(f"{os.getpid()}\n", encoding="utf-8")
+    atexit.register(_release_instance_lock)
+
+
+def _kill_duplicate_role_processes(role: str, markers: tuple[str, ...]) -> None:
+    processes = _list_python_processes()
+    to_kill: list[int] = []
+
+    for proc in processes:
+        try:
+            pid = int(proc.get("ProcessId"))
+            cmdline = proc.get("CommandLine") or ""
+            exe_path = proc.get("ExecutablePath") or ""
+        except Exception:
+            continue
+
+        if pid == os.getpid():
+            continue
+        if not _is_project_interpreter(exe_path):
+            continue
+        if not _matches_markers(cmdline, markers):
+            continue
+        to_kill.append(pid)
 
     if not to_kill:
         return
 
-    to_kill = sorted(set(to_kill))
-    print(f"[dev_run_all] pre-kill existing project processes: {to_kill}")
-    for pid in to_kill:
-        subprocess.run(["taskkill", "/PID", str(pid), "/T"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(1)
-    for pid in to_kill:
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(1)
+    _taskkill_tree(to_kill, f"duplicate {role} cleanup")
 
 
 @dataclass
@@ -111,13 +284,24 @@ class ProcGroup:
     bot: subprocess.Popen | None = None
 
     def terminate_all(self) -> None:
+        child_pids: list[int] = []
+        for name in ("bot", "worker", "backend"):
+            proc = getattr(self, name)
+            if proc is None:
+                continue
+            if proc.poll() is None and proc.pid:
+                child_pids.append(proc.pid)
+
+        if IS_WINDOWS and child_pids:
+            _taskkill_tree(child_pids, "shutdown")
+            return
+
         for name in ("bot", "worker", "backend"):
             proc = getattr(self, name)
             if proc is None:
                 continue
             try:
                 if proc.poll() is None:
-                    # Аккуратно посылаем сигнал завершения
                     proc.terminate()
                     try:
                         proc.wait(timeout=5)
@@ -135,104 +319,11 @@ def _get_health(url: str) -> bool:
         return False
 
 
-def _kill_duplicate_bot_processes() -> None:
-    """Останавливает другие процессы `app/entrypoints/bot.py` (в том же venv/проекте).
-
-    Почему это нужно:
-    - Telegram polling допускает только один процесс на один токен.
-    - Если запустить 2 экземпляра бота, получаем `TelegramConflictError`.
-
-    Нюанс Windows:
-    - CommandLine процесса часто содержит только `bot.py` (без cwd/абсолютного пути).
-      Поэтому фильтр вида "PROJECT_ROOT in CommandLine" ненадёжен.
-
-    Поэтому считаем процесс «нашим», если:
-    - в CommandLine есть `bot.py` (включая `app/entrypoints/bot.py`)
-    - и ExecutablePath совпадает с текущим интерпретатором (sys.executable)
-      или лежит внутри PROJECT_ROOT (обычно это `.venv\\Scripts\\python.exe`).
-
-    Дополнительно учитываем `pythonw.exe`.
-
-    Реализация через PowerShell (Get-CimInstance), чтобы не добавлять зависимости.
-    """
-
-    ps = (
-        "Get-CimInstance Win32_Process | "
-        "Where-Object { $_.Name -in @('python.exe','pythonw.exe') } | "
-        "Select-Object ProcessId,CommandLine,ExecutablePath,Name | "
-        "ConvertTo-Json -Compress"
-    )
-
-    try:
-        raw = subprocess.check_output(["powershell", "-NoProfile", "-Command", ps], text=True)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[dev_run_all] duplicate-bot check failed: {exc.__class__.__name__}: {exc}")
-        return
-
-    raw = raw.strip()
-    if not raw or raw == "null":
-        return
-
-    try:
-        data = json.loads(raw)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[dev_run_all] duplicate-bot check failed: invalid JSON ({exc.__class__.__name__})")
-        return
-
-    processes = [data] if isinstance(data, dict) else data
-
-    project_root_low = str(PROJECT_ROOT).lower()
-    sys_exe_low = (sys.executable or "").lower()
-
-    to_kill: list[int] = []
-    for proc in processes:
-        try:
-            pid = int(proc.get("ProcessId"))
-            cmdline = (proc.get("CommandLine") or "")
-            exe_path = (proc.get("ExecutablePath") or "")
-        except Exception:
-            continue
-
-        if pid == os.getpid():
-            continue
-
-        cmd_low = cmdline.lower()
-        if "bot.py" not in cmd_low:
-            continue
-
-        exe_low = exe_path.lower()
-
-        # 1) Самый надёжный критерий: тот же python.exe (обычно тот же venv)
-        is_same_interpreter = bool(sys_exe_low) and exe_low == sys_exe_low
-
-        # 2) Второй критерий: python.exe лежит внутри папки проекта
-        # (типично: ...\PythonProject\.venv\Scripts\python.exe)
-        is_project_venv = exe_low.startswith(project_root_low)
-
-        if not (is_same_interpreter or is_project_venv):
-            continue
-
-        to_kill.append(pid)
-
-    if not to_kill:
-        return
-
-    print(f"[dev_run_all] found {len(to_kill)} existing bot processes, stopping: {to_kill}")
-    for pid in to_kill:
-        # Сначала пробуем мягко
-        subprocess.run(["taskkill", "/PID", str(pid), "/T"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(1)
-    for pid in to_kill:
-        # Если не остановился — форсим
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-
-def start_backend(group: ProcGroup) -> None:
+def start_backend(group: ProcGroup, *, reuse_backend: bool) -> None:
     url = "http://127.0.0.1:8000/health"
 
-    # Если backend уже поднят (например, запущен вручную) — используем его.
-    if _get_health(url):
-        print(f"[dev_run_all] backend already up ({url}), skipping start")
+    if reuse_backend and _get_health(url):
+        print(f"[dev_run_all] reusing existing backend ({url})")
         return
 
     cmd = [
@@ -248,7 +339,6 @@ def start_backend(group: ProcGroup) -> None:
     print("[dev_run_all] starting backend:", " ".join(cmd))
     group.backend = subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
 
-    # ждём, пока /health станет доступен
     for attempt in range(10):
         time.sleep(1)
         if _get_health(url):
@@ -259,6 +349,7 @@ def start_backend(group: ProcGroup) -> None:
 
 
 def start_worker(group: ProcGroup) -> None:
+    _kill_duplicate_role_processes("worker", WORKER_MARKERS)
     cmd = [PYTHON, "-m", "app.entrypoints.worker"]
     print("[dev_run_all] starting worker:", " ".join(cmd))
     group.worker = subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
@@ -266,24 +357,44 @@ def start_worker(group: ProcGroup) -> None:
 
 
 def start_bot(group: ProcGroup) -> None:
-    _kill_duplicate_bot_processes()
+    _kill_duplicate_role_processes("bot", BOT_MARKERS)
     cmd = [PYTHON, "-m", "app.entrypoints.bot"]
     print("[dev_run_all] starting bot:", " ".join(cmd))
     group.bot = subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
     time.sleep(1)
 
 
-def main() -> None:
-    _kill_existing_project_processes()
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Local dev orchestrator: backend + worker + bot")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="replace an already running dev_run_all instance",
+    )
+    parser.add_argument(
+        "--reuse-backend",
+        action="store_true",
+        help="keep existing uvicorn when /health already responds",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = _parse_args(argv)
+    _acquire_instance_lock(force=args.force)
+    _kill_all_project_dev_processes(reuse_backend=args.reuse_backend)
+
     group = ProcGroup()
     try:
-        start_backend(group)
+        start_backend(group, reuse_backend=args.reuse_backend)
         start_worker(group)
         start_bot(group)
 
         print("\n[dev_run_all] all processes started:")
         if group.backend:
             print(f"  backend PID={group.backend.pid}")
+        else:
+            print("  backend PID=(reused existing)")
         if group.worker:
             print(f"  worker  PID={group.worker.pid}")
         if group.bot:
@@ -291,7 +402,6 @@ def main() -> None:
 
         print("\nНажмите Ctrl+C, чтобы остановить все процессы.")
 
-        # Ожидаем, пока не прервут Ctrl+C
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
@@ -300,6 +410,7 @@ def main() -> None:
         print(f"[dev_run_all] ERROR: {exc!r}")
     finally:
         group.terminate_all()
+        _release_instance_lock()
         print("[dev_run_all] all processes terminated")
 
 

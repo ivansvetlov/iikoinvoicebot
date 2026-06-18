@@ -1,20 +1,30 @@
 # TODO / План работ (декомпозиция)
 
-## Текущий статус (2026-06-15)
+## Текущий статус (2026-06-17)
 
-- **Активная ветка:** `feature/stage6-iiko-import-readiness-kickoff` (локально, ahead of origin).
-- **Последний коммит:** `32b0569` — governance + LLM unit resolver + planning docs.
-- **Незакоммичено:** post-recognition UX (`invoice_keyboards.py`, `invoice_posting.py`, правки `manager.py`/`pipeline.py`/тесты).
-- **Следующий шаг:** закоммитить UX-слой → ручное тестирование на demo stand → push.
+- **Активная ветка:** `feature/stage6-iiko-import-readiness-kickoff`.
+- **Фокус:** основная линия stage6 (iiko demo stand + post-recognition UX E2E).
+- **Демо-стенд:** API снова доступен (`IIKO_AUTH_OK`, см. `docs/iiko/IIKO_DEMO_STAND.md`).
+- **Следующий шаг:** dry-run/cleanup склада → `dev_run_all` → ручной прогон `docs/iiko/INVOICE_FLOW_TESTING.md`.
 
-Детальный post-audit трек: `docs/AUDIT_REMEDIATION_PLAN.md` (не дублировать чеклисты здесь).
+## Отложено: Telegram «Избранное» (research track)
+
+**Статус: пауза** (2026-06-17). Не блокирует stage6, не смешивать в коммиты спринта.
+
+- Скрипт готов: `scripts/export_telegram_saved.py` → `data/private/telegram_favorites/`.
+- Блокер: `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` (my.telegram.org — «попробуйте позже»).
+- Обходной путь на возобновление: экспорт Telegram Desktop → `data/private/telegram_favorites/desktop_export/`.
+- Целевой deliverable: 4-секционный отчёт (raw extract, link map, utility matrix, roadmap) в отдельной ветке `exp/topic-pipeline-toolkit-research`.
+- Детали: `docs/governance/DEFERRED_BRANCH_NOTES.md` (раздел «Telegram favorites research»).
+
+Детальный post-audit трек: `docs/governance/AUDIT_REMEDIATION_PLAN.md` (не дублировать чеклисты здесь).
 
 ## Post-audit remediation (summary)
 
-Источник: `docs/COMPREHENSIVE_AUDIT.md` → трек: `docs/AUDIT_REMEDIATION_PLAN.md`.
+Источник: `docs/governance/COMPREHENSIVE_AUDIT.md` → трек: `docs/governance/AUDIT_REMEDIATION_PLAN.md`.
 
 - [x] Governance baseline: `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, PR template
-- [x] `docs/PROJECT_CLONE_PROMPT.md` (skeleton blueprint)
+- [x] `docs/governance/PROJECT_CLONE_PROMPT.md` (skeleton blueprint)
 - [x] Ignore `dump stage*` / `last chat` в `.gitignore`
 - [x] `COMPREHENSIVE_AUDIT.md` → `docs/`
 - [ ] CI: tests + lint на push/PR
@@ -37,7 +47,7 @@
 
 ### Осталось в этом спринте
 - [ ] Закоммитить и запушить post-recognition UX + тесты
-- [ ] Ручной прогон по `docs/INVOICE_FLOW_TESTING.md` на demo stand
+- [ ] Ручной прогон по `docs/iiko/INVOICE_FLOW_TESTING.md` на demo stand
 - [ ] Подключить `INVOICE_FLOW_MODE=modular` в production pipeline (сейчас runner standalone)
 - [ ] НДС: парсинг из колонки «Сумма», не «Сумма с НДС»; строки «В том числе НДС» (заявка 83565)
 - [ ] Убрать дубли сообщений при переходе к posting review (worker + bot race)
@@ -47,7 +57,7 @@
 
 ### Из планов Codex (отдельные ветки / следующие слои)
 
-См. также `docs/BRANCH_WAIT_OPTIMIZATION_PLAN.md`, `docs/MENU_DOMAIN_EXPANSION_PLAN.md`, `docs/DEFERRED_BRANCH_NOTES.md`.
+См. также `docs/planning/BRANCH_WAIT_OPTIMIZATION_PLAN.md`, `docs/planning/MENU_DOMAIN_EXPANSION_PLAN.md`, `docs/governance/DEFERRED_BRANCH_NOTES.md`.
 
 #### Invoice flow / единицы измерения
 - [ ] `data/invoice_flow_owner_rules.json` — заполнить правила для реальных SKU клиента
@@ -103,7 +113,7 @@
 - [x] Мониторинг ошибок и времени обработки
 - [x] Коды событий бота (`BOT_BACKEND_UNAVAILABLE`, `BOT_PENDING_TIMEOUT`, …) — собрать и описать в одном месте
 - [x] DEBUG.md: проверенный runbook по запуску/остановке/логам для backend/worker/bot
-- [x] Dev-оркестрация: `scripts/dev_run_all.py` с авто-киллом дублей бота
+- [x] Dev-оркестрация: `scripts/dev_run_all.py` (lock + pre-kill всего стека, `--force` / `--reuse-backend`)
 - [x] Dev-оркестрация: довести `DEV_SETUP.md` до статуса «повторяемый сценарий для нового разработчика»
 - [x] Удалить мёртвую папку `app/logs/` (все логи пишутся в корневую `logs/`)
 
