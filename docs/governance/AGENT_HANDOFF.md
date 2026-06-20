@@ -4,6 +4,11 @@
 
 > **Нумерация:** новые записи — **вверху**. Ниже есть исторические блоки с теми же номерами (§50–§54, iiko 2026-04). При конфликте приоритет у верхней записи с более свежей датой.
 
+## 56) Unified project dashboard + TG mirror (2026-06-20)
+- Files: `scripts/render_todo_dashboard.py`, `scripts/dashboard_data.py`, `docs/assets/project-dashboard.html`, `experiments/grok_telegram_bridge/dashboard_hub.py`, bridge `bot.py`/`keyboards.py`.
+- Behavior: один HTML (`project-dashboard.html`, алиас `todo-dashboard.html`) — Roadmap из `TODO.md` + зеркало `logs/` + metrics + reports + online probe (`tmp/availability_*`) + bridge runs. TG-кнопки: Дашборд, Логи, Метрики, Отчёты, Обновить HTML; авто-пересборка после Grok run.
+- Quick check: `.venv\\Scripts\\python.exe scripts\\render_todo_dashboard.py` → открыть `docs/assets/project-dashboard.html`; `.venv\\Scripts\\python.exe -m unittest tests.test_grok_bridge -v`
+
 ## 55) Grok Telegram bridge + METAPROMPT (2026-06-20)
 - Files: `experiments/grok_telegram_bridge/`, `agents/METAPROMPT.md`, `scripts/run_grok_bridge.ps1`, `tests/test_grok_bridge.py`.
 - Behavior: отдельный бот `GROK_BRIDGE_BOT_TOKEN`; `grok -p` + `--rules` (METAPROMPT) + `--resume`; `/check` → `--check`; ветка `exp/grok-telegram-bridge`.

@@ -100,7 +100,26 @@ class TestGrokBridge(unittest.TestCase):
 
     def test_keyboards(self) -> None:
         kb = main_menu()
-        self.assertGreaterEqual(len(kb.inline_keyboard), 4)
+        self.assertGreaterEqual(len(kb.inline_keyboard), 6)
+        flat = [b.callback_data for row in kb.inline_keyboard for b in row]
+        self.assertIn("act:dashboard", flat)
+        self.assertIn("act:logs", flat)
+
+    def test_dashboard_data(self) -> None:
+        from scripts.dashboard_data import collect_all
+
+        dash = collect_all(metrics_hours=24)
+        self.assertIn("logs", dash)
+        self.assertIn("metrics", dash)
+        self.assertIn("online", dash)
+        self.assertIn("availability_html", dash)
+
+    def test_dashboard_refresh(self) -> None:
+        from experiments.grok_telegram_bridge.dashboard_hub import refresh_dashboard
+
+        ok, _msg = refresh_dashboard()
+        self.assertTrue(ok)
+        self.assertTrue(Path("docs/assets/project-dashboard.html").exists())
 
     def test_todo_html_parser(self) -> None:
         from scripts.render_todo_dashboard import parse_todo

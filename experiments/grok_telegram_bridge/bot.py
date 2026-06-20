@@ -26,6 +26,14 @@ from experiments.grok_telegram_bridge.rules_loader import load_rules_text
 from experiments.grok_telegram_bridge.security import is_allowed
 from experiments.grok_telegram_bridge.session_store import SessionStore
 from experiments.grok_telegram_bridge.tester import should_use_check, strip_check_prefix
+from experiments.grok_telegram_bridge.dashboard_hub import (
+    dashboard_path,
+    dashboard_summary,
+    logs_summary,
+    metrics_summary,
+    refresh_dashboard,
+    reports_summary,
+)
 from experiments.grok_telegram_bridge.work_journal import WorkJournal
 
 logger = logging.getLogger(__name__)
@@ -34,7 +42,7 @@ HELP_TEXT = """\
 <b>Grok Bridge</b> — удалённый терминальный агент на твоём ПК.
 
 Используй <b>кнопки ниже</b> или текстовые команды.
-Первый запрос после /new запускает bootstrap (ознакомление с проектом).
+Первый запрос после /new — bootstrap. Дашборд: <code>docs/assets/project-dashboard.html</code>
 
 <b>Текст</b> → <code>grok -p</code> + <code>--resume</code> + метапромпт.
 Результаты пишутся в <code>data/private/grok_bridge/HANDOFF_LATEST.md</code> для Cursor дома.
@@ -207,6 +215,33 @@ class GrokBridgeBot:
         elif action == "journal":
             preview = self.journal.journal_preview()
             await self._reply_menu(msg, f"<b>Журнал</b>\n<pre>{preview}</pre>")
+        elif action == "dashboard":
+            ok, note = await asyncio.to_thread(refresh_dashboard)
+            summary = await asyncio.to_thread(dashboard_summary)
+            path = dashboard_path()
+            status = "обновлён" if ok else f"ошибка: {note}"
+            await self._reply_menu(
+                msg,
+                f"<b>Project Dashboard</b> ({status})\n"
+                f"<code>{path}</code>\n\n<pre>{summary}</pre>",
+            )
+        elif action == "dash:refresh":
+            ok, note = await asyncio.to_thread(refresh_dashboard)
+            text = "Дашборд обновлён." if ok else f"Не удалось: {note}"
+            await self._reply_menu(msg, f"<b>HTML</b>\n{text}\n<code>{dashboard_path()}</code>")
+        elif action == "metrics":
+            text = await asyncio.to_thread(metrics_summary)
+            await self._reply_menu(msg, f"<b>Метрики</b>\n<pre>{text}</pre>")
+        elif action == "logs":
+            text = await asyncio.to_thread(logs_summary)
+            for chunk in split_message(text, limit=3800):
+                await msg.answer(wrap_code_block(chunk), parse_mode=ParseMode.HTML, reply_markup=main_menu())
+        elif action == "reports":
+            text = await asyncio.to_thread(reports_summary)
+            await self._reply_menu(
+                msg,
+                f"<b>Отчёты</b>\n<pre>{text}</pre>\n\nПолный вид: <code>{dashboard_path()}</code>",
+            )
         elif action == "help":
             await self._reply_menu(msg, HELP_TEXT)
 
@@ -286,6 +321,8 @@ class GrokBridgeBot:
             run_id=run_id,
             grok_session_id=result.session_id,
         )
+        asyncio.create_task(asyncio.to_thread(refresh_dashboard))
+
         self.journal.record_run(
             user_id=user_id,
             run_id=run_id,

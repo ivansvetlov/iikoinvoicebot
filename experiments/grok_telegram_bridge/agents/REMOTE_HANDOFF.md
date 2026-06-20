@@ -33,3 +33,18 @@ METAPROMPT требует дополнять HANDOFF_LATEST секцией «Д�
 **Дорога (TG):** задача → grok → journal + HANDOFF_LATEST.
 
 **Дом (Cursor):** `HANDOFF_LATEST.md` → `git status` → `runs/<id>/` → продолжить.
+
+## Dashboard (видимость с дороги и дома)
+
+Единый HTML — не отдельный сайт, а расширение TODO-dashboard:
+
+| Источник | Вкладка |
+|----------|---------|
+| `docs/planning/TODO.md` | Roadmap |
+| `logs/*.log`, metrics | Metrics, Logs |
+| `tmp/availability_*`, diagnose | Online, Reports |
+| `data/private/grok_bridge/` | Bridge, Reports |
+
+Файл: `docs/assets/project-dashboard.html` (генератор: `scripts/render_todo_dashboard.py`).
+
+**TG-кнопки:** Дашборд (сводка + путь), Логи, Метрики, Отчёты, Обновить HTML. После каждого run — фоновая пересборка.

@@ -12,6 +12,15 @@ def main_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📊 Статус", callback_data="act:status"),
             ],
             [
+                InlineKeyboardButton(text="🖥️ Дашборд", callback_data="act:dashboard"),
+                InlineKeyboardButton(text="🔄 Обновить HTML", callback_data="act:dash:refresh"),
+            ],
+            [
+                InlineKeyboardButton(text="📜 Логи", callback_data="act:logs"),
+                InlineKeyboardButton(text="📈 Метрики", callback_data="act:metrics"),
+                InlineKeyboardButton(text="📋 Отчёты", callback_data="act:reports"),
+            ],
+            [
                 InlineKeyboardButton(text="✅ YOLO on", callback_data="act:yolo:on"),
                 InlineKeyboardButton(text="⛔ YOLO off", callback_data="act:yolo:off"),
             ],

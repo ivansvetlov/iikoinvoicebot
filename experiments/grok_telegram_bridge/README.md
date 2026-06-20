@@ -10,6 +10,9 @@
 |--------|----------|
 | 🆕 Новая сессия | сброс + bootstrap при следующем тексте |
 | 📊 Статус | git, session, bootstrap |
+| 🖥️ Дашборд | обновить + сводка `project-dashboard.html` |
+| 🔄 Обновить HTML | пересобрать дашборд |
+| 📜 Логи / 📈 Метрики / 📋 Отчёты | превью из `logs/`, metrics, tmp/ |
 | ✅/⛔ YOLO | `--always-approve` |
 | 🔍 Проверить | следующий текст с `--check` |
 | 📋 Контекст | последние ходы диалога |
@@ -48,10 +51,12 @@ data/private/grok_bridge/
 .\.venv\Scripts\python.exe -m unittest tests.test_grok_bridge -v
 ```
 
-## TODO dashboard (HTML)
+## Project dashboard (HTML)
+
+Единый файл: roadmap + `logs/` + metrics + reports + online probe + bridge runs.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\render_todo_dashboard.py
 ```
 
-Открыть: `docs/assets/todo-dashboard.html` (поиск, фильтры, collapsible секции).
+Открыть: `docs/assets/project-dashboard.html` (алиас: `todo-dashboard.html`). Вкладки: Roadmap, Metrics, Logs, Reports, Online, Bridge. Авто-обновление каждые 2 мин (опционально). После каждого Grok run дашборд пересобирается в фоне.
