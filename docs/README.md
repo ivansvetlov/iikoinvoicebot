@@ -6,25 +6,37 @@
 - Позиции отправляются в iiko через server-side API (HTTP).
 - Если прямая API-выгрузка недоступна, backend готовит файл импорта CSV/XLSX для ручной загрузки в iiko.
 
+## Оглавление docs/
+
+| Папка | Назначение |
+|-------|------------|
+| docs/governance/ | handoff, audit, deferred notes |
+| docs/operations/ | DEBUG, DEV_SETUP, TESTCASES, bot matrices |
+| docs/architecture/ | ARCHITECTURE, OPTIMIZATION |
+| docs/iiko/ | demo stand, API gaps, E2E runbooks |
+| docs/planning/ | TODO, feature plans |
+| docs/assets/ | dashboard SVG и прочие артефакты |
+| experiments/ | experimental tracks (не stage6 runtime) |
+
 ## Правила для агентов
 - Основные правила и стандарты: `docs/AGENTS.md`.
-- Проверенные команды запуска/диагностики: `docs/DEBUG.md`.
+- Проверенные команды запуска/диагностики: `docs/operations/DEBUG.md`.
 
 ## Архитектура
-- Краткий обзор модулей и потоков: `docs/ARCHITECTURE.md`
-- Текущие пробелы по iiko API: `docs/IIKO_API_GAPS.md`
+- Краткий обзор модулей и потоков: `docs/architecture/ARCHITECTURE.md`
+- Текущие пробелы по iiko API: `docs/iiko/IIKO_API_GAPS.md`
 
 ## Планы и аудит
 | Документ | Назначение | Статус |
 |----------|------------|--------|
-| `docs/TODO.md` | Dashboard + приоритеты | canonical |
-| `docs/AUDIT_REMEDIATION_PLAN.md` | Post-audit трек | canonical |
-| `docs/COMPREHENSIVE_AUDIT.md` | Полный аудит 2026-04-26 | historical snapshot |
-| `docs/INVOICE_FLOW_TESTING.md` | Тестирование unit flow + UX | active runbook |
-| `docs/MENU_DOMAIN_EXPANSION_PLAN.md` | Категории, типы продуктов, техкарты | planned |
-| `docs/BRANCH_WAIT_OPTIMIZATION_PLAN.md` | Оптимизация LLM wait time | separate branch |
-| `docs/DEFERRED_BRANCH_NOTES.md` | Отложенные решения | reference |
-| `docs/PROJECT_CLONE_PROMPT.md` | Blueprint для нового проекта | reference |
+| `docs/planning/TODO.md` | Dashboard + приоритеты | canonical |
+| `docs/governance/AUDIT_REMEDIATION_PLAN.md` | Post-audit трек | canonical |
+| `docs/governance/COMPREHENSIVE_AUDIT.md` | Полный аудит 2026-04-26 | historical snapshot |
+| `docs/iiko/INVOICE_FLOW_TESTING.md` | Тестирование unit flow + UX | active runbook |
+| `docs/planning/MENU_DOMAIN_EXPANSION_PLAN.md` | Категории, типы продуктов, техкарты | planned |
+| `docs/planning/BRANCH_WAIT_OPTIMIZATION_PLAN.md` | Оптимизация LLM wait time | separate branch |
+| `docs/governance/DEFERRED_BRANCH_NOTES.md` | Отложенные решения | reference |
+| `docs/governance/PROJECT_CLONE_PROMPT.md` | Blueprint для нового проекта | reference |
 
 ## Prompts
 - `prompts/invoice_unit_resolution_fork.txt` — LLM fallback для неоднозначных единиц (`INVOICE_FLOW_LLM_PROMPT_FORK_PATH`).
@@ -36,9 +48,9 @@
 ### Корень проекта
 
 Основные файлы в корневой директории:
-- `README.md` — этот файл, общее описание.
-- `docs/TODO.md` — dashboard + план работ/идей.
-- `docs/TESTCASES.md` — список QA-сценариев.
+- `docs/README.md` — этот файл, общее описание.
+- `docs/planning/TODO.md` — dashboard + план работ/идей.
+- `docs/operations/TESTCASES.md` — список QA-сценариев.
 - `requirements.txt` — зависимости Python.
 - `docker-compose.yml`, `Dockerfile`, `nginx_bot.conf` — файлы для контейнерного деплоя.
 - `.env`, `.env.example` — конфиги окружения (секреты / токены **не должны** попадать в git).
@@ -47,8 +59,9 @@
 Служебные папки в корне:
 - `app/` — код backend-а, пайплайна и интеграций (подробности в `app/README.md`).
   - `app/entrypoints/` — runtime-скрипты запуска (`bot.py`, `worker.py`, `main.py`, `invoice_llm_client.py`).
-- `scripts/` — дев-скрипты (`diagnose_request.py`, `cleanup_dev_artifacts.py` и т.п.).
-- `docs/` — документация для разработчика/агента (`AGENT_HANDOFF.md`, `DEV_SETUP.md`, `BOT_COMMAND_MATRIX.md`, `BOT_EVENT_CODES.md`).
+- `scripts/` — дев-скрипты (`diagnose_request.py`, `dev_run_all.py`, `run_grok_bridge.ps1` и т.п.).
+- `experiments/` — экспериментальные треки; см. `experiments/grok_telegram_bridge/` (Grok ↔ Telegram bridge).
+- `docs/` — документация (подпапки: `governance/`, `operations/`, `architecture/`, `iiko/`, `planning/`).
 - `data/` — рабочие данные (БД, job-директории); не коммитится.
 - `logs/` — runtime-логи; не коммитятся.
 - `tmp/` — временные диагностические файлы; можно очищать.

@@ -19,5 +19,6 @@
 - `set_mode.ps1` — переключение режима polling/webhook (правит `.env`).
 - `export_telegram_saved.py` — экспорт Telegram «Избранного» (Saved Messages) в `data/private/telegram_favorites/`.
   **Статус: пауза** (research track, не stage6). См. `docs/planning/TODO.md` и `docs/governance/DEFERRED_BRANCH_NOTES.md`.
+- `run_grok_bridge.ps1` — Grok ↔ Telegram bridge (`GROK_BRIDGE_BOT_TOKEN`). См. `experiments/grok_telegram_bridge/README.md`.
 
 Сюда же можно добавлять другие dev-скрипты (миграции, утилиты и т.д.).

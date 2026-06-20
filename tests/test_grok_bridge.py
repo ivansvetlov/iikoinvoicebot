@@ -56,6 +56,21 @@ class TestGrokBridge(unittest.TestCase):
         self.assertIn("--always-approve", cmd)
         self.assertIn("streaming-json", cmd)
 
+    def test_grok_cmd_rules(self) -> None:
+        runner = GrokRunner(
+            cli_path=Path("grok.exe"),
+            cwd=Path("."),
+            model="grok-build",
+            max_turns=10,
+            timeout_sec=60,
+            yolo=False,
+            stream=False,
+            rules_text="# metaprompt",
+        )
+        cmd = runner._build_cmd("hi", session_id=None, use_check=False)
+        self.assertIn("--rules", cmd)
+        self.assertIn("# metaprompt", cmd)
+
     def test_stream_parser(self) -> None:
         lines = [
             '{"type":"text","data":"Hel"}',

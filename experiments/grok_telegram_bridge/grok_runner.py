@@ -34,6 +34,7 @@ class GrokRunner:
         timeout_sec: int,
         yolo: bool,
         stream: bool,
+        rules_text: str | None = None,
     ) -> None:
         self.cli_path = cli_path
         self.cwd = cwd
@@ -42,6 +43,7 @@ class GrokRunner:
         self.timeout_sec = timeout_sec
         self.yolo = yolo
         self.stream = stream
+        self.rules_text = (rules_text or "").strip() or None
 
     def _build_cmd(
         self,
@@ -71,6 +73,8 @@ class GrokRunner:
             cmd.append("--always-approve")
         if use_check:
             cmd.append("--check")
+        if self.rules_text:
+            cmd.extend(["--rules", self.rules_text])
         return cmd
 
     async def run(
@@ -121,7 +125,6 @@ class GrokRunner:
         if not raw:
             raise GrokRunnerError("Empty Grok output")
 
-        # stdout may contain log lines before JSON — take last JSON object line
         data = None
         for line in reversed(raw.splitlines()):
             line = line.strip()

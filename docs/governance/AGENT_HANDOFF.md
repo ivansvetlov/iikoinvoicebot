@@ -2,6 +2,13 @@
 
 > Цель этого файла — чтобы новый агент/разработчик за 10–15 минут понял текущее состояние проекта, решения и где искать причины ошибок.
 
+> **Нумерация:** новые записи — **вверху**. Ниже есть исторические блоки с теми же номерами (§50–§54, iiko 2026-04). При конфликте приоритет у верхней записи с более свежей датой.
+
+## 55) Grok Telegram bridge + METAPROMPT (2026-06-20)
+- Files: `experiments/grok_telegram_bridge/`, `agents/METAPROMPT.md`, `scripts/run_grok_bridge.ps1`, `tests/test_grok_bridge.py`.
+- Behavior: отдельный бот `GROK_BRIDGE_BOT_TOKEN`; `grok -p` + `--rules` (METAPROMPT) + `--resume`; `/check` → `--check`; ветка `exp/grok-telegram-bridge`.
+- Quick check: `.venv\\Scripts\\python.exe -m unittest tests.test_grok_bridge -v`
+
 ## 54) dev_run_all hardening: lock + full pre-kill (2026-06-18)
 - Files:
   - updated `scripts/dev_run_all.py`;

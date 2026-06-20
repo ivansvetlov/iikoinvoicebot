@@ -154,6 +154,18 @@ worker: OK (workers: ...)
 
 ---
 
+## Grok Telegram bridge (experimental)
+
+Отдельный бот (`GROK_BRIDGE_BOT_TOKEN`), не invoice bot.
+
+```bash
+.venv\Scripts\python.exe -m experiments.grok_telegram_bridge
+```
+
+Метапромпт: `experiments/grok_telegram_bridge/agents/METAPROMPT.md` (авто `--rules`).
+
+---
+
 ## Операционные скрипты (наблюдаемость)
 
 ```bash

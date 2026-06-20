@@ -13,6 +13,7 @@ from aiogram.types import Message
 from experiments.grok_telegram_bridge.config import settings
 from experiments.grok_telegram_bridge.formatter import progress_preview, split_message, wrap_code_block
 from experiments.grok_telegram_bridge.grok_runner import GrokRunner, GrokRunnerError
+from experiments.grok_telegram_bridge.rules_loader import load_rules_text
 from experiments.grok_telegram_bridge.security import is_allowed
 from experiments.grok_telegram_bridge.session_store import SessionStore
 from experiments.grok_telegram_bridge.tester import should_use_check, strip_check_prefix
@@ -30,6 +31,7 @@ HELP_TEXT = """\
 /check &lt;текст&gt; — запрос + тестировщик (--check / check-work)
 
 <b>Обычный текст</b> → <code>grok -p</code> headless с <code>--resume</code>.
+Метапромпт проекта подгружается из <code>agents/METAPROMPT.md</code> через <code>--rules</code>.
 
 Поведение максимально близко к CLI: тот же cwd, те же tools, streaming в одно сообщение.
 """
@@ -46,6 +48,9 @@ class GrokBridgeBot:
         self.bot = Bot(token=settings.grok_bridge_bot_token)
         self.dp = Dispatcher()
         self.store = SessionStore(Path(settings.grok_bridge_sessions_path))
+        self._rules = load_rules_text(Path(settings.grok_bridge_rules_path))
+        if self._rules:
+            logger.info("Loaded bridge rules from %s", settings.grok_bridge_rules_path)
         self._register()
 
     def _runner_for(self, user_id: int) -> GrokRunner:
@@ -59,6 +64,7 @@ class GrokBridgeBot:
             timeout_sec=settings.grok_bridge_timeout_sec,
             yolo=yolo,
             stream=settings.grok_bridge_stream,
+            rules_text=self._rules,
         )
 
     def _register(self) -> None:
@@ -96,6 +102,7 @@ class GrokBridgeBot:
             return
         sess = self.store.get(message.from_user.id)
         yolo = settings.grok_bridge_yolo if sess.yolo is None else sess.yolo
+        rules_on = "yes" if self._rules else "no"
         lines = [
             f"<b>cwd</b>: <code>{settings.grok_bridge_cwd}</code>",
             f"<b>model</b>: <code>{settings.grok_bridge_model}</code>",
@@ -104,6 +111,7 @@ class GrokBridgeBot:
             f"<b>yolo</b>: {yolo}",
             f"<b>stream</b>: {settings.grok_bridge_stream}",
             f"<b>auto-check</b>: {settings.grok_bridge_auto_check}",
+            f"<b>metaprompt</b>: {rules_on}",
         ]
         await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
 

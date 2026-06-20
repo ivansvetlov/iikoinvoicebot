@@ -16,7 +16,8 @@ Telegram (ты) → Bridge Bot (aiogram) → grok.exe headless → ответ в
 |------|------|------|
 | Telegram UI | `bot.py` | команды, streaming edit, chunking |
 | Grok CLI | `grok_runner.py` | `grok -p --output-format streaming-json --resume` |
-| Сессии | `session_store.py` | parity с `grok --resume` / `-c` |
+| Сессии | `session_store.py` | parity с `grok --resume <sessionId>` |
+| Метапромпт | `agents/METAPROMPT.md` | авто `--rules` на каждый запрос |
 | Тестировщик | `tester.py` + `--check` | встроенный verifier (check-work skill) |
 | Доступ | `security.py` | allowlist user_id |
 
@@ -53,6 +54,7 @@ GROK_BRIDGE_MAX_TURNS=40
 GROK_BRIDGE_TIMEOUT_SEC=900
 GROK_BRIDGE_AUTO_CHECK=false
 ```
+Метапромпт (`agents/METAPROMPT.md`) подгружается через `grok --rules`. После правок: `/new`.
 
 ### 3. Запуск
 
