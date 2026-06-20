@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Roadmap Dashboard</title>
+<style>
+:root {
+  --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --muted: #94a3b8;
+  --done: #22c55e; --todo: #f59e0b; --accent: #38bdf8; --border: #334155;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: linear-gradient(145deg,#0f172a,#1e293b); color: var(--text); }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
+header { margin-bottom: 20px; }
+h1 { margin: 0 0 8px; font-size: 1.8rem; }
+.meta { color: var(--muted); font-size: 0.95rem; }
+.stats { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
+.stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; min-width: 140px; }
+.stat b { font-size: 1.4rem; color: var(--accent); }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 20px; }
+.toolbar input { flex: 1; min-width: 200px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: #0b1220; color: var(--text); }
+.btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; }
+.btn.active { background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
+section.card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; overflow: hidden; }
+section.card h2 { margin: 0; padding: 14px 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+section.card h2:hover { background: #243044; }
+.badge { font-size: 0.85rem; color: var(--muted); }
+.body { padding: 0 16px 14px; display: none; }
+.body.open { display: block; }
+.bar { height: 8px; background: #334155; border-radius: 4px; overflow: hidden; margin: 8px 0 12px; }
+.bar > span { display: block; height: 100%; background: linear-gradient(90deg,var(--accent),var(--done)); }
+h3 { font-size: 1rem; color: var(--accent); margin: 12px 0 6px; }
+ul { margin: 0; padding-left: 0; list-style: none; }
+li { padding: 6px 0; border-bottom: 1px solid #2a3648; font-size: 0.95rem; }
+li:last-child { border-bottom: none; }
+li.done { color: var(--done); }
+li.todo { color: var(--todo); }
+li.info { color: var(--muted); }
+li::before { margin-right: 8px; }
+li.done::before { content: "✓"; }
+li.todo::before { content: "○"; }
+li.info::before { content: "•"; color: var(--muted); }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Roadmap Dashboard</h1>
+  <div class="meta">Источник: docs\planning\TODO.md · Обновлено: 2026-06-20 10:51</div>
+  <div class="stats">
+    <div class="stat"><div>Общий прогресс</div><b>53.3%</b></div>
+    <div class="stat"><div>Чекбоксы</div><b>73/137</b></div>
+    <div class="stat"><div>Секций</div><b>20</b></div>
+  </div>
+  <div class="toolbar">
+    <input id="search" type="search" placeholder="Поиск по задачам…"/>
+    <button class="btn active" data-filter="all">Все</button>
+    <button class="btn" data-filter="todo">Открытые</button>
+    <button class="btn" data-filter="done">Готовые</button>
+    <button class="btn" id="expand">Развернуть всё</button>
+  </div>
+</header>
+<main id="root"></main>
+</div>
+<script>
+const DATA = [{"title": "Текущий статус (2026-06-17)", "pct": 0.0, "done": 0, "total": 0, "bullets": ["**Активная ветка:** `feature/stage6-iiko-import-readiness-kickoff`.", "**Фокус:** основная линия stage6 (iiko demo stand + post-recognition UX E2E).", "**Демо-стенд:** API снова доступен (`IIKO_AUTH_OK`, см. `docs/iiko/IIKO_DEMO_STAND.md`).", "**Следующий шаг:** dry-run/cleanup склада → `dev_run_all` → ручной прогон `docs/iiko/INVOICE_FLOW_TESTING.md`."], "blocks": [], "items": []}, {"title": "Отложено: Telegram «Избранное» (research track)", "pct": 0.0, "done": 0, "total": 0, "bullets": ["Скрипт готов: `scripts/export_telegram_saved.py` → `data/private/telegram_favorites/`.", "Блокер: `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` (my.telegram.org — «попробуйте позже»).", "Обходной путь на возобновление: экспорт Telegram Desktop → `data/private/telegram_favorites/desktop_export/`.", "Целевой deliverable: 4-секционный отчёт (raw extract, link map, utility matrix, roadmap) в отдельной ветке `exp/topic-pipeline-toolkit-research`.", "Детали: `docs/governance/DEFERRED_BRANCH_NOTES.md` (раздел «Telegram favorites research»)."], "blocks": [], "items": []}, {"title": "Post-audit remediation (summary)", "pct": 44.4, "done": 4, "total": 9, "bullets": [], "blocks": [], "items": [{"text": "Governance baseline: `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, PR template", "done": true}, {"text": "`docs/governance/PROJECT_CLONE_PROMPT.md` (skeleton blueprint)", "done": true}, {"text": "Ignore `dump stage*` / `last chat` в `.gitignore`", "done": true}, {"text": "`COMPREHENSIVE_AUDIT.md` → `docs/`", "done": true}, {"text": "CI: tests + lint на push/PR", "done": false}, {"text": "Branch protection на main", "done": false}, {"text": "`requirements-dev.txt` + pre-commit", "done": false}, {"text": "Документировать `prompts/` в `docs/README.md`", "done": false}, {"text": "Удалить локальный `dump stage6`", "done": false}]}, {"title": "Этап 6 kickoff — post-recognition UX и iiko import (текущий спринт)", "pct": 28.6, "done": 8, "total": 28, "bullets": [], "blocks": [{"title": "Сделано локально (нужен коммит)", "items": [{"text": "Клавиатуры post-recognition: `app/bot/invoice_keyboards.py`", "done": true}, {"text": "Проверка готовности строк: `app/bot/invoice_posting.py`", "done": true}, {"text": "Callback-flow в `manager.py`: редактировать → синхронизировать → оприходовать → сервис → назад", "done": true}, {"text": "Экран review перед оприходованием (`inv:send` → posting review → `inv:postconfirm`)", "done": true}, {"text": "Sync nomenclature: confirm → `/iiko-sync-nomenclature`", "done": true}, {"text": "Worker отдаёт те же кнопки после распознавания (`tasks.py`)", "done": true}, {"text": "`user_store`: профили категорий + global category bank", "done": true}, {"text": "`resolver` + `unit_conversion`: owner rules, density, LLM fallback (тесты `test_invoice_flow_conversion.py`)", "done": true}]}, {"title": "Осталось в этом спринте", "items": [{"text": "Закоммитить и запушить post-recognition UX + тесты", "done": false}, {"text": "Ручной прогон по `docs/iiko/INVOICE_FLOW_TESTING.md` на demo stand", "done": false}, {"text": "Подключить `INVOICE_FLOW_MODE=modular` в production pipeline (сейчас runner standalone)", "done": false}, {"text": "НДС: парсинг из колонки «Сумма», не «Сумма с НДС»; строки «В том числе НДС» (заявка 83565)", "done": false}, {"text": "Убрать дубли сообщений при переходе к posting review (worker + bot race)", "done": false}, {"text": "Сервисное меню: реализовать rollback/clear-stock (сейчас заглушки)", "done": false}, {"text": "E2E scaffold: довести `tests/test_e2e_invoice_posting.py` или пометить `@pytest.mark.e2e` + skip без env", "done": false}, {"text": "Решение по iiko posting policy: `NEW` draft vs `PROCESSED` auto-post", "done": false}]}, {"title": "Из планов Codex (отдельные ветки / следующие слои)", "items": [{"text": "`data/invoice_flow_owner_rules.json` — заполнить правила для реальных SKU клиента", "done": false}, {"text": "Подключить `prompts/invoice_unit_resolution_fork.txt` в dev/staging", "done": false}, {"text": "Метрики: `flowConversionReason`, retry count, cost delta (см. `DEFERRED_BRANCH_NOTES`)", "done": false}, {"text": "Ветка: bounded LLM retry budget (max calls / max truncation retries)", "done": false}, {"text": "Dynamic initial `max_output_tokens` по сложности документа", "done": false}, {"text": "Метрики p95 latency до/после", "done": false}, {"text": "Подключить `category_onboarding.py` в первый запуск бота", "done": false}, {"text": "UX: optional-шаг «введите свои категории»", "done": false}, {"text": "`tenant_category_map` (сейчас только `global_category_bank` в `user_store`)", "done": false}, {"text": "UX: ручной выбор категории по позиции", "done": false}, {"text": "`product_type_classifier`: INGREDIENT / SEMI_FINISHED / DISH", "done": false}, {"text": "Discovery endpoint'ов техкарт перед `techcard_linker`", "done": false}]}], "items": []}, {"title": "Текущий фокус MVP (апрель 2026)", "pct": 0.0, "done": 0, "total": 3, "bullets": [], "blocks": [], "items": [{"text": "Не расширять production-сценарии за пределы текущего MVP до закрытия Этапов 3/4/6", "done": false}, {"text": "Довести стабильный контур: распознавание → валидация → выгрузка в учетную систему", "done": false}, {"text": "Зафиксировать базовый SLA MVP (время обработки, доля успешных распознаваний, доля ручных доработок)", "done": false}]}, {"title": "Этап 1 — Минимальные изменения, высокая стабильность", "pct": 100.0, "done": 6, "total": 6, "bullets": [], "blocks": [], "items": [{"text": "Feature flags: добавить конфиг-флаги в `.env` и загрузку в `app/config.py`", "done": true}, {"text": "Feature flags: использовать флаги в `pipeline.py` (LLM fallback, split логика)", "done": true}, {"text": "Mailbox-лог: расширить `logs/requests/users/*.jsonl` событиями статусов", "done": true}, {"text": "TTL-cleanup: очистка `data/pending` и `data/split` по времени", "done": true}, {"text": "Лимиты: базовые ограничения размера/частоты файлов на пользователя", "done": true}, {"text": "Идемпотентность: защита от повторной обработки одного и того же файла", "done": true}]}, {"title": "Этап 2 — Масштабируемость 1000+", "pct": 100.0, "done": 5, "total": 5, "bullets": [], "blocks": [], "items": [{"text": "Перевод бота на webhook", "done": true}, {"text": "Очередь задач: Redis + RQ/Celery (выбрать стек)", "done": true}, {"text": "Воркеры: вынести LLM обработку", "done": true}, {"text": "Воркеры: вынести загрузку в iiko (ограничить параллелизм)", "done": true}, {"text": "Хранилище задач: SQLite/Postgres (выбрать и подключить)", "done": true}]}, {"title": "Этап 3 — Оптимизация затрат и качество распознавания", "pct": 100.0, "done": 8, "total": 8, "bullets": [], "blocks": [], "items": [{"text": "Stage status: закрыт по MVP scope (2026-04-06)", "done": true}, {"text": "Типовые формы: распознавание ТОРГ-12, УПД, 1-Т", "done": true}, {"text": "LLM-guardrails: детектор «мусорных» ответов (повторы, нулевые строки, стоп-слова)", "done": true}, {"text": "UX ошибок распознавания: единый формат сообщений (`user_messages.py`) + подсказки «что сделать иначе» (PDF/цельное фото, /split)", "done": true}, {"text": "Диагностика качества распознавания: image-level debug (`scripts/diagnose_image.py` + `tmp/llm_debug/*`)", "done": true}, {"text": "`_append_cost_log`: логирование стоимости LLM для всех исходов (не только успешных)", "done": true}, {"text": "`_append_cost_log`: переписан на append-only (без перечтения всего CSV)", "done": true}, {"text": "`.env` / BOM: `env_file_encoding=\"utf-8-sig\"` + скрипт `scripts/strip_bom.py`", "done": true}]}, {"title": "Этап 4 — Надежность и наблюдаемость", "pct": 100.0, "done": 8, "total": 8, "bullets": [], "blocks": [], "items": [{"text": "Централизованные логи + алерты", "done": true}, {"text": "Ротация и архивирование логов", "done": true}, {"text": "Мониторинг ошибок и времени обработки", "done": true}, {"text": "Коды событий бота (`BOT_BACKEND_UNAVAILABLE`, `BOT_PENDING_TIMEOUT`, …) — собрать и описать в одном месте", "done": true}, {"text": "DEBUG.md: проверенный runbook по запуску/остановке/логам для backend/worker/bot", "done": true}, {"text": "Dev-оркестрация: `scripts/dev_run_all.py` (lock + pre-kill всего стека, `--force` / `--reuse-backend`)", "done": true}, {"text": "Dev-оркестрация: довести `DEV_SETUP.md` до статуса «повторяемый сценарий для нового разработчика»", "done": true}, {"text": "Удалить мёртвую папку `app/logs/` (все логи пишутся в корневую `logs/`)", "done": true}]}, {"title": "Этап 5 — UX бота (незавершённые пункты из feature/ui-messages)", "pct": 100.0, "done": 7, "total": 7, "bullets": [], "blocks": [], "items": [{"text": "Stage status: закрыт по текущему UX/MVP scope (2026-04-07)", "done": true}, {"text": "`/split` + `/done` + `/cancel` кнопки; идемпотентность `/done`", "done": true}, {"text": "Выбор режима PDF (`fast`/`accurate`) в inline-потоке после отправки PDF (без отдельной команды `/mode`)", "done": true}, {"text": "Pending: убран скрытый 5с таймер, заменён на явный UI с кнопками «▶️ Обработать / 📎 Добавить ещё»", "done": true}, {"text": "Агрегация альбома в split-режиме: одно сообщение «Добавлено N фото» вместо N отдельных", "done": true}, {"text": "Доработать дедупликацию файлов (сейчас жёсткая проверка убрана, нужна мягкая)", "done": true}, {"text": "Fixtures для smoke-тестов (папка `fixtures/` с контрольными файлами)", "done": true}]}, {"title": "Этап 6 — Выявлено из dialogue_dump (Copilot-сессия)", "pct": 78.6, "done": 11, "total": 14, "bullets": [], "blocks": [], "items": [{"text": "Переход Tesseract → OpenAI LLM (function calling parse_invoice)", "done": true}, {"text": "PDF через Files API (file_id) — решило 400 Bad Request", "done": true}, {"text": "PDF image fallback (рендер страниц + разрез пополам) — решило пропуск строк", "done": true}, {"text": "Авторизация iiko через бота (/start → login → password → users.json)", "done": true}, {"text": "Cost logging: llm_costs.csv + llm_usage в JSON запросов", "done": true}, {"text": "Docker: Dockerfile + docker-compose.yml (backend, worker, bot, redis)", "done": true}, {"text": "HTTPS + webhook на VPS (домен + Let's Encrypt + Nginx)", "done": false}, {"text": "iiko: маппинг позиций → импорт через CSV/XLSX (альтернатива прямой API-выгрузке)", "done": true}, {"text": "Быстрый парсер ТОРГ-12 / УПД без LLM (экономия на типовых формах)", "done": false}, {"text": "Команда /status (показ состояния очереди задач пользователю)", "done": true}, {"text": "/status: user-only view + auto-reap зависших queued/processing", "done": true}, {"text": "/status: одна обновляемая карточка (без спама) + закрепление (pin) по настройке", "done": true}, {"text": "/status: retry из карточки для последней ошибочной заявки", "done": true}, {"text": "Auto-restart воркера и backend (systemd / docker restart policy)", "done": false}]}, {"title": "Этап 7 — Альтернативный LLM-провайдер (Cloudflare + Gemini)", "pct": 0.0, "done": 0, "total": 5, "bullets": [], "blocks": [], "items": [{"text": "Cloudflare Worker как прокси к Gemini API", "done": false}, {"text": "Python-клиент: переключение провайдера через `.env` (`LLM_PROVIDER=openai|gemini`)", "done": false}, {"text": "Кнопка/команда в боте для переключения провайдера на лету", "done": false}, {"text": "Маппинг function calling OpenAI ↔ Gemini (единый интерфейс)", "done": false}, {"text": "Сравнительный A/B: логирование качества/стоимости по провайдерам", "done": false}]}, {"title": "Этап 8 — Каналы продаж и омниканальный intake (B2B)", "pct": 0.0, "done": 0, "total": 5, "bullets": [], "blocks": [], "items": [{"text": "MAX: проверить продакшен-готовность API/ботов и ограничения для бизнес-сценария", "done": false}, {"text": "MAX: MVP-канал «получить документ → распознать → вернуть результат + статус»", "done": false}, {"text": "Telegram+MAX: единый backend для multi-channel без дублирования бизнес-логики", "done": false}, {"text": "Очереди/лимиты по каналам: отдельные rate limits и SLA-приоритеты", "done": false}, {"text": "Единая воронка конверсии: trial → платный тариф по каналам", "done": false}]}, {"title": "Этап 9 — Интеграции учета и операционных систем как core-value", "pct": 0.0, "done": 0, "total": 8, "bullets": [], "blocks": [], "items": [{"text": "МойСклад: двусторонняя интеграция (создание приходных документов + справочники номенклатуры)", "done": false}, {"text": "1С: вариант интеграции (HTTP-сервис/обмен файлами) + спецификация маппинга полей", "done": false}, {"text": "iiko: production-ready коннектор (приход, справочники, статусы)", "done": false}, {"text": "r_keeper + StoreHouse: коннектор для учета и закупочных сценариев HoReCa", "done": false}, {"text": "Единый слой `connectors/`: iiko + r_keeper/StoreHouse + МойСклад + 1С с общим контрактом ошибок/ретраев", "done": false}, {"text": "Идемпотентный экспорт: защита от дублей при повторной отправке документов", "done": false}, {"text": "Нормализация справочников: единицы измерения, НДС, контрагенты, коды товаров", "done": false}, {"text": "Приоритет следующего шага: MAX + МойСклад + 1С (как базовый контур для РФ-сегмента)", "done": false}]}, {"title": "Этап 10 — Коммерциализация и удержание", "pct": 0.0, "done": 0, "total": 5, "bullets": [], "blocks": [], "items": [{"text": "Продуктовые пакеты: Starter / Pro / Enterprise (лимиты документов, SLA, интеграции)", "done": false}, {"text": "ROI-дашборд для клиента: сэкономленные часы, точность, стоимость обработки 1 документа", "done": false}, {"text": "Onboarding ≤ 1 день: шаблоны отраслей (HoReCa, retail, дистрибуция)", "done": false}, {"text": "Partner motion: интеграторы 1С/МойСклад и франчайзи iiko как канал продаж", "done": false}, {"text": "Контур безопасности: аудит-доступы, журнал действий, политика хранения документов", "done": false}]}, {"title": "Этап 11 — Процессное масштабирование (cross-vertical modeling)", "pct": 0.0, "done": 0, "total": 7, "bullets": [], "blocks": [], "items": [{"text": "Построить библиотеку типовых бизнес-процессов (BPM-шаблоны) для массовых SMB-сценариев", "done": false}, {"text": "Классификатор сценариев: отрасль × роль × событие × требуемая интеграция", "done": false}, {"text": "Унифицировать процессные цепочки: «потребность → заявка → заказ → приход → списание/учет»", "done": false}, {"text": "Voice-to-Order как один из каналов входа, а не отдельный продуктовый трек", "done": false}, {"text": "Нишевые шаблоны для пилота: beauty, retail, service teams (не только HoReCa)", "done": false}, {"text": "Ограничения и контроль в шаблонах: бюджеты, согласование, SLA, аудит действий", "done": false}, {"text": "Отдельная ветка для эксперимента: `feature/process-modeling`", "done": false}]}, {"title": "Этап 12 — Post-stage3 optimization backlog", "pct": 100.0, "done": 2, "total": 2, "bullets": [], "blocks": [], "items": [{"text": "Гибрид: быстрый парсер → fallback в LLM", "done": true}, {"text": "Метрики стоимости: агрегаты по дню/пользователю", "done": true}]}, {"title": "Аудит веток и экспериментов (2026-04-05)", "pct": 100.0, "done": 7, "total": 7, "bullets": [], "blocks": [], "items": [{"text": "Проверено: ветка под текущий трек распознавания существует (`feature/recognition-improvements`)", "done": true}, {"text": "Проверено: ветка под Excel/шаблоны существует (`feature/excel-support`)", "done": true}, {"text": "Проверено: ветка под готовность импорта iiko существует (`feature/stage6-iiko-import-readiness`)", "done": true}, {"text": "Проверено: ветки инфраструктурных экспериментов существуют (`feature/infra-termux-vibe-mcp`, `experiment/wvibe-light-shell`, `experiment/vibe-mcp-link`)", "done": true}, {"text": "Создать ветку под канал MAX (`feature/channel-max`)", "done": true}, {"text": "Создать ветку под интеграцию МойСклад (`feature/integration-moysklad`)", "done": true}, {"text": "Создать ветку под интеграцию 1С (`feature/integration-1c`)", "done": true}]}, {"title": "Update 2026-04-18", "pct": 60.0, "done": 3, "total": 5, "bullets": [], "blocks": [], "items": [{"text": "iiko: direct `incomingInvoice` API stabilized on demo stand (auto product resolve + required document metadata)", "done": true}, {"text": "iiko: verified the real posting path (`status=PROCESSED`) on demo stand with a `GOODS` item and `/reports/balance/stores` stock delta", "done": true}, {"text": "iiko: client now returns document number/status and distinguishes draft creation from warehouse receipt", "done": true}, {"text": "iiko: product UX decision for production posting flow (`NEW` draft for review vs `PROCESSED` auto-post after confidence/mapping checks)", "done": false}, {"text": "iiko: supplier mapping policy (from document/vendor catalog/default supplier) before enabling auto-posting for real clients", "done": false}]}, {"title": "Update 2026-04-21", "pct": 80.0, "done": 4, "total": 5, "bullets": [], "blocks": [], "items": [{"text": "iiko: one-time E2E stock cleanup on demo stand completed (all non-zero balances reduced to 0)", "done": true}, {"text": "iiko: added reusable stock reset utility `scripts/iiko_reset_stock.py` (dry-run + apply)", "done": true}, {"text": "iiko: first-fill path improved with optional auto-create missing products (`IIKO_AUTOCREATE_PRODUCTS`)", "done": true}, {"text": "iiko: verified incoming invoice posting from saved recognized request on clean stand (`status=PROCESSED`)", "done": true}, {"text": "iiko: decide default policy for auto-create in production (off by default vs selective allow-list)", "done": false}]}];
+const root = document.getElementById('root');
+let filter = 'all';
+
+function itemClass(done) {
+  if (done === true) return 'done';
+  if (done === false) return 'todo';
+  return 'info';
+}
+
+function matchFilter(done) {
+  if (filter === 'all') return true;
+  if (filter === 'done') return done === true;
+  if (filter === 'todo') return done === false;
+  return true;
+}
+
+function renderItems(items, q) {
+  return items.filter(i => !q || i.text.toLowerCase().includes(q))
+    .filter(i => matchFilter(i.done))
+    .map(i => `<li class="${itemClass(i.done)}">${i.text}</li>`).join('');
+}
+
+function render() {
+  const q = (document.getElementById('search').value || '').toLowerCase().trim();
+  root.innerHTML = DATA.map((s, idx) => {
+    const itemsHtml = renderItems(s.items, q);
+    const blocksHtml = (s.blocks || []).map(b => {
+      const inner = renderItems(b.items, q);
+      if (!inner) return '';
+      return `<h3>${b.title}</h3><ul>${inner}</ul>`;
+    }).join('');
+    const bulletsHtml = (s.bullets || []).filter(t => !q || t.toLowerCase().includes(q))
+      .map(t => `<li class="info">${t}</li>`).join('');
+    if (!itemsHtml && !blocksHtml && !bulletsHtml) return '';
+    const open = localStorage.getItem('todo-open-' + idx) === '1' ? 'open' : '';
+    return `<section class="card" data-idx="${idx}">
+      <h2><span>${s.title}</span><span class="badge">${s.done}/${s.total} · ${s.pct}%</span></h2>
+      <div class="body ${open}">
+        <div class="bar"><span style="width:${s.pct}%"></span></div>
+        ${bulletsHtml ? '<ul>' + bulletsHtml + '</ul>' : ''}
+        ${itemsHtml ? '<ul>' + itemsHtml + '</ul>' : ''}
+        ${blocksHtml}
+      </div>
+    </section>`;
+  }).join('');
+}
+
+document.querySelectorAll('[data-filter]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    filter = btn.dataset.filter;
+    render();
+  });
+});
+document.getElementById('search').addEventListener('input', render);
+document.getElementById('expand').addEventListener('click', () => {
+  document.querySelectorAll('.body').forEach(el => el.classList.add('open'));
+  DATA.forEach((_, i) => localStorage.setItem('todo-open-' + i, '1'));
+});
+root.addEventListener('click', e => {
+  const h2 = e.target.closest('h2');
+  if (!h2) return;
+  const body = h2.nextElementSibling;
+  const card = h2.closest('section');
+  const idx = card.dataset.idx;
+  body.classList.toggle('open');
+  localStorage.setItem('todo-open-' + idx, body.classList.contains('open') ? '1' : '0');
+});
+render();
+</script>
+</body>
+</html>

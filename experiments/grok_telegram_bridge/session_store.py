@@ -52,10 +52,18 @@ class SessionStore:
             data.pop(str(user_id), None)
             self._save(data)
 
-    def touch_prompt(self, user_id: int, grok_session_id: str | None) -> UserSession:
+    def touch_prompt(
+        self,
+        user_id: int,
+        grok_session_id: str | None,
+        *,
+        meta: dict | None = None,
+    ) -> UserSession:
         sess = self.get(user_id)
         sess.grok_session_id = grok_session_id
         sess.message_count += 1
         sess.last_prompt_at = datetime.now(timezone.utc).isoformat()
+        if meta is not None:
+            sess.meta = meta
         self.update(sess)
         return sess

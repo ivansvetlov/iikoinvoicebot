@@ -15,7 +15,7 @@
 | docs/architecture/ | ARCHITECTURE, OPTIMIZATION |
 | docs/iiko/ | demo stand, API gaps, E2E runbooks |
 | docs/planning/ | TODO, feature plans |
-| docs/assets/ | dashboard SVG и прочие артефакты |
+| docs/assets/ | `todo-dashboard.html` (интерактивный roadmap), артефакты |
 | experiments/ | experimental tracks (не stage6 runtime) |
 
 ## Правила для агентов

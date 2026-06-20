@@ -7,6 +7,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+BRIDGE_DATA = PROJECT_ROOT / "data" / "private" / "grok_bridge"
 DEFAULT_RULES = PROJECT_ROOT / "experiments" / "grok_telegram_bridge" / "agents" / "METAPROMPT.md"
 
 
@@ -36,16 +37,18 @@ class BridgeSettings(BaseSettings):
     grok_bridge_auto_check: bool = Field(
         default=False,
         alias="GROK_BRIDGE_AUTO_CHECK",
-        description="Append --check (tester subagent) to every prompt",
     )
     grok_bridge_sessions_path: str = Field(
-        default=str(PROJECT_ROOT / "data" / "private" / "grok_bridge" / "sessions.json"),
+        default=str(BRIDGE_DATA / "sessions.json"),
         alias="GROK_BRIDGE_SESSIONS_PATH",
     )
     grok_bridge_rules_path: str = Field(
         default=str(DEFAULT_RULES),
         alias="GROK_BRIDGE_RULES_PATH",
-        description="Metaprompt file passed to grok via --rules",
+    )
+    grok_bridge_data_dir: str = Field(
+        default=str(BRIDGE_DATA),
+        alias="GROK_BRIDGE_DATA_DIR",
     )
 
     def allowed_ids(self) -> set[int]:
@@ -53,6 +56,9 @@ class BridgeSettings(BaseSettings):
         if not raw:
             return set()
         return {int(part.strip()) for part in raw.split(",") if part.strip()}
+
+    def data_dir(self) -> Path:
+        return Path(self.grok_bridge_data_dir)
 
 
 settings = BridgeSettings()

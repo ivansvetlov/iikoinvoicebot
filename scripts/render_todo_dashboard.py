@@ -1,23 +1,279 @@
-r"""Render TODO roadmap dashboard as SVG from docs/TODO.md checkboxes.
+r"""Render TODO roadmap dashboard from docs/planning/TODO.md.
+
+Outputs interactive HTML (primary) and optional legacy SVG.
 
 Usage:
   .\.venv\Scripts\python.exe scripts\render_todo_dashboard.py
+  .\.venv\Scripts\python.exe scripts\render_todo_dashboard.py --format both
 """
 
 from __future__ import annotations
 
 import argparse
 import html
+import json
 import math
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+CHECKBOX_RE = re.compile(r"^- \[(?P<state>[ xX])\]\s+(?P<text>.+)$")
+BULLET_RE = re.compile(r"^- (?!\[)(?P<text>.+)$")
+SECTION_RE = re.compile(r"^## (.+)$")
+SUBSECTION_RE = re.compile(r"^### (.+)$")
 
-CHECKBOX_RE = re.compile(r"^- \[(?P<state>[ xX])\]\s+")
 
+@dataclass
+class TodoItem:
+    text: str
+    done: bool | None  # None = plain bullet
+
+
+@dataclass
+class TodoBlock:
+    title: str
+    items: list[TodoItem] = field(default_factory=list)
+
+
+@dataclass
+class TodoSection:
+    title: str
+    bullets: list[str] = field(default_factory=list)
+    blocks: list[TodoBlock] = field(default_factory=list)
+    items: list[TodoItem] = field(default_factory=list)
+
+    @property
+    def checkbox_total(self) -> int:
+        n = sum(1 for i in self.items if i.done is not None)
+        for b in self.blocks:
+            n += sum(1 for i in b.items if i.done is not None)
+        return n
+
+    @property
+    def checkbox_done(self) -> int:
+        n = sum(1 for i in self.items if i.done is True)
+        for b in self.blocks:
+            n += sum(1 for i in b.items if i.done is True)
+        return n
+
+    @property
+    def pct(self) -> float:
+        t = self.checkbox_total
+        return (self.checkbox_done / t * 100) if t else 0.0
+
+
+def parse_todo(path: Path) -> list[TodoSection]:
+    sections: list[TodoSection] = []
+    current: TodoSection | None = None
+    current_block: TodoBlock | None = None
+
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.rstrip()
+        if m := SECTION_RE.match(line):
+            current = TodoSection(title=m.group(1).strip())
+            sections.append(current)
+            current_block = None
+            continue
+        if current is None:
+            continue
+        if m := SUBSECTION_RE.match(line):
+            current_block = TodoBlock(title=m.group(1).strip())
+            current.blocks.append(current_block)
+            continue
+        if m := CHECKBOX_RE.match(line):
+            item = TodoItem(text=m.group("text").strip(), done=m.group("state").lower() == "x")
+            if current_block is not None:
+                current_block.items.append(item)
+            else:
+                current.items.append(item)
+            continue
+        if m := BULLET_RE.match(line):
+            text = m.group("text").strip()
+            if current_block is not None:
+                current_block.items.append(TodoItem(text=text, done=None))
+            else:
+                current.bullets.append(text)
+            continue
+
+    return sections
+
+
+def render_html(sections: list[TodoSection], source: str) -> str:
+    total_done = sum(s.checkbox_done for s in sections)
+    total_all = sum(s.checkbox_total for s in sections)
+    total_pct = (total_done / total_all * 100) if total_all else 0.0
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    payload = []
+    for s in sections:
+        payload.append(
+            {
+                "title": s.title,
+                "pct": round(s.pct, 1),
+                "done": s.checkbox_done,
+                "total": s.checkbox_total,
+                "bullets": s.bullets,
+                "blocks": [
+                    {
+                        "title": b.title,
+                        "items": [
+                            {"text": i.text, "done": i.done}
+                            for i in b.items
+                        ],
+                    }
+                    for b in s.blocks
+                ],
+                "items": [{"text": i.text, "done": i.done} for i in s.items],
+            }
+        )
+    data_json = json.dumps(payload, ensure_ascii=False)
+    esc = html.escape
+
+    return f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Roadmap Dashboard</title>
+<style>
+:root {{
+  --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --muted: #94a3b8;
+  --done: #22c55e; --todo: #f59e0b; --accent: #38bdf8; --border: #334155;
+}}
+* {{ box-sizing: border-box; }}
+body {{ margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: linear-gradient(145deg,#0f172a,#1e293b); color: var(--text); }}
+.wrap {{ max-width: 1100px; margin: 0 auto; padding: 24px; }}
+header {{ margin-bottom: 20px; }}
+h1 {{ margin: 0 0 8px; font-size: 1.8rem; }}
+.meta {{ color: var(--muted); font-size: 0.95rem; }}
+.stats {{ display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }}
+.stat {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; min-width: 140px; }}
+.stat b {{ font-size: 1.4rem; color: var(--accent); }}
+.toolbar {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 20px; }}
+.toolbar input {{ flex: 1; min-width: 200px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: #0b1220; color: var(--text); }}
+.btn {{ padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; }}
+.btn.active {{ background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }}
+section.card {{ background: var(--card); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; overflow: hidden; }}
+section.card h2 {{ margin: 0; padding: 14px 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px; }}
+section.card h2:hover {{ background: #243044; }}
+.badge {{ font-size: 0.85rem; color: var(--muted); }}
+.body {{ padding: 0 16px 14px; display: none; }}
+.body.open {{ display: block; }}
+.bar {{ height: 8px; background: #334155; border-radius: 4px; overflow: hidden; margin: 8px 0 12px; }}
+.bar > span {{ display: block; height: 100%; background: linear-gradient(90deg,var(--accent),var(--done)); }}
+h3 {{ font-size: 1rem; color: var(--accent); margin: 12px 0 6px; }}
+ul {{ margin: 0; padding-left: 0; list-style: none; }}
+li {{ padding: 6px 0; border-bottom: 1px solid #2a3648; font-size: 0.95rem; }}
+li:last-child {{ border-bottom: none; }}
+li.done {{ color: var(--done); }}
+li.todo {{ color: var(--todo); }}
+li.info {{ color: var(--muted); }}
+li::before {{ margin-right: 8px; }}
+li.done::before {{ content: "✓"; }}
+li.todo::before {{ content: "○"; }}
+li.info::before {{ content: "•"; color: var(--muted); }}
+.hidden {{ display: none !important; }}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Roadmap Dashboard</h1>
+  <div class="meta">Источник: {esc(source)} · Обновлено: {esc(now)}</div>
+  <div class="stats">
+    <div class="stat"><div>Общий прогресс</div><b>{total_pct:.1f}%</b></div>
+    <div class="stat"><div>Чекбоксы</div><b>{total_done}/{total_all}</b></div>
+    <div class="stat"><div>Секций</div><b>{len(sections)}</b></div>
+  </div>
+  <div class="toolbar">
+    <input id="search" type="search" placeholder="Поиск по задачам…"/>
+    <button class="btn active" data-filter="all">Все</button>
+    <button class="btn" data-filter="todo">Открытые</button>
+    <button class="btn" data-filter="done">Готовые</button>
+    <button class="btn" id="expand">Развернуть всё</button>
+  </div>
+</header>
+<main id="root"></main>
+</div>
+<script>
+const DATA = {data_json};
+const root = document.getElementById('root');
+let filter = 'all';
+
+function itemClass(done) {{
+  if (done === true) return 'done';
+  if (done === false) return 'todo';
+  return 'info';
+}}
+
+function matchFilter(done) {{
+  if (filter === 'all') return true;
+  if (filter === 'done') return done === true;
+  if (filter === 'todo') return done === false;
+  return true;
+}}
+
+function renderItems(items, q) {{
+  return items.filter(i => !q || i.text.toLowerCase().includes(q))
+    .filter(i => matchFilter(i.done))
+    .map(i => `<li class="${{itemClass(i.done)}}">${{i.text}}</li>`).join('');
+}}
+
+function render() {{
+  const q = (document.getElementById('search').value || '').toLowerCase().trim();
+  root.innerHTML = DATA.map((s, idx) => {{
+    const itemsHtml = renderItems(s.items, q);
+    const blocksHtml = (s.blocks || []).map(b => {{
+      const inner = renderItems(b.items, q);
+      if (!inner) return '';
+      return `<h3>${{b.title}}</h3><ul>${{inner}}</ul>`;
+    }}).join('');
+    const bulletsHtml = (s.bullets || []).filter(t => !q || t.toLowerCase().includes(q))
+      .map(t => `<li class="info">${{t}}</li>`).join('');
+    if (!itemsHtml && !blocksHtml && !bulletsHtml) return '';
+    const open = localStorage.getItem('todo-open-' + idx) === '1' ? 'open' : '';
+    return `<section class="card" data-idx="${{idx}}">
+      <h2><span>${{s.title}}</span><span class="badge">${{s.done}}/${{s.total}} · ${{s.pct}}%</span></h2>
+      <div class="body ${{open}}">
+        <div class="bar"><span style="width:${{s.pct}}%"></span></div>
+        ${{bulletsHtml ? '<ul>' + bulletsHtml + '</ul>' : ''}}
+        ${{itemsHtml ? '<ul>' + itemsHtml + '</ul>' : ''}}
+        ${{blocksHtml}}
+      </div>
+    </section>`;
+  }}).join('');
+}}
+
+document.querySelectorAll('[data-filter]').forEach(btn => {{
+  btn.addEventListener('click', () => {{
+    document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    filter = btn.dataset.filter;
+    render();
+  }});
+}});
+document.getElementById('search').addEventListener('input', render);
+document.getElementById('expand').addEventListener('click', () => {{
+  document.querySelectorAll('.body').forEach(el => el.classList.add('open'));
+  DATA.forEach((_, i) => localStorage.setItem('todo-open-' + i, '1'));
+}});
+root.addEventListener('click', e => {{
+  const h2 = e.target.closest('h2');
+  if (!h2) return;
+  const body = h2.nextElementSibling;
+  const card = h2.closest('section');
+  const idx = card.dataset.idx;
+  body.classList.toggle('open');
+  localStorage.setItem('todo-open-' + idx, body.classList.contains('open') ? '1' : '0');
+}});
+render();
+</script>
+</body>
+</html>"""
+
+
+# --- legacy SVG (abbreviated wrapper) ---
 
 @dataclass
 class SectionProgress:
@@ -40,251 +296,55 @@ class SectionProgress:
         return "ACTIVE"
 
 
-def _truncate(text: str, max_len: int) -> str:
-    if len(text) <= max_len:
-        return text
-    return text[: max_len - 1].rstrip() + "…"
-
-
-def _short_stage_title(title: str) -> str:
-    if title.startswith("Текущий фокус MVP"):
-        return "MVP Фокус"
-    if title.startswith("Этап 12"):
-        return "Этап 12 — Post-stage3 backlog"
-    if title.startswith("Этап 11"):
-        return "Этап 11 — Процессное масштабирование"
-    if title.startswith("Этап 10"):
-        return "Этап 10 — Коммерциализация"
-    if title.startswith("Этап 1"):
-        return "Этап 1 — Стабильность"
-    if title.startswith("Этап 2"):
-        return "Этап 2 — Масштабирование"
-    if title.startswith("Этап 3"):
-        return "Этап 3 — Качество распознавания"
-    if title.startswith("Этап 4"):
-        return "Этап 4 — Надежность"
-    if title.startswith("Этап 5"):
-        return "Этап 5 — UX бота"
-    if title.startswith("Этап 6"):
-        return "Этап 6 — Хвосты MVP"
-    if title.startswith("Этап 7"):
-        return "Этап 7 — Альтернативный LLM"
-    if title.startswith("Этап 8"):
-        return "Этап 8 — Каналы продаж"
-    if title.startswith("Этап 9"):
-        return "Этап 9 — Интеграции"
-    if title.startswith("Аудит веток"):
-        return "Аудит веток"
-    return title
-
-
-def parse_todo(path: Path) -> list[SectionProgress]:
-    sections: list[SectionProgress] = []
-    current_title: str | None = None
-    current_total = 0
-    current_done = 0
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if line.startswith("## "):
-            if current_title is not None:
-                sections.append(SectionProgress(current_title, current_total, current_done))
-            current_title = line[3:].strip()
-            current_total = 0
-            current_done = 0
-            continue
-
-        if current_title is None:
-            continue
-
-        match = CHECKBOX_RE.match(line)
-        if not match:
-            continue
-        current_total += 1
-        if match.group("state").lower() == "x":
-            current_done += 1
-
-    if current_title is not None:
-        sections.append(SectionProgress(current_title, current_total, current_done))
-    return sections
-
-
-def _color_for_status(status: str) -> str:
-    if status == "DONE":
-        return "#1f9d55"
-    if status == "ACTIVE":
-        return "#d97706"
-    if status == "PLANNED":
-        return "#64748b"
-    return "#475569"
+def sections_to_progress(sections: list[TodoSection]) -> list[SectionProgress]:
+    return [SectionProgress(s.title, s.checkbox_total, s.checkbox_done) for s in sections]
 
 
 def render_svg(sections: list[SectionProgress]) -> str:
-    stages = [
-        s
-        for s in sections
-        if s.total > 0
-        and (
-            s.title.startswith("Этап ")
-            or s.title.startswith("Текущий фокус")
-            or s.title.startswith("Аудит веток")
-        )
-    ]
+    stages = [s for s in sections if s.total > 0 and s.title.startswith(("Этап ", "Текущий", "Аудит"))]
     total_done = sum(s.done for s in sections)
     total_all = sum(s.total for s in sections)
     total_pct = (total_done / total_all * 100) if total_all else 0.0
-    status_counts = Counter(s.status for s in stages)
+    width, row_h = 1200, 120
+    height = 400 + row_h * max(len(stages), 1)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    width = 1200
-    row_h = 170
-    overview_y = 100
-    overview_h = 560
-    focus_y = 690
-    focus_h = 480
-    bars_card_y = 1210
-    bars_card_h = 190 + row_h * max(len(stages), 1)
-    content_height = bars_card_y + bars_card_h + 40
-    min_height = int(width * 19 / 6)  # vertical canvas in 19:6 proportion (H:W)
-    height = max(content_height, min_height)
+    def t(v: str) -> str:
+        return html.escape(v, quote=True)
 
-    ring_cx = 240
-    ring_cy = 380
-    ring_r = 150
-    ring_c = 2 * math.pi * ring_r
-    ring_dash = ring_c * total_pct / 100
-
-    now_label = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    def t(value: str) -> str:
-        return html.escape(value, quote=True)
-
-    parts: list[str] = []
-    parts.append(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-label="TODO roadmap dashboard">'
-    )
-    parts.append(
-        '<defs>'
-        '<linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">'
-        '<stop offset="0%" stop-color="#f8fafc"/>'
-        '<stop offset="100%" stop-color="#e2e8f0"/>'
-        '</linearGradient>'
-        "</defs>"
-    )
-    parts.append(f'<rect x="0" y="0" width="{width}" height="{height}" fill="url(#bg)"/>')
-    parts.append(
-        '<text x="40" y="64" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="700" fill="#0f172a">'
-        "Roadmap Dashboard"
-        "</text>"
-    )
-    parts.append(
-        '<text x="40" y="96" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#334155">'
-        f'Источник: docs/TODO.md · Обновлено: {t(now_label)}'
-        "</text>"
-    )
-
-    # Overview card.
-    parts.append(
-        f'<rect x="40" y="{overview_y}" width="1120" height="{overview_h}" rx="20" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>'
-    )
-    parts.append(
-        f'<circle cx="{ring_cx}" cy="{ring_cy}" r="{ring_r}" fill="none" stroke="#e2e8f0" stroke-width="18"/>'
-    )
-    parts.append(
-        f'<circle cx="{ring_cx}" cy="{ring_cy}" r="{ring_r}" fill="none" stroke="#0ea5e9" stroke-width="18" '
-        f'stroke-linecap="round" stroke-dasharray="{ring_dash:.2f} {ring_c:.2f}" transform="rotate(-90 {ring_cx} {ring_cy})"/>'
-    )
-    parts.append(
-        f'<text x="{ring_cx}" y="{ring_cy - 2}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" '
-        f'font-size="58" font-weight="700" fill="#0f172a">{total_pct:.1f}%</text>'
-    )
-    parts.append(
-        f'<text x="{ring_cx}" y="{ring_cy + 24}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" '
-        f'font-size="24" fill="#475569">{total_done}/{total_all} задач</text>'
-    )
-    parts.append(
-        '<text x="510" y="230" font-family="Segoe UI, Arial, sans-serif" font-size="34" fill="#334155">Статусы этапов</text>'
-    )
-    parts.append(
-        f'<text x="510" y="286" font-family="Segoe UI, Arial, sans-serif" font-size="32" fill="{_color_for_status("DONE")}">DONE: {status_counts.get("DONE", 0)}</text>'
-    )
-    parts.append(
-        f'<text x="510" y="338" font-family="Segoe UI, Arial, sans-serif" font-size="32" fill="{_color_for_status("ACTIVE")}">ACTIVE: {status_counts.get("ACTIVE", 0)}</text>'
-    )
-    parts.append(
-        f'<text x="510" y="390" font-family="Segoe UI, Arial, sans-serif" font-size="32" fill="{_color_for_status("PLANNED")}">PLANNED: {status_counts.get("PLANNED", 0)}</text>'
-    )
-    parts.append(
-        f'<text x="510" y="470" font-family="Segoe UI, Arial, sans-serif" font-size="32" fill="#334155">Всего: {total_done}/{total_all}</text>'
-    )
-
-    # Highlights card.
-    parts.append(
-        f'<rect x="40" y="{focus_y}" width="1120" height="{focus_h}" rx="20" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>'
-    )
-    parts.append(
-        f'<text x="80" y="{focus_y + 66}" font-family="Segoe UI, Arial, sans-serif" font-size="40" font-weight="600" fill="#0f172a">'
-        "Фокус на спринт"
-        "</text>"
-    )
-    highlights = [
-        "Закрыть Этап 5: split-альбомы, мягкая дедупликация, fixtures",
-        "Закрыть Этап 6: HTTPS/webhook и /status очереди",
-        "Зафиксировать SLA MVP и еженедельный контроль",
-        "Подготовить Этап 9: MAX + МойСклад + 1С",
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">',
+        f'<text x="40" y="50" font-size="32" font-weight="700">{total_pct:.1f}% · {total_done}/{total_all}</text>',
+        f'<text x="40" y="85" font-size="18">{t(now)}</text>',
     ]
-    for idx, item in enumerate(highlights):
-        y = focus_y + 136 + idx * 80
+    for i, st in enumerate(stages):
+        y = 120 + i * row_h
+        parts.append(f'<text x="40" y="{y}" font-size="20">{t(st.title[:50])}</text>')
         parts.append(
-            f'<text x="80" y="{y}" font-family="Segoe UI, Arial, sans-serif" font-size="30" fill="#334155">• {t(_truncate(item, 56))}</text>'
+            f'<rect x="500" y="{y-18}" width="{int(400*st.pct/100)}" height="24" fill="#0ea5e9"/>'
         )
-
-    # Stage bars card.
-    parts.append(
-        f'<rect x="40" y="{bars_card_y}" width="1120" height="{bars_card_h}" rx="20" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>'
-    )
-    parts.append(
-        f'<text x="80" y="{bars_card_y + 66}" font-family="Segoe UI, Arial, sans-serif" font-size="40" font-weight="600" fill="#0f172a">'
-        "Прогресс по этапам"
-        "</text>"
-    )
-
-    label_x = 80
-    bar_x = 440
-    bar_w = 400
-    for i, stage in enumerate(stages):
-        y = bars_card_y + 106 + i * row_h
-        stage_label = _truncate(_short_stage_title(stage.title), 36)
-        fill = _color_for_status(stage.status)
-        parts.append(
-            f'<text x="{label_x}" y="{y + 30}" font-family="Segoe UI, Arial, sans-serif" font-size="30" fill="#1e293b">{t(stage_label)}</text>'
-        )
-        parts.append(
-            f'<rect x="{bar_x}" y="{y + 8}" width="{bar_w}" height="42" rx="21" fill="#e2e8f0"/>'
-        )
-        parts.append(
-            f'<rect x="{bar_x}" y="{y + 8}" width="{bar_w * stage.pct / 100:.1f}" height="42" rx="21" fill="{fill}"/>'
-        )
-        parts.append(
-            f'<text x="{bar_x + bar_w + 30}" y="{y + 38}" font-family="Segoe UI, Arial, sans-serif" font-size="28" fill="#334155">'
-            f"{stage.done}/{stage.total} · {stage.pct:.1f}%"
-            "</text>"
-        )
-
     parts.append("</svg>")
     return "".join(parts)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Render roadmap dashboard SVG from docs/TODO.md")
-    parser.add_argument("--input", type=Path, default=Path("docs/TODO.md"))
-    parser.add_argument("--output", type=Path, default=Path("docs/.todo-dashboard.svg"))
+    parser = argparse.ArgumentParser(description="Render TODO dashboard")
+    parser.add_argument("--input", type=Path, default=Path("docs/planning/TODO.md"))
+    parser.add_argument("--html", type=Path, default=Path("docs/assets/todo-dashboard.html"))
+    parser.add_argument("--svg", type=Path, default=Path("docs/assets/.todo-dashboard.svg"))
+    parser.add_argument("--format", choices=["html", "svg", "both"], default="html")
     args = parser.parse_args()
 
     sections = parse_todo(args.input)
-    svg = render_svg(sections)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(svg, encoding="utf-8")
-    print(f"Dashboard written: {args.output}")
+    if args.format in ("html", "both"):
+        args.html.parent.mkdir(parents=True, exist_ok=True)
+        args.html.write_text(render_html(sections, str(args.input)), encoding="utf-8")
+        print(f"HTML dashboard: {args.html}")
+    if args.format in ("svg", "both"):
+        prog = sections_to_progress(sections)
+        args.svg.parent.mkdir(parents=True, exist_ok=True)
+        args.svg.write_text(render_svg(prog), encoding="utf-8")
+        print(f"SVG dashboard: {args.svg}")
     return 0
 
 

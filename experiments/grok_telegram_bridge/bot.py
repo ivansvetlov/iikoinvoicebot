@@ -3,37 +3,41 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 from experiments.grok_telegram_bridge.config import settings
+from experiments.grok_telegram_bridge.context_store import ContextStore
 from experiments.grok_telegram_bridge.formatter import progress_preview, split_message, wrap_code_block
+from experiments.grok_telegram_bridge.git_snapshot import capture as git_capture
 from experiments.grok_telegram_bridge.grok_runner import GrokRunner, GrokRunnerError
+from experiments.grok_telegram_bridge.keyboards import main_menu
+from experiments.grok_telegram_bridge.onboarding import (
+    mark_bootstrapped,
+    needs_bootstrap,
+    wrap_first_prompt,
+)
 from experiments.grok_telegram_bridge.rules_loader import load_rules_text
 from experiments.grok_telegram_bridge.security import is_allowed
 from experiments.grok_telegram_bridge.session_store import SessionStore
 from experiments.grok_telegram_bridge.tester import should_use_check, strip_check_prefix
+from experiments.grok_telegram_bridge.work_journal import WorkJournal
 
 logger = logging.getLogger(__name__)
 
 HELP_TEXT = """\
 <b>Grok Bridge</b> — удалённый терминальный агент на твоём ПК.
 
-<b>Команды</b>
-/start — это сообщение
-/new — новая сессия Grok (сброс контекста)
-/status — session id, cwd, режим
-/yolo on|off — авто-approve инструментов (как --always-approve в CLI)
-/check &lt;текст&gt; — запрос + тестировщик (--check / check-work)
+Используй <b>кнопки ниже</b> или текстовые команды.
+Первый запрос после /new запускает bootstrap (ознакомление с проектом).
 
-<b>Обычный текст</b> → <code>grok -p</code> headless с <code>--resume</code>.
-Метапромпт проекта подгружается из <code>agents/METAPROMPT.md</code> через <code>--rules</code>.
-
-Поведение максимально близко к CLI: тот же cwd, те же tools, streaming в одно сообщение.
+<b>Текст</b> → <code>grok -p</code> + <code>--resume</code> + метапромпт.
+Результаты пишутся в <code>data/private/grok_bridge/HANDOFF_LATEST.md</code> для Cursor дома.
 """
 
 
@@ -45,10 +49,15 @@ class GrokBridgeBot:
         if not self.allowed:
             raise RuntimeError("GROK_BRIDGE_ALLOWED_USER_IDS is empty")
 
+        self.cwd = Path(settings.grok_bridge_cwd)
+        data_dir = settings.data_dir()
         self.bot = Bot(token=settings.grok_bridge_bot_token)
         self.dp = Dispatcher()
         self.store = SessionStore(Path(settings.grok_bridge_sessions_path))
+        self.context = ContextStore(data_dir / "context")
+        self.journal = WorkJournal(data_dir)
         self._rules = load_rules_text(Path(settings.grok_bridge_rules_path))
+        self._pending_check: dict[int, bool] = {}
         if self._rules:
             logger.info("Loaded bridge rules from %s", settings.grok_bridge_rules_path)
         self._register()
@@ -58,7 +67,7 @@ class GrokBridgeBot:
         yolo = settings.grok_bridge_yolo if sess.yolo is None else sess.yolo
         return GrokRunner(
             cli_path=Path(settings.grok_cli_path),
-            cwd=Path(settings.grok_bridge_cwd),
+            cwd=self.cwd,
             model=settings.grok_bridge_model,
             max_turns=settings.grok_bridge_max_turns,
             timeout_sec=settings.grok_bridge_timeout_sec,
@@ -75,16 +84,20 @@ class GrokBridgeBot:
         self.dp.message.register(self.cmd_yolo, Command("yolo"))
         self.dp.message.register(self.cmd_check, Command("check"))
         self.dp.message.register(self.cmd_check, Command("verify"))
+        self.dp.callback_query.register(self.on_callback)
         self.dp.message.register(self.on_text, F.text)
 
     async def _deny(self, message: Message) -> None:
         await message.answer("Access denied.")
 
+    async def _reply_menu(self, message: Message, text: str) -> None:
+        await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
+
     async def cmd_start(self, message: Message) -> None:
         if not message.from_user or not is_allowed(message.from_user.id, self.allowed):
             await self._deny(message)
             return
-        await message.answer(HELP_TEXT, parse_mode=ParseMode.HTML)
+        await self._reply_menu(message, HELP_TEXT)
 
     async def cmd_help(self, message: Message) -> None:
         await self.cmd_start(message)
@@ -93,27 +106,33 @@ class GrokBridgeBot:
         if not message.from_user or not is_allowed(message.from_user.id, self.allowed):
             await self._deny(message)
             return
-        self.store.clear(message.from_user.id)
-        await message.answer("Новая сессия Grok. Контекст сброшен.")
+        uid = message.from_user.id
+        self.store.clear(uid)
+        self.context.clear(uid)
+        await self._reply_menu(message, "Новая сессия. Bootstrap при первом текстовом запросе.")
 
     async def cmd_status(self, message: Message) -> None:
         if not message.from_user or not is_allowed(message.from_user.id, self.allowed):
             await self._deny(message)
             return
-        sess = self.store.get(message.from_user.id)
+        await self._send_status(message)
+
+    async def _send_status(self, message: Message) -> None:
+        uid = message.from_user.id  # type: ignore[union-attr]
+        sess = self.store.get(uid)
         yolo = settings.grok_bridge_yolo if sess.yolo is None else sess.yolo
-        rules_on = "yes" if self._rules else "no"
+        git = git_capture(self.cwd)
         lines = [
             f"<b>cwd</b>: <code>{settings.grok_bridge_cwd}</code>",
+            f"<b>git</b>: <code>{git.branch}</code> · dirty: {git.dirty_count}",
             f"<b>model</b>: <code>{settings.grok_bridge_model}</code>",
             f"<b>grok session</b>: <code>{sess.grok_session_id or '(new)'}</code>",
             f"<b>messages</b>: {sess.message_count}",
+            f"<b>bootstrap</b>: {'done' if sess.meta.get('bootstrap_done') else 'pending'}",
             f"<b>yolo</b>: {yolo}",
-            f"<b>stream</b>: {settings.grok_bridge_stream}",
-            f"<b>auto-check</b>: {settings.grok_bridge_auto_check}",
-            f"<b>metaprompt</b>: {rules_on}",
+            f"<b>metaprompt</b>: {'yes' if self._rules else 'no'}",
         ]
-        await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+        await self._reply_menu(message, "\n".join(lines))
 
     async def cmd_yolo(self, message: Message) -> None:
         if not message.from_user or not is_allowed(message.from_user.id, self.allowed):
@@ -121,17 +140,21 @@ class GrokBridgeBot:
             return
         parts = (message.text or "").split(maxsplit=1)
         arg = parts[1].strip().lower() if len(parts) > 1 else ""
-        sess = self.store.get(message.from_user.id)
+        await self._set_yolo(message, arg)
+
+    async def _set_yolo(self, message: Message, arg: str) -> None:
+        uid = message.from_user.id  # type: ignore[union-attr]
+        sess = self.store.get(uid)
         if arg == "on":
             sess.yolo = True
         elif arg == "off":
             sess.yolo = False
         else:
             cur = settings.grok_bridge_yolo if sess.yolo is None else sess.yolo
-            await message.answer(f"YOLO сейчас: <b>{cur}</b>. /yolo on | /yolo off", parse_mode=ParseMode.HTML)
+            await self._reply_menu(message, f"YOLO: <b>{cur}</b>. Кнопки или /yolo on|off")
             return
         self.store.update(sess)
-        await message.answer(f"YOLO: <b>{sess.yolo}</b>", parse_mode=ParseMode.HTML)
+        await self._reply_menu(message, f"YOLO: <b>{sess.yolo}</b>")
 
     async def cmd_check(self, message: Message) -> None:
         if not message.from_user or not is_allowed(message.from_user.id, self.allowed):
@@ -141,6 +164,52 @@ class GrokBridgeBot:
         text = prompt[1] if len(prompt) > 1 else "Проверь последние изменения в проекте."
         await self._run_grok(message, text, force_check=True)
 
+    async def on_callback(self, query: CallbackQuery) -> None:
+        if not query.from_user or not is_allowed(query.from_user.id, self.allowed):
+            await query.answer("Access denied.", show_alert=True)
+            return
+        data = (query.data or "").strip()
+        if not data.startswith("act:"):
+            await query.answer()
+            return
+        action = data[4:]
+        msg = query.message
+        if not msg:
+            await query.answer()
+            return
+        await query.answer()
+
+        if action == "new":
+            self.store.clear(query.from_user.id)
+            self.context.clear(query.from_user.id)
+            await self._reply_menu(msg, "Новая сессия. Bootstrap при первом запросе.")
+        elif action == "status":
+            await self._send_status(msg)
+        elif action == "yolo:on":
+            await self._set_yolo(msg, "on")
+        elif action == "yolo:off":
+            await self._set_yolo(msg, "off")
+        elif action == "check":
+            self._pending_check[query.from_user.id] = True
+            await self._reply_menu(
+                msg,
+                "Режим <b>check</b>. Отправь текст задачи — добавлю тестировщика (--check).",
+            )
+        elif action == "context":
+            preview = self.context.format_preview(query.from_user.id)
+            await self._reply_menu(msg, f"<b>Контекст</b>\n<pre>{preview}</pre>")
+        elif action == "handoff":
+            text = self.journal.handoff_text()
+            chunks = split_message(text, limit=3800)
+            await msg.answer(wrap_code_block(chunks[0]), parse_mode=ParseMode.HTML, reply_markup=main_menu())
+            for extra in chunks[1:]:
+                await msg.answer(wrap_code_block(extra), parse_mode=ParseMode.HTML)
+        elif action == "journal":
+            preview = self.journal.journal_preview()
+            await self._reply_menu(msg, f"<b>Журнал</b>\n<pre>{preview}</pre>")
+        elif action == "help":
+            await self._reply_menu(msg, HELP_TEXT)
+
     async def on_text(self, message: Message) -> None:
         if not message.from_user or not is_allowed(message.from_user.id, self.allowed):
             await self._deny(message)
@@ -148,7 +217,8 @@ class GrokBridgeBot:
         text = (message.text or "").strip()
         if not text or text.startswith("/"):
             return
-        await self._run_grok(message, text, force_check=False)
+        force_check = self._pending_check.pop(message.from_user.id, False)
+        await self._run_grok(message, text, force_check=force_check)
 
     async def _run_grok(self, message: Message, prompt: str, *, force_check: bool) -> None:
         user_id = message.from_user.id  # type: ignore[union-attr]
@@ -158,9 +228,20 @@ class GrokBridgeBot:
         use_check = force_check or should_use_check(prompt, auto_check=settings.grok_bridge_auto_check)
         prompt = strip_check_prefix(prompt)
 
+        do_bootstrap = needs_bootstrap(sess.meta)
+        if do_bootstrap:
+            prompt = wrap_first_prompt(prompt, bootstrap=True)
+
+        run_id = self.journal.new_run_id()
+        started = datetime.now(timezone.utc)
+        git_before = git_capture(self.cwd)
+
+        self.context.append(user_id, role="user", text=prompt, run_id=run_id)
+
         status = await message.answer(
-            "⏳ Grok…" + (" + тестировщик (--check)" if use_check else ""),
+            "⏳ Grok…" + (" + check" if use_check else "") + (" + bootstrap" if do_bootstrap else ""),
             parse_mode=ParseMode.HTML,
+            reply_markup=main_menu(),
         )
 
         async def on_progress(text: str, phase: str) -> None:
@@ -186,23 +267,54 @@ class GrokBridgeBot:
             await status.edit_text(f"❌ <b>Grok error</b>\n<pre>{exc}</pre>", parse_mode=ParseMode.HTML)
             return
 
-        self.store.touch_prompt(user_id, result.session_id)
+        finished = datetime.now(timezone.utc)
+        git_after = git_capture(self.cwd)
+        body = result.text or "(пустой ответ)"
 
-        footer = []
+        if do_bootstrap:
+            sess.meta = mark_bootstrapped(sess.meta)
+        self.store.touch_prompt(user_id, result.session_id)
+        if do_bootstrap:
+            updated = self.store.get(user_id)
+            updated.meta = sess.meta
+            self.store.update(updated)
+
+        self.context.append(
+            user_id,
+            role="assistant",
+            text=body,
+            run_id=run_id,
+            grok_session_id=result.session_id,
+        )
+        self.journal.record_run(
+            user_id=user_id,
+            run_id=run_id,
+            started_at=started,
+            finished_at=finished,
+            prompt=prompt,
+            response=body,
+            grok_session_id=result.session_id,
+            stop_reason=result.stop_reason,
+            use_check=use_check,
+            git_before=git_before,
+            git_after=git_after,
+            cwd=self.cwd,
+        )
+
+        footer = [f"run: {run_id[:20]}…"]
         if result.session_id:
             footer.append(f"session: {result.session_id[:8]}…")
         if use_check:
             footer.append("check: on")
-        if result.stop_reason:
-            footer.append(f"stop: {result.stop_reason}")
+        if do_bootstrap:
+            footer.append("bootstrap: done")
 
-        body = result.text or "(пустой ответ)"
         chunks = split_message(body)
         first = chunks[0]
         if footer:
             first += "\n\n— " + " · ".join(footer)
 
-        await status.edit_text(wrap_code_block(first), parse_mode=ParseMode.HTML)
+        await status.edit_text(wrap_code_block(first), parse_mode=ParseMode.HTML, reply_markup=main_menu())
         for extra in chunks[1:]:
             await message.answer(wrap_code_block(extra), parse_mode=ParseMode.HTML)
             await asyncio.sleep(0.3)
