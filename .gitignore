@@ -42,6 +42,8 @@ dialogue_dump.jsonl
 dump_chat_*
 dump stage*
 last chat
+groq 1 dump chat
+grok chat dump
 docs/dumps/
 
 # --- IDE/agent local metadata ---

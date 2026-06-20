@@ -4,6 +4,13 @@
 
 > **Нумерация:** новые записи — **вверху**. Ниже есть исторические блоки с теми же номерами (§50–§54, iiko 2026-04). При конфликте приоритет у верхней записи с более свежей датой.
 
+## 57) grok chat dump — каноническая история диалога (2026-06-20)
+- Files: `grok chat dump`, `scripts/export_grok_chat_dump.py`, `experiments/grok_telegram_bridge/chat_dump_hub.py`.
+- Behavior: дамп синхронизируется из `~/.grok/sessions/.../chat_history.jsonl`; baseline — уже записанный `grok chat dump`; bridge обновляет после каждого run.
+- Bootstrap: `scripts/export_grok_chat_dump.py --tail 15` + `docs/governance/AGENT_HANDOFF.md`.
+- Deprecated: `groq 1 dump chat` (удалён), системный экспорт Grok Build (`kotlin.Unit`).
+- Quick check: `.venv\Scripts\python.exe scripts\export_grok_chat_dump.py`
+
 ## 56) Unified project dashboard + TG mirror (2026-06-20)
 - Files: `scripts/render_todo_dashboard.py`, `scripts/dashboard_data.py`, `docs/assets/project-dashboard.html`, `experiments/grok_telegram_bridge/dashboard_hub.py`, bridge `bot.py`/`keyboards.py`.
 - Behavior: один HTML (`project-dashboard.html`, алиас `todo-dashboard.html`) — Roadmap из `TODO.md` + зеркало `logs/` + metrics + reports + online probe (`tmp/availability_*`) + bridge runs. TG-кнопки: Дашборд, Логи, Метрики, Отчёты, Обновить HTML; авто-пересборка после Grok run.

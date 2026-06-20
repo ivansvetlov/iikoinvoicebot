@@ -183,7 +183,11 @@ async def process_invoice(
             push_to_iiko=push_to_iiko,
             pdf_mode=pdf_mode,
         )
-        get_queue().enqueue(process_invoice_task, str(payload_path))
+        get_queue().enqueue(
+            process_invoice_task,
+            str(payload_path),
+            job_timeout=settings.worker_job_timeout_sec,
+        )
         empty = InvoiceParseResult(source_type="unknown", raw_text="", items=[], warnings=[])
         return ProcessResponse(
             request_id=request_id,
@@ -256,7 +260,11 @@ async def process_batch(
             push_to_iiko=push_to_iiko,
             pdf_mode=pdf_mode,
         )
-        get_queue().enqueue(process_invoice_task, str(payload_path))
+        get_queue().enqueue(
+            process_invoice_task,
+            str(payload_path),
+            job_timeout=settings.worker_job_timeout_sec,
+        )
         empty = InvoiceParseResult(source_type="unknown", raw_text="", items=[], warnings=[])
         return ProcessResponse(
             request_id=request_id,

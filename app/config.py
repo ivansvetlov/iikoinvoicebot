@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_env_path, env_file_encoding="utf-8-sig", extra="ignore")
 
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
+    telegram_api_id: int = Field(default=0, alias="TELEGRAM_API_ID")
+    telegram_api_hash: str = Field(default="", alias="TELEGRAM_API_HASH")
     backend_url: HttpUrl = Field(default="http://127.0.0.1:8000", alias="BACKEND_URL")
 
     iiko_transport: str = Field(default="import_only", alias="IIKO_TRANSPORT")
@@ -86,6 +88,7 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     queue_name: str = Field(default="default", alias="QUEUE_NAME")
     worker_ttl_sec: int = Field(default=1800, alias="WORKER_TTL_SEC")
+    worker_job_timeout_sec: int = Field(default=600, alias="WORKER_JOB_TIMEOUT_SEC")
     worker_maintenance_interval_sec: int = Field(default=60, alias="WORKER_MAINTENANCE_INTERVAL_SEC")
     worker_job_monitoring_interval_sec: int = Field(default=15, alias="WORKER_JOB_MONITORING_INTERVAL_SEC")
 

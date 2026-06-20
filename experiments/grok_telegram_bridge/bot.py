@@ -26,6 +26,7 @@ from experiments.grok_telegram_bridge.rules_loader import load_rules_text
 from experiments.grok_telegram_bridge.security import is_allowed
 from experiments.grok_telegram_bridge.session_store import SessionStore
 from experiments.grok_telegram_bridge.tester import should_use_check, strip_check_prefix
+from experiments.grok_telegram_bridge.chat_dump_hub import refresh_chat_dump
 from experiments.grok_telegram_bridge.dashboard_hub import (
     dashboard_path,
     dashboard_summary,
@@ -322,6 +323,7 @@ class GrokBridgeBot:
             grok_session_id=result.session_id,
         )
         asyncio.create_task(asyncio.to_thread(refresh_dashboard))
+        asyncio.create_task(asyncio.to_thread(refresh_chat_dump, self.cwd))
 
         self.journal.record_run(
             user_id=user_id,
