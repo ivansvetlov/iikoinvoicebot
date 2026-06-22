@@ -13,3 +13,6 @@ python-docx==1.2.0
 python-multipart==0.0.20
 xlrd==2.0.1
 uvicorn==0.35.0
+aiohttp-socks>=0.8.0
+maxapi>=1.2.0
+aiohttp>=3.13,<3.14

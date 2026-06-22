@@ -45,6 +45,22 @@ data/private/grok_bridge/
 .\.venv\Scripts\python.exe -m experiments.grok_telegram_bridge
 ```
 
+### Прокси (если прямой доступ к Telegram заблокирован)
+
+Добавь в `.env`:
+
+```
+GROK_BRIDGE_PROXY=socks5://127.0.0.1:1080
+# или
+# GROK_BRIDGE_PROXY=http://user:pass@proxy.example.com:8080
+```
+
+Bridge будет использовать его для всех запросов к Bot API.
+```
+
+To make bridge more resilient to flaky DCs, perhaps we can improve the retry or add user-agent etc, but main is done.
+
+Now, to test syntax of the changes.
 ## Тесты
 
 ```powershell

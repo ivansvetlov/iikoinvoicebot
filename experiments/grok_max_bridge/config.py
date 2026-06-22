@@ -1,4 +1,4 @@
-"""Bridge configuration (separate from invoice bot)."""
+"""MAX bridge configuration (separate from invoice bot and TG bridge)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,22 +7,22 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-BRIDGE_DATA = PROJECT_ROOT / "data" / "private" / "grok_bridge"
-DEFAULT_RULES = PROJECT_ROOT / "experiments" / "grok_telegram_bridge" / "agents" / "METAPROMPT.md"
+BRIDGE_DATA = PROJECT_ROOT / "data" / "private" / "grok_max_bridge"
+DEFAULT_RULES = PROJECT_ROOT / "experiments" / "grok_max_bridge" / "agents" / "METAPROMPT.md"
 
 
-class BridgeSettings(BaseSettings):
+class MaxBridgeSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
-    grok_bridge_bot_token: str = Field(default="", alias="GROK_BRIDGE_BOT_TOKEN")
-    grok_bridge_allowed_user_ids: str = Field(
+    grok_max_bridge_token: str = Field(default="", alias="GROK_MAX_BRIDGE_TOKEN")
+    grok_max_bridge_allowed_user_ids: str = Field(
         default="",
-        alias="GROK_BRIDGE_ALLOWED_USER_IDS",
-        description="Comma-separated Telegram user IDs",
+        alias="GROK_MAX_BRIDGE_ALLOWED_USER_IDS",
+        description="Comma-separated MAX user IDs",
     )
     grok_cli_path: str = Field(
         default=str(Path.home() / ".grok" / "bin" / "grok.exe"),
@@ -38,32 +38,27 @@ class BridgeSettings(BaseSettings):
         default=False,
         alias="GROK_BRIDGE_AUTO_CHECK",
     )
-    grok_bridge_sessions_path: str = Field(
+    grok_max_bridge_sessions_path: str = Field(
         default=str(BRIDGE_DATA / "sessions.json"),
-        alias="GROK_BRIDGE_SESSIONS_PATH",
+        alias="GROK_MAX_BRIDGE_SESSIONS_PATH",
     )
-    grok_bridge_rules_path: str = Field(
+    grok_max_bridge_rules_path: str = Field(
         default=str(DEFAULT_RULES),
-        alias="GROK_BRIDGE_RULES_PATH",
+        alias="GROK_MAX_BRIDGE_RULES_PATH",
     )
-    grok_bridge_data_dir: str = Field(
+    grok_max_bridge_data_dir: str = Field(
         default=str(BRIDGE_DATA),
-        alias="GROK_BRIDGE_DATA_DIR",
-    )
-    grok_bridge_proxy: str = Field(
-        default="",
-        alias="GROK_BRIDGE_PROXY",
-        description="Optional proxy for Telegram Bot API, e.g. socks5://127.0.0.1:1080 or http://user:pass@host:port",
+        alias="GROK_MAX_BRIDGE_DATA_DIR",
     )
 
     def allowed_ids(self) -> set[int]:
-        raw = (self.grok_bridge_allowed_user_ids or "").strip()
+        raw = (self.grok_max_bridge_allowed_user_ids or "").strip()
         if not raw:
             return set()
         return {int(part.strip()) for part in raw.split(",") if part.strip()}
 
     def data_dir(self) -> Path:
-        return Path(self.grok_bridge_data_dir)
+        return Path(self.grok_max_bridge_data_dir)
 
 
-settings = BridgeSettings()
+settings = MaxBridgeSettings()

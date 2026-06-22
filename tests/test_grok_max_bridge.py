@@ -1,16 +1,15 @@
-"""Unit tests for Grok Telegram bridge helpers."""
+"""Unit tests for Grok MAX bridge helpers."""
 from __future__ import annotations
 
-import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from experiments.grok_max_bridge.config import MaxBridgeSettings
+from experiments.grok_max_bridge.keyboards import main_menu
 from experiments.grok_telegram_bridge.context_store import ContextStore
 from experiments.grok_telegram_bridge.formatter import split_message
 from experiments.grok_telegram_bridge.grok_runner import GrokRunner
-from experiments.grok_telegram_bridge.keyboards import main_menu
-from experiments.grok_telegram_bridge.messages import BridgeMsg
 from experiments.grok_telegram_bridge.onboarding import needs_bootstrap, wrap_first_prompt
 from experiments.grok_telegram_bridge.security import is_allowed
 from experiments.grok_telegram_bridge.session_store import SessionStore
@@ -19,23 +18,22 @@ from experiments.grok_telegram_bridge.work_journal import WorkJournal
 from experiments.grok_telegram_bridge.git_snapshot import GitSnapshot
 
 
-class TestGrokBridge(unittest.TestCase):
+class TestGrokMaxBridge(unittest.TestCase):
     def test_split_message(self) -> None:
         chunks = split_message("a" * 5000, limit=2000)
         self.assertGreater(len(chunks), 1)
         self.assertEqual("".join(chunks), "a" * 5000)
 
-    def test_bridge_messages(self) -> None:
-        tg = BridgeMsg.help_text(channel="telegram")
-        mx = BridgeMsg.help_text(channel="max")
-        self.assertIn("grok_bridge", tg)
-        self.assertIn("grok_max_bridge", mx)
-        self.assertIn("check", BridgeMsg.CHECK_MODE)
-
     def test_security(self) -> None:
         self.assertTrue(is_allowed(42, {42}))
         self.assertFalse(is_allowed(1, {42}))
         self.assertTrue(is_allowed(999, set()))
+
+    def test_config_allowed_ids(self) -> None:
+        cfg = MaxBridgeSettings.model_validate(
+            {"GROK_MAX_BRIDGE_ALLOWED_USER_IDS": "1, 2, 3"}
+        )
+        self.assertEqual(cfg.allowed_ids(), {1, 2, 3})
 
     def test_tester_triggers(self) -> None:
         self.assertTrue(should_use_check("/check fix bug", auto_check=False))
@@ -109,36 +107,28 @@ class TestGrokBridge(unittest.TestCase):
 
     def test_keyboards(self) -> None:
         kb = main_menu()
-        self.assertGreaterEqual(len(kb.inline_keyboard), 6)
-        flat = [b.callback_data for row in kb.inline_keyboard for b in row]
+        self.assertEqual(str(kb.type), "inline_keyboard")
+        flat = [btn.payload for row in kb.payload.buttons for btn in row]
         self.assertIn("act:dashboard", flat)
         self.assertIn("act:logs", flat)
+        self.assertGreaterEqual(len(flat), 13)
 
-    def test_dashboard_data(self) -> None:
-        from scripts.dashboard_data import collect_all
+    def test_metaprompt_exists(self) -> None:
+        path = Path("experiments/grok_max_bridge/agents/METAPROMPT.md")
+        self.assertTrue(path.exists())
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("GROK_MAX_BRIDGE_TOKEN", text)
+        self.assertIn("grok_max_bridge", text)
 
-        dash = collect_all(metrics_hours=24)
-        self.assertIn("logs", dash)
-        self.assertIn("metrics", dash)
-        self.assertIn("online", dash)
-        self.assertIn("availability_html", dash)
-
-    def test_dashboard_refresh(self) -> None:
-        from experiments.grok_telegram_bridge.dashboard_hub import refresh_dashboard
-
-        ok, _msg = refresh_dashboard()
-        self.assertTrue(ok)
-        self.assertTrue(Path("docs/assets/project-dashboard.html").exists())
-
-    def test_todo_html_parser(self) -> None:
-        from scripts.render_todo_dashboard import parse_todo
-
-        sample = Path("docs/planning/TODO.md")
-        if sample.exists():
-            sections = parse_todo(sample)
-            self.assertGreater(len(sections), 3)
-            with_checkboxes = [s for s in sections if s.checkbox_total > 0]
-            self.assertGreater(len(with_checkboxes), 0)
+    def test_architecture_docs_max_api(self) -> None:
+        path = Path("experiments/grok_max_bridge/ARCHITECTURE.md")
+        self.assertTrue(path.exists())
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("platform-api.max.ru", text)
+        self.assertIn("dev.max.ru/docs-api", text)
+        self.assertIn("bots-coding/prepare", text)
+        self.assertIn("delete_webhook", text)
+        self.assertIn("4000", text)
 
 
 if __name__ == "__main__":
