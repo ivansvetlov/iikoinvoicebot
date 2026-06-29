@@ -82,10 +82,11 @@ class ContextStore:
         turns = self.recent(user_id, limit=limit)
         if not turns:
             return "Контекст пуст. Отправь задачу текстом."
-        lines: list[str] = []
+        lines: list[str] = ["📋 <b>Последние ходы диалога</b> (bridge)"]
         for t in turns:
-            preview = t.text.replace("\n", " ")
-            if len(preview) > 120:
-                preview = preview[:117] + "…"
-            lines.append(f"[{t.role}] {preview}")
+            preview = t.text.replace("\n", " ").strip()
+            if len(preview) > 110:
+                preview = preview[:107] + "…"
+            role_emoji = "👤" if t.role == "user" else "🤖"
+            lines.append(f"{role_emoji} {preview}")
         return "\n".join(lines)

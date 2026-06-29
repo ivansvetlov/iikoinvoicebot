@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_api_id: int = Field(default=0, alias="TELEGRAM_API_ID")
     telegram_api_hash: str = Field(default="", alias="TELEGRAM_API_HASH")
+    max_invoice_bot_token: str = Field(default="", alias="MAX_INVOICE_BOT_TOKEN")
+    max_invoice_bot_allowed_user_ids: str = Field(
+        default="",
+        alias="MAX_INVOICE_BOT_ALLOWED_USER_IDS",
+    )
     backend_url: HttpUrl = Field(default="http://127.0.0.1:8000", alias="BACKEND_URL")
 
     iiko_transport: str = Field(default="import_only", alias="IIKO_TRANSPORT")
@@ -93,6 +98,10 @@ class Settings(BaseSettings):
     worker_job_monitoring_interval_sec: int = Field(default=15, alias="WORKER_JOB_MONITORING_INTERVAL_SEC")
 
     database_url: str = Field(default="sqlite:///./data/app.db", alias="DATABASE_URL")
+
+    # State backend for unified task state (C1 distributed agents).
+    # Options: "db" (default, backward compatible), "redis", "hybrid" (future)
+    state_backend: str = Field(default="db", alias="STATE_BACKEND")
 
 
 settings = Settings()

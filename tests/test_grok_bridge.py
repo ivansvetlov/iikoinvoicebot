@@ -7,7 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from experiments.grok_telegram_bridge.context_store import ContextStore
-from experiments.grok_telegram_bridge.formatter import split_message
+from experiments.grok_telegram_bridge.formatter import format_grok_for_max, format_grok_response, split_message
 from experiments.grok_telegram_bridge.grok_runner import GrokRunner
 from experiments.grok_telegram_bridge.keyboards import main_menu
 from experiments.grok_telegram_bridge.messages import BridgeMsg
@@ -20,6 +20,11 @@ from experiments.grok_telegram_bridge.git_snapshot import GitSnapshot
 
 
 class TestGrokBridge(unittest.TestCase):
+    def test_format_grok_max_markdown_passthrough(self) -> None:
+        raw = "Это **тестовый жирный** текст."
+        self.assertEqual(format_grok_for_max(raw), raw)
+        self.assertEqual(format_grok_response(raw), "Это <b>тестовый жирный</b> текст.")
+
     def test_split_message(self) -> None:
         chunks = split_message("a" * 5000, limit=2000)
         self.assertGreater(len(chunks), 1)
@@ -31,6 +36,10 @@ class TestGrokBridge(unittest.TestCase):
         self.assertIn("grok_bridge", tg)
         self.assertIn("grok_max_bridge", mx)
         self.assertIn("check", BridgeMsg.CHECK_MODE)
+        self.assertIn("/help", mx)
+        self.assertIn("ограничение платформы", mx)
+        self.assertIn("/new", BridgeMsg.commands_text(channel="telegram"))
+        self.assertIn("Неизвестная команда", BridgeMsg.unknown_command("foo"))
 
     def test_security(self) -> None:
         self.assertTrue(is_allowed(42, {42}))
@@ -62,8 +71,33 @@ class TestGrokBridge(unittest.TestCase):
             ctx.append(7, role="user", text="hello")
             ctx.append(7, role="assistant", text="world")
             preview = ctx.format_preview(7)
-            self.assertIn("[user]", preview)
-            self.assertIn("[assistant]", preview)
+            self.assertIn("👤", preview)
+            self.assertIn("🤖", preview)
+            self.assertIn("hello", preview)
+
+    def test_work_summary(self) -> None:
+        with TemporaryDirectory() as tmp:
+            journal = WorkJournal(Path(tmp))
+            snap = GitSnapshot(branch="main", status_short=" M a.py", dirty_count=2, diff_stat="2 files")
+            started = finished = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+            journal.record_run(
+                user_id=42,
+                run_id="run-1",
+                started_at=started,
+                finished_at=finished,
+                prompt="Настроить Tailscale для дашборда",
+                response="Готово. Следующий шаг: проверить firewall.",
+                grok_session_id=None,
+                stop_reason=None,
+                use_check=False,
+                git_before=snap,
+                git_after=snap,
+                cwd=Path(tmp),
+            )
+            summary = journal.work_summary(42)
+            self.assertIn("Что делали", summary)
+            self.assertIn("Tailscale", summary)
+            self.assertIn("Пока не закрыто", summary)
 
     def test_journal_record(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -109,10 +143,12 @@ class TestGrokBridge(unittest.TestCase):
 
     def test_keyboards(self) -> None:
         kb = main_menu()
-        self.assertGreaterEqual(len(kb.inline_keyboard), 6)
         flat = [b.callback_data for row in kb.inline_keyboard for b in row]
         self.assertIn("act:dashboard", flat)
-        self.assertIn("act:logs", flat)
+        self.assertIn("act:handoff", flat)
+        self.assertNotIn("act:logs", flat)
+        self.assertNotIn("act:dash:refresh", flat)
+        self.assertGreaterEqual(len(flat), 8)
 
     def test_dashboard_data(self) -> None:
         from scripts.dashboard_data import collect_all

@@ -55,8 +55,9 @@ def _edit_telegram_message(
     if reply_markup:
         payload["reply_markup"] = reply_markup
     try:
-        httpx.post(url, json=payload, timeout=20)
-        return True
+        response = httpx.post(url, json=payload, timeout=20)
+        data = response.json()
+        return bool(data.get("ok"))
     except Exception:
         return False
 

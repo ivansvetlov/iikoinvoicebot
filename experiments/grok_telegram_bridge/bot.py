@@ -34,14 +34,7 @@ from experiments.grok_telegram_bridge.security import is_allowed
 from experiments.grok_telegram_bridge.session_store import SessionStore
 from experiments.grok_telegram_bridge.tester import should_use_check, strip_check_prefix
 from experiments.grok_telegram_bridge.chat_dump_hub import refresh_chat_dump
-from experiments.grok_telegram_bridge.dashboard_hub import (
-    dashboard_path,
-    dashboard_summary,
-    logs_summary,
-    metrics_summary,
-    refresh_dashboard,
-    reports_summary,
-)
+from experiments.grok_telegram_bridge.dashboard_hub import dashboard_url, refresh_dashboard
 from experiments.grok_telegram_bridge.work_journal import WorkJournal
 
 logger = logging.getLogger(__name__)
@@ -113,6 +106,17 @@ class GrokBridgeBot:
 
     async def cmd_help(self, message: Message) -> None:
         await self.cmd_start(message)
+
+    async def _handle_slash(self, message: Message, text: str) -> None:
+        if text == "/":
+            await self.cmd_help(message)
+            return
+        head = text.split(maxsplit=1)[0]
+        cmd = head[1:].split("@", 1)[0].lower()
+        known = {"start", "help", "new", "status", "yolo", "check", "verify"}
+        if cmd in known:
+            return
+        await self._reply_menu(message, BridgeMsg.unknown_command(cmd))
 
     async def cmd_new(self, message: Message) -> None:
         if not message.from_user or not is_allowed(message.from_user.id, self.allowed):
@@ -192,7 +196,7 @@ class GrokBridgeBot:
         if action == "new":
             self.store.clear(query.from_user.id)
             self.context.clear(query.from_user.id)
-            await self._reply_menu(msg, "Новая сессия. Bootstrap при первом запросе.")
+            await self._reply_menu(msg, BridgeMsg.NEW_SESSION)
         elif action == "status":
             await self._send_status(msg)
         elif action == "yolo:on":
@@ -206,50 +210,37 @@ class GrokBridgeBot:
                 BridgeMsg.CHECK_MODE,
             )
         elif action == "context":
-            preview = self.context.format_preview(query.from_user.id)
-            await self._reply_menu(msg, BridgeMsg.context_block(preview))
+            summary = await asyncio.to_thread(
+                self.journal.work_summary, query.from_user.id
+            )
+            await self._reply_menu(msg, BridgeMsg.context_block(summary))
         elif action == "handoff":
-            text = self.journal.handoff_text()
-            chunks = split_message(text, limit=3800)
-            await msg.answer(wrap_code_block(chunks[0]), parse_mode=ParseMode.HTML, reply_markup=main_menu())
-            for extra in chunks[1:]:
-                await msg.answer(wrap_code_block(extra), parse_mode=ParseMode.HTML)
+            await self._reply_menu(msg, BridgeMsg.handoff_compact(BridgeMsg.HANDOFF_TG))
         elif action == "journal":
             preview = self.journal.journal_preview()
             await self._reply_menu(msg, BridgeMsg.journal_block(preview))
-        elif action == "dashboard":
+        elif action in ("dashboard", "dash:refresh"):
             ok, note = await asyncio.to_thread(refresh_dashboard)
-            summary = await asyncio.to_thread(dashboard_summary)
-            path = dashboard_path()
+            url = dashboard_url(settings.grok_bridge_dashboard_url)
             await self._reply_menu(
                 msg,
-                BridgeMsg.dashboard_block(ok=ok, note=note, path=path, summary=summary),
+                BridgeMsg.dashboard_link(ok=ok, note=note, url=url),
             )
-        elif action == "dash:refresh":
-            ok, note = await asyncio.to_thread(refresh_dashboard)
-            await self._reply_menu(msg, BridgeMsg.dash_refresh_block(ok=ok, note=note, path=dashboard_path()))
-        elif action == "metrics":
-            text = await asyncio.to_thread(metrics_summary)
-            await self._reply_menu(msg, BridgeMsg.metrics_block(text))
-        elif action == "logs":
-            text = await asyncio.to_thread(logs_summary)
-            for chunk in split_message(text, limit=3800):
-                await msg.answer(wrap_code_block(chunk), parse_mode=ParseMode.HTML, reply_markup=main_menu())
-        elif action == "reports":
-            text = await asyncio.to_thread(reports_summary)
-            await self._reply_menu(
-                msg,
-                BridgeMsg.reports_block(text, dashboard_path()),
-            )
+        # Logs / Metrics / Reports buttons removed — всё есть в Дашборде
         elif action == "help":
             await self._reply_menu(msg, HELP_TEXT)
+        else:
+            await self._reply_menu(msg, BridgeMsg.UNKNOWN_BUTTON)
 
     async def on_text(self, message: Message) -> None:
         if not message.from_user or not is_allowed(message.from_user.id, self.allowed):
             await self._deny(message)
             return
         text = (message.text or "").strip()
-        if not text or text.startswith("/"):
+        if not text:
+            return
+        if text.startswith("/"):
+            await self._handle_slash(message, text)
             return
         force_check = self._pending_check.pop(message.from_user.id, False)
         await self._run_grok(message, text, force_check=force_check)

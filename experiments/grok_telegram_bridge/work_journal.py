@@ -180,6 +180,93 @@ class WorkJournal:
             )
         return "\n".join(lines)
 
+    def work_summary(self, user_id: int, limit: int = 4) -> str:
+        """Concise narrative: goals, outcomes, open items (not raw chat turns)."""
+        runs = [r for r in self.recent_runs(limit * 4) if r.user_id == user_id][:limit]
+        if not runs:
+            return "Пока нет завершённых задач.\nОтправь текст — начнём, сводка появится после первого run."
+
+        lines = ["📋 <b>Что делали</b> (кратко)"]
+        for r in reversed(runs):
+            goal = _goal_line(r.prompt_preview)
+            outcome = _outcome_line(r.response_preview)
+            git = f"git: {r.git_dirty} файл(ов)" if r.git_dirty else "git: без изменений"
+            check = " · check" if r.use_check else ""
+            lines.append(f"\n<b>Задача:</b> {goal}")
+            lines.append(f"<b>Итог:</b> {outcome}")
+            lines.append(f"<i>{git}{check}</i>")
+
+        latest = runs[0]
+        pending = _pending_line(latest.response_preview)
+        if pending:
+            lines.append(f"\n⏳ <b>Пока не закрыто:</b> {pending}")
+
+        lines.append(
+            f"\n🌿 <code>{latest.git_branch}</code> · "
+            f"незакоммичено: {latest.git_dirty} · runs: {len(runs)}"
+        )
+        return "\n".join(lines)
+
+
+def _goal_line(text: str, max_len: int = 140) -> str:
+    raw = (text or "").strip().replace("\n", " ")
+    if raw.lower().startswith("bootstrap"):
+        parts = raw.split("—", 1)
+        raw = parts[-1].strip() if len(parts) > 1 else raw
+    if len(raw) > max_len:
+        return raw[: max_len - 1] + "…"
+    return raw or "(пустой запрос)"
+
+
+def _outcome_line(response: str, max_len: int = 160) -> str:
+    text = (response or "").strip()
+    if not text:
+        return "ответ пустой"
+    lower = text.lower()
+    fails = ("не получилось", "не удалось", "ошибка", "failed", "блокер", "не работает", "не откры")
+    oks = ("готово", "сделано", "успешно", "работает", "добавлен", "исправлен", "запущен", "поднят", "обновлён")
+    has_fail = any(p in lower for p in fails)
+    has_ok = any(p in lower for p in oks)
+    snippet = next((ln.strip() for ln in text.splitlines() if ln.strip()), text)
+    snippet = snippet.replace("\n", " ")
+    if len(snippet) > max_len:
+        snippet = snippet[: max_len - 1] + "…"
+    if has_fail and has_ok:
+        return f"частично — {snippet}"
+    if has_fail:
+        return f"не всё ок — {snippet}"
+    if has_ok:
+        return f"ок — {snippet}"
+    return snippet
+
+
+def _pending_line(response: str, max_len: int = 180) -> str:
+    text = (response or "").strip()
+    if not text:
+        return ""
+    markers = (
+        "пока не",
+        "не закрыто",
+        "следующий шаг",
+        "осталось",
+        "блокер",
+        "todo",
+        "нужно",
+        "если не",
+    )
+    for ln in text.splitlines():
+        low = ln.lower().strip()
+        if not low:
+            continue
+        if any(m in low for m in markers):
+            s = ln.strip()
+            return s[: max_len - 1] + "…" if len(s) > max_len else s
+    if any(m in text.lower() for m in ("не получилось", "не удалось", "ошибка")):
+        tail = next((ln.strip() for ln in reversed(text.splitlines()) if ln.strip()), "")
+        if tail:
+            return tail[: max_len - 1] + "…" if len(tail) > max_len else tail
+    return ""
+
 
 def _git_diff(cwd: Path) -> str:
     from experiments.grok_telegram_bridge.git_snapshot import _run

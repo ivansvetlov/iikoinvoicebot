@@ -26,6 +26,7 @@ from app.parsers.file_text_extractor import FileTextExtractor
 from app.parsers.invoice_parser import InvoiceParser
 from app.schemas import InvoiceItem, InvoiceParseResult, ProcessResponse
 from app.services.user_store import get_iiko_credentials
+from app.services.invoice_flow import InvoiceFlowRunner
 from app.services.invoice_validator import is_likely_invoice
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,16 @@ QUANTITY_HINT = (
 CONSISTENCY_HINT = (
     "Ensure arithmetic consistency: amount_without_tax should be approximately unit_price * quantity "
     "(within rounding). If it doesn't match, re-check which column is quantity and which is price."
+)
+VAT_COLUMN_HINT = (
+    "When the table has a single amount column labeled 'Сумма' without separate VAT columns, "
+    "map it to amount_without_tax (sum before VAT), not amount_with_tax. "
+    "Use amount_with_tax only for columns explicitly labeled 'Сумма с НДС', 'с НДС', or 'Итого'. "
+    "Document-level phrases like 'В том числе НДС' are totals, not line items — exclude them from items."
+)
+VAT_SUMMARY_ROW_RE = re.compile(
+    r"^(?:в\s*том\s*числе\s*ндс|итого\s*ндс|ндс\s*\d|сумма\s*ндс)",
+    re.IGNORECASE,
 )
 EXCEL_TEMPLATE_FORM_MARKERS = (
     "типовая межотраслевая форма",
@@ -1408,6 +1419,8 @@ class InvoicePipelineService:
         items: list[InvoiceItem] = []
         for item in data.get("items", []):
             description = item.get("name") or item.get("description") or ""
+            if description and VAT_SUMMARY_ROW_RE.search(description.strip()):
+                continue
             quantity_dec = _to_decimal(item.get("quantity"))
             mass_dec = _to_decimal(item.get("mass"))
             unit_price_dec = _to_decimal(item.get("unit_price"))
@@ -1470,6 +1483,13 @@ class InvoicePipelineService:
             deduped.append(item)
             last_key = key
         return deduped
+
+    def _apply_invoice_flow(self, items: list[InvoiceItem]) -> tuple[list[InvoiceItem], list[str]]:
+        mode = (settings.invoice_flow_mode or "legacy").strip().lower()
+        if mode == "legacy" or not items:
+            return items, []
+        execution = InvoiceFlowRunner(mode=mode).execute(items)
+        return execution.output_items, list(execution.warnings)
 
     def _detect_garbage_items(self, items: list[InvoiceItem], llm_data: dict[str, Any]) -> list[str]:
         """Возвращает список причин, если ответ похож на мусор/зацикливание."""
@@ -2017,7 +2037,8 @@ class InvoicePipelineService:
                 "'цена' -> unit_price, 'сумма без НДС/без учета НДС' -> amount_without_tax, "
                 "'НДС %/ставка НДС' -> tax_rate, 'сумма НДС/НДС сумма' -> tax_amount, "
                 "'сумма с НДС/с НДС/итого' -> amount_with_tax. "
-                "If the header shows column numbers 1..15 (TORG-12 layout), align by headers: "
+                + VAT_COLUMN_HINT
+                + "If the header shows column numbers 1..15 (TORG-12 layout), align by headers: "
                 "price near columns 11, amount_without_tax near 12, tax_rate near 13, tax_amount near 14, "
                 "amount_with_tax near 15, quantity (net) near 10. Do not mix these columns. "
                 "If there are multiple 'quantity' columns, use the one immediately to the left of the price column "
@@ -2175,6 +2196,11 @@ class InvoicePipelineService:
                     image_items = await self._extract_items_from_pdf_images(filename, content, expected_rows=0)
                     if len(image_items) > len(items):
                         items = image_items
+
+            flow_items, flow_warnings = self._apply_invoice_flow(items)
+            items = flow_items
+            if flow_warnings:
+                warnings = list(warnings or []) + flow_warnings
 
         except UserFacingError as exc:
             logger.info(

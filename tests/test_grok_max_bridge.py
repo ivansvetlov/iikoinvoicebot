@@ -60,8 +60,9 @@ class TestGrokMaxBridge(unittest.TestCase):
             ctx.append(7, role="user", text="hello")
             ctx.append(7, role="assistant", text="world")
             preview = ctx.format_preview(7)
-            self.assertIn("[user]", preview)
-            self.assertIn("[assistant]", preview)
+            self.assertIn("Последние ходы диалога", preview)
+            self.assertIn("👤 hello", preview)
+            self.assertIn("🤖 world", preview)
 
     def test_journal_record(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -110,8 +111,9 @@ class TestGrokMaxBridge(unittest.TestCase):
         self.assertEqual(str(kb.type), "inline_keyboard")
         flat = [btn.payload for row in kb.payload.buttons for btn in row]
         self.assertIn("act:dashboard", flat)
-        self.assertIn("act:logs", flat)
-        self.assertGreaterEqual(len(flat), 13)
+        self.assertIn("act:handoff", flat)
+        self.assertNotIn("act:logs", flat)
+        self.assertGreaterEqual(len(flat), 8)
 
     def test_metaprompt_exists(self) -> None:
         path = Path("experiments/grok_max_bridge/agents/METAPROMPT.md")

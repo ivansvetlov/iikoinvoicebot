@@ -4,6 +4,20 @@
 
 > **Нумерация:** новые записи — **вверху**. Ниже есть исторические блоки с теми же номерами (§50–§54, iiko 2026-04). При конфликте приоритет у верхней записи с более свежей датой.
 
+## 59) MAX token separation + stage6 pipeline (2026-06-29)
+- Tokens: `MAX_INVOICE_BOT_TOKEN` (Pusher `@id780246960018_1_bot`) ≠ `GROK_MAX_BRIDGE_TOKEN` (отдельный dev-бот).
+- Guard: `app/bot/max_tokens.py` — startup check, no shared token.
+- Pipeline: `INVOICE_FLOW_MODE=modular` wired; VAT column hint + filter «В том числе НДС» rows.
+- Worker: `tasks.py` editMessage checks Telegram `ok` (fixes duplicate fallback messages).
+- E2E: `tests/test_e2e_invoice_posting.py` — `@pytest.mark.e2e`, skip без `E2E_INVOICE_POSTING=1`.
+- Quick check: `.venv\Scripts\python.exe -m unittest tests.test_max_invoice_bot tests.test_max_tokens -v`
+
+## 58) MAX invoice bot port (2026-06-22)
+- Files: `experiments/max_invoice_bot/` (`bot.py`, `task_watcher.py`, …), `scripts/run_max_invoice_bot.ps1`, `tests/test_max_invoice_bot.py`.
+- Behavior: параллельный порт invoice-бота для MAX; TG/worker **не менялись**; enqueue без `chat_id` → `task_watcher` poll `task_store`; user id `max:{uid}`.
+- Env: `MAX_INVOICE_BOT_TOKEN`, опционально `MAX_INVOICE_BOT_ALLOWED_USER_IDS`.
+- Quick check: `.venv\Scripts\python.exe -m unittest tests.test_max_invoice_bot -v` → `python -m experiments.max_invoice_bot` (нужен backend+worker).
+
 ## 57) grok chat dump — каноническая история диалога (2026-06-20)
 - Files: `grok chat dump`, `scripts/export_grok_chat_dump.py`, `experiments/grok_telegram_bridge/chat_dump_hub.py`.
 - Behavior: дамп синхронизируется из `~/.grok/sessions/.../chat_history.jsonl`; baseline — уже записанный `grok chat dump`; bridge обновляет после каждого run.

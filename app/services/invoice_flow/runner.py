@@ -20,10 +20,7 @@ def resolve_flow_mode(raw_mode: str | None) -> FlowMode:
 
 
 class InvoiceFlowRunner:
-    """Standalone flow switcher.
-
-    This runner is intentionally not wired into current production pipeline yet.
-    """
+    """Standalone flow switcher (wired in pipeline when INVOICE_FLOW_MODE != legacy)."""
 
     def __init__(
         self,

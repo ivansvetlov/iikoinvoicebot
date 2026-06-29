@@ -55,6 +55,11 @@ class BridgeSettings(BaseSettings):
         alias="GROK_BRIDGE_PROXY",
         description="Optional proxy for Telegram Bot API, e.g. socks5://127.0.0.1:1080 or http://user:pass@host:port",
     )
+    grok_bridge_dashboard_url: str = Field(
+        default="",
+        alias="GROK_BRIDGE_DASHBOARD_URL",
+        description="Dashboard HTTP URL (Tailscale/LAN); auto-detected if empty",
+    )
 
     def allowed_ids(self) -> set[int]:
         raw = (self.grok_bridge_allowed_user_ids or "").strip()

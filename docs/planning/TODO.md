@@ -7,6 +7,24 @@
 - **Демо-стенд:** API снова доступен (`IIKO_AUTH_OK`, см. `docs/iiko/IIKO_DEMO_STAND.md`).
 - **Следующий шаг:** dry-run/cleanup склада → `dev_run_all` → ручной прогон `docs/iiko/INVOICE_FLOW_TESTING.md`.
 
+## Активно: Invoice bot → MAX (`feature/channel-max`)
+
+**Статус:** Phase 2 MVP — код в `experiments/max_invoice_bot/` (2026-06-22).
+
+- План: `docs/planning/INVOICE_BOT_MAX_PORT_PLAN.md`
+- Запуск: `python -m experiments.max_invoice_bot` или `scripts/run_max_invoice_bot.ps1`
+- TG **не трогаем**; worker без `chat_id` → `task_watcher` poll
+- Тесты: `tests/test_max_invoice_bot.py`
+- Токен Pusher → `MAX_INVOICE_BOT_TOKEN` (отдельно от `GROK_MAX_BRIDGE_TOKEN`)
+- Следующий шаг: живой прогон файла + `BOT_COMMAND_MATRIX`
+
+## Отложено: Distributed agents (AGENT_PRIME)
+
+**Статус: пауза** (2026-06-22). Нет прод-сервера; C2/C5 ждут VPS.
+
+- Промпт: `docs/governance/AGENT_PRIME.md`; анализ: `docs/governance/DISTRIBUTED_AGENTS_ANALYSIS.md`.
+- Уже сделано: C1 (`app/state/`, `STATE_BACKEND=db|redis`). Детали: `docs/governance/DEFERRED_BRANCH_NOTES.md`.
+
 ## Отложено: Telegram «Избранное» (research track)
 
 **Статус: пауза** (2026-06-17). Не блокирует stage6, не смешивать в коммиты спринта.
@@ -48,11 +66,11 @@
 ### Осталось в этом спринте
 - [ ] Закоммитить и запушить post-recognition UX + тесты
 - [ ] Ручной прогон по `docs/iiko/INVOICE_FLOW_TESTING.md` на demo stand
-- [ ] Подключить `INVOICE_FLOW_MODE=modular` в production pipeline (сейчас runner standalone)
-- [ ] НДС: парсинг из колонки «Сумма», не «Сумма с НДС»; строки «В том числе НДС» (заявка 83565)
-- [ ] Убрать дубли сообщений при переходе к posting review (worker + bot race)
+- [x] Подключить `INVOICE_FLOW_MODE=modular` в production pipeline
+- [x] НДС: парсинг из колонки «Сумма», не «Сумма с НДС»; строки «В том числе НДС» (заявка 83565)
+- [x] Убрать дубли сообщений при переходе к posting review (worker edit ok-check)
 - [ ] Сервисное меню: реализовать rollback/clear-stock (сейчас заглушки)
-- [ ] E2E scaffold: довести `tests/test_e2e_invoice_posting.py` или пометить `@pytest.mark.e2e` + skip без env
+- [x] E2E scaffold: `@pytest.mark.e2e` + skip без `E2E_INVOICE_POSTING=1`
 - [ ] Решение по iiko posting policy: `NEW` draft vs `PROCESSED` auto-post
 
 ### Из планов Codex (отдельные ветки / следующие слои)

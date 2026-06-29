@@ -16,22 +16,13 @@ from experiments.grok_max_bridge.config import settings
 from experiments.grok_max_bridge.keyboards import main_menu
 from experiments.grok_telegram_bridge.chat_dump_hub import refresh_chat_dump
 from experiments.grok_telegram_bridge.context_store import ContextStore
-from experiments.grok_telegram_bridge.dashboard_hub import (
-    dashboard_path,
-    dashboard_summary,
-    logs_summary,
-    metrics_summary,
-    refresh_dashboard,
-    reports_summary,
-)
+from experiments.grok_telegram_bridge.dashboard_hub import dashboard_url, refresh_dashboard
 from experiments.grok_telegram_bridge.formatter import (
-    MAX_RAW_CHUNK,
     clamp_message,
-    format_grok_response,
+    escape_html,
+    format_grok_for_max,
     progress_preview,
     split_message,
-    wrap_code_block,
-    wrap_code_block_for_max,
 )
 from experiments.grok_telegram_bridge.git_snapshot import capture as git_capture
 from experiments.grok_telegram_bridge.grok_runner import GrokRunner, GrokRunnerError
@@ -49,9 +40,10 @@ from experiments.grok_telegram_bridge.work_journal import WorkJournal
 
 logger = logging.getLogger(__name__)
 
-MAX_SAFE = MAX_RAW_CHUNK
+
 MENU = [main_menu()]
 HTML = ParseMode.HTML
+MD = ParseMode.MARKDOWN
 
 HELP_TEXT = BridgeMsg.help_text(channel="max")
 
@@ -146,6 +138,17 @@ class GrokMaxBridgeBot:
     async def cmd_help(self, event: MessageCreated) -> None:
         await self.cmd_start(event)
 
+    async def _handle_slash(self, event: MessageCreated, text: str) -> None:
+        if text == "/":
+            await self.cmd_help(event)
+            return
+        head = text.split(maxsplit=1)[0]
+        cmd = head[1:].split("@", 1)[0].lower()
+        known = {"start", "help", "new", "status", "yolo", "check", "verify"}
+        if cmd in known:
+            return
+        await self._answer_menu(event.message, BridgeMsg.unknown_command(cmd))
+
     async def cmd_new(self, event: MessageCreated) -> None:
         uid = _sender_id(event)
         if uid is None or not is_allowed(uid, self.allowed):
@@ -225,7 +228,7 @@ class GrokMaxBridgeBot:
         if action == "new":
             self.store.clear(uid)
             self.context.clear(uid)
-            await self._callback_menu(event, "Новая сессия. Bootstrap при первом запросе.")
+            await self._callback_menu(event, BridgeMsg.NEW_SESSION)
         elif action == "status":
             text = await self._status_text(uid)
             await self._callback_menu(event, text)
@@ -240,43 +243,23 @@ class GrokMaxBridgeBot:
                 BridgeMsg.CHECK_MODE,
             )
         elif action == "context":
-            preview = self.context.format_preview(uid)
-            await self._callback_menu(event, BridgeMsg.context_block(preview))
+            summary = await asyncio.to_thread(self.journal.work_summary, uid)
+            await self._callback_menu(event, BridgeMsg.context_block(summary))
         elif action == "handoff":
-            text = self.journal.handoff_text()
-            chunks = split_message(text, limit=MAX_SAFE)
-            await self._callback_menu(event, wrap_code_block_for_max(chunks[0]))
-            for extra in chunks[1:]:
-                await self._send_extra(uid, event, wrap_code_block_for_max(extra))
+            path = BridgeMsg.HANDOFF_MAX
+            await self._callback_menu(event, BridgeMsg.handoff_compact(path))
         elif action == "journal":
             preview = self.journal.journal_preview()
             await self._callback_menu(event, BridgeMsg.journal_block(preview))
-        elif action == "dashboard":
+        elif action in ("dashboard", "dash:refresh"):
             ok, note = await asyncio.to_thread(refresh_dashboard)
-            summary = await asyncio.to_thread(dashboard_summary)
-            path = dashboard_path()
+            url = dashboard_url(settings.grok_bridge_dashboard_url)
             await self._callback_menu(
                 event,
-                BridgeMsg.dashboard_block(ok=ok, note=note, path=path, summary=summary),
+                BridgeMsg.dashboard_link(ok=ok, note=note, url=url),
             )
-        elif action == "dash:refresh":
-            ok, note = await asyncio.to_thread(refresh_dashboard)
-            await self._callback_menu(event, BridgeMsg.dash_refresh_block(ok=ok, note=note, path=dashboard_path()))
-        elif action == "metrics":
-            text = await asyncio.to_thread(metrics_summary)
-            await self._callback_menu(event, BridgeMsg.metrics_block(text))
-        elif action == "logs":
-            text = await asyncio.to_thread(logs_summary)
-            chunks = split_message(text, limit=MAX_SAFE)
-            await self._callback_menu(event, wrap_code_block_for_max(chunks[0]))
-            for extra in chunks[1:]:
-                await self._send_extra(uid, event, wrap_code_block_for_max(extra))
-        elif action == "reports":
-            text = await asyncio.to_thread(reports_summary)
-            await self._callback_menu(
-                event,
-                BridgeMsg.reports_block(text, dashboard_path()),
-            )
+        # Logs / Metrics / Reports buttons removed — всё есть в Дашборде
+        # (оставлено для совместимости если где-то закешировано)
         elif action == "help":
             await self._callback_menu(event, HELP_TEXT)
         else:
@@ -323,7 +306,10 @@ class GrokMaxBridgeBot:
         body = event.message.body
         text = (body.text if body else "") or ""
         text = text.strip()
-        if not text or text.startswith("/"):
+        if not text:
+            return
+        if text.startswith("/"):
+            await self._handle_slash(event, text)
             return
         force_check = self._pending_check.pop(uid, False)
         await self._run_grok(event.message, uid, text, force_check=force_check)
@@ -360,15 +346,15 @@ class GrokMaxBridgeBot:
 
         async def on_progress(text: str, phase: str) -> None:
             prefix = "💭 " if phase == "thinking" else "⏳ "
-            preview = progress_preview(text)
+            preview = clamp_message(escape_html(progress_preview(text)))
             try:
                 await status_msg.edit(
-                    prefix + wrap_code_block(preview),
+                    prefix + preview,
                     attachments=MENU,
                     format=HTML,
                 )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("progress edit failed: %s", exc)
 
         try:
             result = await runner.run(
@@ -436,15 +422,14 @@ class GrokMaxBridgeBot:
         if footer:
             first += "\n\n— " + " · ".join(footer)
 
-        # Use Markdown→HTML conversion so **bold**, `code` etc. render properly
-        await status_msg.edit(format_grok_response(first), attachments=MENU, format=HTML)
+        await status_msg.edit(format_grok_for_max(first), attachments=MENU, format=MD)
         chat_id = message.recipient.chat_id
         for extra in chunks[1:]:
             await self.bot.send_message(
                 chat_id=chat_id,
                 user_id=user_id,
-                text=format_grok_response(extra),
-                format=HTML,
+                text=format_grok_for_max(extra),
+                format=MD,
             )
             await asyncio.sleep(0.3)
 

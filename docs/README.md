@@ -35,7 +35,10 @@
 | `docs/iiko/INVOICE_FLOW_TESTING.md` | Тестирование unit flow + UX | active runbook |
 | `docs/planning/MENU_DOMAIN_EXPANSION_PLAN.md` | Категории, типы продуктов, техкарты | planned |
 | `docs/planning/BRANCH_WAIT_OPTIMIZATION_PLAN.md` | Оптимизация LLM wait time | separate branch |
+| `docs/planning/INVOICE_BOT_MAX_PORT_PLAN.md` | Порт invoice-бота в MAX | **active** (`feature/channel-max`) |
 | `docs/governance/DEFERRED_BRANCH_NOTES.md` | Отложенные решения | reference |
+| `docs/governance/AGENT_PRIME.md` | Промпт: распределённые агенты | **paused** |
+| `docs/governance/DISTRIBUTED_AGENTS_ANALYSIS.md` | Скан кодовой базы (TASK_1) | **paused** |
 | `docs/governance/PROJECT_CLONE_PROMPT.md` | Blueprint для нового проекта | reference |
 
 ## Prompts

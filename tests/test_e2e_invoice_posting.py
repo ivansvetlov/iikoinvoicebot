@@ -4,12 +4,18 @@ E2E Тесты: Загрузка и оприходование накладно�
 """
 from __future__ import annotations
 
+import os
 import unittest
 
 try:
     import pytest
 except ImportError as exc:
     raise unittest.SkipTest("pytest required for e2e invoice posting tests") from exc
+
+pytestmark = pytest.mark.e2e
+
+if os.environ.get("E2E_INVOICE_POSTING") != "1":
+    pytest.skip("Set E2E_INVOICE_POSTING=1 with live TG/iiko env to run", allow_module_level=True)
 import time
 import json
 from pathlib import Path

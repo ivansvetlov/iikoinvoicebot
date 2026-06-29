@@ -100,3 +100,63 @@ def dashboard_summary() -> str:
 
 def dashboard_path() -> str:
     return str(DASHBOARD_HTML)
+
+
+def local_lan_ip() -> str | None:
+    """Primary LAN IPv4 (for phone on same Wi‑Fi)."""
+    import socket
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.connect(("8.8.8.8", 80))
+        ip = sock.getsockname()[0]
+        sock.close()
+    except OSError:
+        return None
+    if ip.startswith("127."):
+        return None
+    return ip
+
+
+def tailscale_ip() -> str | None:
+    """Tailscale IPv4 (100.x.x.x) when tailscale CLI is available and connected."""
+    import shutil
+
+    exe = shutil.which("tailscale")
+    if not exe:
+        win = Path(r"C:\Program Files\Tailscale\tailscale.exe")
+        if win.exists():
+            exe = str(win)
+        else:
+            return None
+    try:
+        proc = subprocess.run(
+            [exe, "ip", "-4"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    ip = (proc.stdout or "").strip().splitlines()[0].strip() if proc.stdout else ""
+    if ip.startswith("100."):
+        return ip
+    return None
+
+
+def dashboard_url(configured: str | None = None) -> str:
+    """HTTP URL for opening dashboard in browser (Tailscale > LAN > localhost)."""
+    rel = DASHBOARD_HTML.relative_to(PROJECT_ROOT).as_posix()
+    url = (configured or "").strip()
+    remote = tailscale_ip() or local_lan_ip()
+    if not url:
+        host = remote or "127.0.0.1"
+        return f"http://{host}:8765/{rel}"
+    if remote:
+        url = url.replace("127.0.0.1", remote).replace("localhost", remote)
+    return url

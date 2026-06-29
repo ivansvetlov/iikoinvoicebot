@@ -1,0 +1,22 @@
+# Copy to %USERPROFILE%\.cloudflared\config.yml after creating the tunnel.
+#
+# Setup (once):
+#   cloudflared tunnel login
+#   cloudflared tunnel create dashboard-pc
+#   cloudflared tunnel route dns dashboard-pc dashboard.YOUR_DOMAIN.dev
+#
+# Cloudflare Zero Trust → Access → add policy (email allowlist) before going live.
+#
+# Run:
+#   cloudflared tunnel run dashboard-pc
+#
+# Optional .env:
+#   CLOUDFLARE_DASHBOARD_URL=https://dashboard.YOUR_DOMAIN.dev/docs/assets/project-dashboard.html
+
+tunnel: dashboard-pc
+credentials-file: C:\Users\MiBookPro\.cloudflared\YOUR_TUNNEL_ID.json
+
+ingress:
+  - hostname: dashboard.YOUR_DOMAIN.dev
+    service: http://localhost:8765
+  - service: http_status:404

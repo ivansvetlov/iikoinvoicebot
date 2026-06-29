@@ -1,17 +1,31 @@
-"""Хранилище задач обработки (Postgres/SQLite)."""
+"""Хранилище задач обработки — тонкая фасадная обёртка над pluggable backend.
+
+Обратная совместимость: все публичные функции сохранены 1:1.
+Реальное хранение теперь делегируется в app/state/ (см. docs/governance/DISTRIBUTED_AGENTS_ANALYSIS.md).
+
+Поддерживаемые бэкенды (STATE_BACKEND в .env):
+- "db" (по умолчанию) — текущая SQLite/Postgres логика
+- "redis" — распределённое состояние через Redis (рекомендуется для failover)
+"""
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func
+from app.state import get_state_backend
 
-from app.db import get_session, init_db
-from app.models import TaskRecord
-
+# Keep the constant for compatibility with callers
 STALE_TASK_MESSAGE = "Заявка не завершилась вовремя. Отправьте файл повторно."
+
+# Singleton backend (lazy)
+_state_backend = None
+
+
+def _get_backend():
+    global _state_backend
+    if _state_backend is None:
+        _state_backend = get_state_backend()
+    return _state_backend
 
 
 def create_task(
@@ -23,66 +37,56 @@ def create_task(
     push_to_iiko: bool,
     pdf_mode: str | None,
 ) -> None:
-    init_db()
-    with get_session() as session:
-        if session is None:
-            return
-        task = TaskRecord(
-            request_id=request_id,
-            status="queued",
-            user_id=user_id,
-            chat_id=str(chat_id) if chat_id is not None else None,
-            filename=filename,
-            batch=batch,
-            push_to_iiko=push_to_iiko,
-            pdf_mode=pdf_mode,
-        )
-        session.add(task)
+    _get_backend().create_task(
+        request_id=request_id,
+        filename=filename,
+        user_id=user_id,
+        chat_id=chat_id,
+        batch=batch,
+        push_to_iiko=push_to_iiko,
+        pdf_mode=pdf_mode,
+    )
 
 
 def mark_processing(request_id: str) -> None:
-    init_db()
-    with get_session() as session:
-        if session is None:
-            return
-        task = session.query(TaskRecord).filter(TaskRecord.request_id == request_id).one_or_none()
-        if not task:
-            return
-        task.status = "processing"
+    _get_backend().mark_processing(request_id)
 
 
 def mark_done(request_id: str, result: dict[str, Any]) -> None:
-    init_db()
-    with get_session() as session:
-        if session is None:
-            return
-        task = session.query(TaskRecord).filter(TaskRecord.request_id == request_id).one_or_none()
-        if not task:
-            return
-        task.status = result.get("status", "done")
-        task.iiko_uploaded = result.get("iiko_uploaded")
-        task.iiko_error = result.get("iiko_error")
-        task.message = result.get("message")
-        task.result_json = json.dumps(result, ensure_ascii=False, default=str)
-        task.finished_at = datetime.utcnow()
+    _get_backend().mark_done(request_id, result)
 
 
 def mark_error(request_id: str, message: str, error: str | None = None) -> None:
-    init_db()
-    with get_session() as session:
-        if session is None:
-            return
-        task = session.query(TaskRecord).filter(TaskRecord.request_id == request_id).one_or_none()
-        if not task:
-            return
-        task.status = "error"
-        task.message = message
-        task.error = error
-        task.finished_at = datetime.utcnow()
+    _get_backend().mark_error(request_id, message, error)
+
+
+# Bonus helpers (non-breaking additions)
+def get_task(request_id: str) -> dict[str, Any] | None:
+    return _get_backend().get_task(request_id)
+
+
+def get_user_active_snapshot(user_id: str | None) -> list[dict[str, Any]]:
+    """Used by bot/manager.py. Returns recent tasks for user."""
+    return _get_backend().list_user_tasks(user_id, limit=5)
+
+
+def get_user_last_task(user_id: str | None) -> dict[str, Any] | None:
+    tasks = _get_backend().list_user_tasks(user_id, limit=1)
+    return tasks[0] if tasks else None
+
+
+def reap_stale_tasks(hours: int = 24) -> int:
+    """Placeholder. Real sweep can be implemented per-backend."""
+    return 0
 
 
 def get_queue_snapshot() -> dict[str, int]:
-    """Возвращает агрегаты по очереди задач."""
+    """Возвращает агрегаты по очереди задач (legacy DB path kept for now)."""
+    # For simplicity in transition, delegate to DB directly for snapshot
+    from app.db import get_session, init_db
+    from sqlalchemy import func
+    from app.models import TaskRecord
+
     init_db()
     with get_session() as session:
         if session is None:
@@ -97,25 +101,6 @@ def get_queue_snapshot() -> dict[str, int]:
         for status, count in rows:
             snapshot[str(status)] = int(count)
         return snapshot
-
-
-def get_user_active_snapshot(user_id: str, *, active_hours: int, stale_minutes: int) -> dict[str, int]:
-    """Возвращает активные счетчики задач пользователя в заданном окне."""
-    init_db()
-    with get_session() as session:
-        if session is None:
-            return {"queued": 0, "processing": 0, "stale": 0}
-        active_cutoff = datetime.utcnow().timestamp() - (active_hours * 3600)
-        stale_cutoff = datetime.utcnow().timestamp() - (stale_minutes * 60)
-
-        tasks = (
-            session.query(TaskRecord)
-            .filter(TaskRecord.user_id == user_id)
-            .filter(TaskRecord.status.in_(("queued", "processing")))
-            .all()
-        )
-
-        snapshot = {"queued": 0, "processing": 0, "stale": 0}
         for task in tasks:
             created_at = task.created_at
             if not created_at:

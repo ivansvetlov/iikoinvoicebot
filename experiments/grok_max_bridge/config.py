@@ -50,6 +50,11 @@ class MaxBridgeSettings(BaseSettings):
         default=str(BRIDGE_DATA),
         alias="GROK_MAX_BRIDGE_DATA_DIR",
     )
+    grok_bridge_dashboard_url: str = Field(
+        default="http://127.0.0.1:8765/docs/assets/project-dashboard.html",
+        alias="GROK_BRIDGE_DASHBOARD_URL",
+        description="Local HTTP URL for project dashboard (serve project root on :8765)",
+    )
 
     def allowed_ids(self) -> set[int]:
         raw = (self.grok_max_bridge_allowed_user_ids or "").strip()
@@ -61,4 +66,7 @@ class MaxBridgeSettings(BaseSettings):
         return Path(self.grok_max_bridge_data_dir)
 
 
+from app.bot.max_tokens import validate_max_bot_tokens_from_env  # noqa: E402
+
+validate_max_bot_tokens_from_env()
 settings = MaxBridgeSettings()

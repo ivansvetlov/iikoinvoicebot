@@ -68,6 +68,12 @@ def wrap_code_block_for_max(text: str) -> str:
     return clamp_message(wrap_code_block(split_message(text, limit=600)[0]))
 
 
+def format_grok_for_max(text: str) -> str:
+    """Pass Grok markdown through for MAX ``format=markdown`` (native **bold**)."""
+    text = (text or "").strip()
+    return text or "(пустой ответ)"
+
+
 def format_grok_response(text: str) -> str:
     """Convert Grok output (with Markdown like **bold**) to Telegram HTML.
 
@@ -107,7 +113,7 @@ def format_grok_response(text: str) -> str:
     # Restore fenced: replace the *escaped* placeholder with <pre> block
     for i, (lang, code) in enumerate(fenced):
         safe = html.escape(code.strip("\n"))
-        block = f"<pre><code>{safe}</code></pre>"
+        block = f"<pre>{safe}</pre>"
         placeholder_esc = html.escape(f"<<TGFC{i}>>")
         escaped = escaped.replace(placeholder_esc, block)
 
