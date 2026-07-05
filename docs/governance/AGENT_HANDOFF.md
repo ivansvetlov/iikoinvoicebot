@@ -4,6 +4,31 @@
 
 > **Нумерация:** новые записи — **вверху**. Ниже есть исторические блоки с теми же номерами (§50–§54, iiko 2026-04). При конфликте приоритет у верхней записи с более свежей датой.
 
+## 64) Tech-lead audit cleanup (2026-07-05)
+
+Вход тех-лида/код-аудитора после «era Grok». Коммиты `cadbb1e` (baseline Грока) → `b78afb1`, `ea7805c`, `46fb070`.
+
+**64.1 — Cleanup мёртвого кода (`b78afb1`)**
+- `is_max_channel_user` переехал в `app/channels/users.py` (единая точка истины для префикса `max:`; + `channel_of()` хелпер). Экспорт через `app/channels/__init__.py`.
+- Удалён `app/services/recognition_preflight.py` (мёртвый модуль; `check_recognition_preflight` не вызывался в runtime) и мёртвые настройки/сообщения: `recognition_preflight_timeout_sec`, `PREFLIGHT_CHECKING`, `SERVICES_UNAVAILABLE`, `VPN_UNAVAILABLE`.
+- Удалены 13 одноразовых `scripts/_patch_*.py/.ps1/.bat` + `tmp/grok_era_files.txt` (их фиксы уже в финальном коде — `dev_stack_ctl.py`, SKILL.md).
+- Quick check: `python -m unittest tests.test_max_recognition_race tests.test_max_invoice_bot tests.test_max_tokens tests.test_sotaocr_client tests.test_user_messages` → 37 OK.
+
+**64.2 — Public recognition contract (`ea7805c`)**
+- `recognition_race` больше **не дёргает приватные** методы `InvoicePipelineService` (`_run_llm_pass` / `_try_sotaocr_hybrid_core` / `_detect_garbage_items`).
+- Pipeline теперь exposes 3 публичных метода: `recognize_via_vision()`, `recognize_via_sotaocr_hybrid()`, `detect_garbage_items()`. Race работает только через них.
+- Это seed будущего `RecognitionService` (вариант Б, отложен в §64.4).
+
+**64.3 — VPN refactor, стратегия B+D (`46fb070`)**
+- **Проблема:** `pipeline._call_llm` и `_probe_openai_for_hybrid` вызывали `ensure_api_vpn(raise_on_failure=True)` — запрос мог **висеть до 120 с** пытаясь поднять туннель, потом падать с `RuntimeError`. Влияло на TG и MAX одинаково.
+- **Решение:** новый `app/ocr/vpn.ensure_recognition_vpn_ok()` — единственный guard горячего пути. На non-Windows (VPS) no-op; на Windows — только быстрая проверка `is_split_tunnel_running()` + `UserFacingError(code=vpn_unavailable)` без попытки подъёма.
+- Подъём туннеля — только при старте worker (`raise_on_failure=False`, warn при провале) + Windows-сервис с auto-restart (`sc.exe failure ... actions= restart/60000`, см. `DEV_SETUP.md` §8).
+- UX: юзер никогда не ждёт ~120 с — либо работает, либо за ~1 с «попробуйте через минуту» пока сервис поднимает туннель.
+
+**64.4 — Открыто (отдельный план, не делать в этой сессии)**
+- **#4 Большой рефакторинг TG/MAX тонкого края + выделение `RecognitionService`** (вариант Б). Сейчас MAX `bot.py` (1802 строки) и TG `manager.py` (2110) дублируют UI-логику — антипаттерн «single mega-file handler» (см. `docs/governance/PROJECT_CLONE_PROMPT.md` §3). Предпосылка: усилить тестовое покрытие pipeline (сейчас race-тесты мокают публичные методы — легально, но сквозного покрытия нет).
+- Скиллы: `bootstrap-multichannel-bot` (из `PROJECT_CLONE_PROMPT`), дополнение `windows-dev-stack` из накопленных патчей.
+
 ## 61) dev_stack_ctl — fast 1/2/5 restart for agents (2026-07-03)
 - Files: `scripts/dev_stack_ctl.py`, `scripts/dev_stack_ctl.ps1`, `.agents/skills/dev-stack-restart/SKILL.md`.
 - Why: agent `(cd ; uvicorn --port 8000)` breaks PowerShell parser; retries cost ~1–2 min.
