@@ -1451,6 +1451,65 @@ class InvoicePipelineService:
         garbage_reasons = self._detect_garbage_items(items, llm_data)
         return llm_data, items, garbage_reasons
 
+    # --- Public recognition contract (used by recognition_race) -------------
+    # Эти методы — единственный публичный способ дёргать распознавание снаружи
+    # InvoicePipelineService. recognition_race и будущий RecognitionService
+    # работают только через них, без обращения к приватным _run_llm_pass /
+    # _try_sotaocr_hybrid_core / _detect_garbage_items напрямую.
+
+    async def recognize_via_vision(
+        self,
+        prompt: str,
+        filename: str,
+        content: bytes,
+        text_hint: str,
+        user_id: str | None,
+        request_id: str,
+    ) -> tuple[dict[str, Any], list[InvoiceItem], list[str]]:
+        """Один проход vision-распознавания (OpenAI over image bytes).
+
+        Возвращает (llm_data, items, garbage_reasons). Это тонкая публичная
+        обёртка над ``_run_llm_pass`` — внешний код (race) не должен вызывать
+        приватный метод напрямую.
+        """
+        return await self._run_llm_pass(
+            prompt, "image", filename, content, text_hint, user_id, request_id
+        )
+
+    async def recognize_via_sotaocr_hybrid(
+        self,
+        filename: str,
+        content: bytes,
+        user_id: str | None,
+        request_id: str,
+        *,
+        ocr_timeout_sec: float | None = None,
+        llm_timeout_sec: float | None = None,
+        skip_openai_probe: bool = False,
+    ) -> tuple[dict[str, Any], list[InvoiceItem], list[str]] | None:
+        """SotaOCR-hybrid путь: OCR -> текст -> LLM-парсинг.
+
+        Возвращает результат либо ``None``, если гибрид неприменим/недоступен
+        (например, нет SOTAOCR_API_KEY, OCR-текст слишком короткий, таймаут).
+        Публичная обёртка над ``_try_sotaocr_hybrid_core``.
+        """
+        return await self._try_sotaocr_hybrid_core(
+            filename,
+            content,
+            user_id,
+            request_id,
+            ocr_timeout_sec=ocr_timeout_sec,
+            llm_timeout_sec=llm_timeout_sec,
+            skip_openai_probe=skip_openai_probe,
+        )
+
+    def detect_garbage_items(self, items: list[InvoiceItem], llm_data: dict[str, Any]) -> list[str]:
+        """Признаки мусорного/зациклившегося ответа (пусто = ответ чистый).
+
+        Публичный детектор качества для внешних координаторов (race).
+        """
+        return self._detect_garbage_items(items, llm_data)
+
     def _append_cost_log(self, user_id: str | None, request_id: str, cost: dict[str, Any]) -> None:
         """Быстро дописывает строку в `logs/llm_costs.csv`.
 

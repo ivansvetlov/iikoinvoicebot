@@ -74,7 +74,7 @@ async def race_image_recognition(
     async def _hybrid_path() -> tuple[dict[str, Any], list[InvoiceItem], list[str]] | None:
         try:
             return await asyncio.wait_for(
-                service._try_sotaocr_hybrid_core(
+                service.recognize_via_sotaocr_hybrid(
                     original_filename,
                     original_content,
                     user_id,
@@ -93,9 +93,8 @@ async def race_image_recognition(
 
     async def _vision_path() -> tuple[dict[str, Any], list[InvoiceItem], list[str]]:
         llm_data, items, garbage = await asyncio.wait_for(
-            service._run_llm_pass(
+            service.recognize_via_vision(
                 prompt,
-                "image",
                 prepared_filename,
                 prepared_content,
                 text_hint,
@@ -106,9 +105,8 @@ async def race_image_recognition(
         )
         if garbage or not items:
             raw_data, raw_items, raw_garbage = await asyncio.wait_for(
-                service._run_llm_pass(
+                service.recognize_via_vision(
                     prompt,
-                    "image",
                     original_filename,
                     original_content,
                     text_hint,
@@ -172,7 +170,7 @@ async def race_image_recognition(
                     candidates.append((path, llm_data, items, warnings or [], garbage))
                 else:
                     llm_data, items, warnings = outcome
-                    garbage = service._detect_garbage_items(items, llm_data)
+                    garbage = service.detect_garbage_items(items, llm_data)
                     if _passes_gate(items, garbage):
                         elapsed_ms = int((perf_counter() - started) * 1000)
                         merged = list(warnings or []) + [
