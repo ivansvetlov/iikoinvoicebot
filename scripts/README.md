@@ -3,6 +3,7 @@
 Вспомогательные скрипты для разработчика и эксплуатации.
 
 Основные:
+- `dev_stack_ctl.py` / `dev_stack_ctl.ps1` — быстрый start/stop/restart PyCharm **1/2/5** (`.idea/runConfigurations/`). Агентам: `python scripts/dev_stack_ctl.py restart`.
 - `dev_run_all.py` — локальный оркестратор backend + worker + bot (PyCharm «0. all»).
   Pre-kill старых процессов, lock на один экземпляр, флаги `--force` / `--reuse-backend`.
   См. `docs/operations/DEV_SETUP.md`.

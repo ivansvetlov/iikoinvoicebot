@@ -15,6 +15,13 @@
 
 Исключение: явная временная мера **только** если владелец выбрал её из предложенных вариантов.
 
+## Memory Bank (смена треда / перегруз контекста)
+- Файл: `docs/governance/MEMORY_BANK.md` — **читать первым** в новом треде, если нет рабочего chat dump.
+- Chat dumps (`grok chat dump`, `last chat`, `dump chat max theme`) часто содержат только `kotlin.Unit` вместо ответов агента — bank надёжнее.
+- После значимой сессии: **дописать** запись в журнал bank (дата, ветка, выводы, блокеры, следующий шаг).
+- Не дублировать `AGENT_HANDOFF.md`: handoff = код и команды; bank = диалоговый контекст и диагностика.
+- Индикатор в трее: `scripts/dev_process_monitor.py` показывает размер bank и RAM IDE — см. `docs/operations/DEV_SETUP.md`.
+
 ## Каноническая документация
 - Канонические Markdown-доки живут в `docs/`.
 - В корне оставляем только `README.md` + GitHub-governance файлы (`LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`).

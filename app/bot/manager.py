@@ -44,7 +44,7 @@ from app.bot.invoice_posting import (
 )
 from app.bot.event_codes import BOT_BACKEND_UNAVAILABLE, BOT_NO_PENDING, BOT_RATE_LIMIT, event_meta, with_event_code
 from app.bot.file_storage import PendingSplitStorage
-from app.bot.messages import Msg
+from app.bot.messages import Msg, pdf_mode_label
 from app.config import settings
 from app.iiko.server_client import IikoServerClient
 from app.services.user_store import (
@@ -1031,7 +1031,7 @@ class TelegramBotManager:
         if data == "mode:process":
             status_message = query.message
             try:
-                await status_message.edit_text(Msg.SENDING_PROCESS)
+                await status_message.edit_text(Msg.SENDING_PROCESS, reply_markup=None)
             except Exception:  # noqa: BLE001
                 status_message = None
             await self._process_pending_as_batch_chat(
@@ -1740,7 +1740,7 @@ class TelegramBotManager:
 
     async def _handle_pdf_mode_choice(self, message: Message, user_id: str) -> None:
         """Показывает выбор режима PDF перед обработкой."""
-        current = get_pdf_mode(user_id)
+        current = pdf_mode_label(get_pdf_mode(user_id))
         text = Msg.PDF_MODE.format(current=current)
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[

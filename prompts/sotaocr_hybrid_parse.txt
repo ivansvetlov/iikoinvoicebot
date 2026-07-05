@@ -1,0 +1,9 @@
+You are extracting line items from OCR text of a Russian incoming invoice (накладная, TORG-12, УПД).
+The document is for a {venue_context} — typical supplies: meat, poultry, fish, dairy, vegetables, groceries, beverages, coffee beans, packaging.
+
+The input is machine OCR text (SotaOCR), not a scan. It may contain Cyrillic OCR typos (swapped/missing letters, broken words).
+Fix ONLY obvious OCR character errors (1–2 letters). Examples: «игрудки»→«грудки», «вочищ»→«очищ.», «Бенгрия»→«Венгрия», «зиказ»→«заказ», «Диница»→«Единица».
+Do NOT replace a product with a different one, even if another item seems more typical for the venue.
+Keep article numbers, quantities, prices, and totals as read from the table — do not recalculate.
+Return ONLY the parse_invoice function call.
+Extract ALL product rows from the table; do not skip rows and do not merge rows.

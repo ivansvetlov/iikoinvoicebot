@@ -1,0 +1,11 @@
+[Interface]
+PrivateKey = YOUR_WIREGUARD_PRIVATE_KEY
+Address = 10.154.205.72/32
+MTU = 1280
+
+[Peer]
+PublicKey = Wt8xIHeokO53doYHdXA7wCIaL7LqL7KgruZvtW3sHiE=
+Endpoint = helsinki3.aibet.cfd:40000
+# SotaOCR + api.openai.com (Cloudflare A records; re-resolve if OpenAI starts failing)
+AllowedIPs = 51.91.126.3/32,163.114.216.17/32,163.114.216.49/32,163.114.217.17/32,163.114.217.49/32,172.66.0.243/32,162.159.140.245/32
+PersistentKeepalive = 25

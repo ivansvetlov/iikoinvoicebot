@@ -19,6 +19,66 @@ from typing import Any
 from app.bot.messages import Msg
 from app.config import settings
 
+_INTERNAL_WARNINGS = frozenset(
+    {
+        "fast_parser_used",
+        "sotaocr_hybrid_used",
+        "excel_reference_template",
+        "iiko_import_fallback_csv",
+        "iiko_import_fallback_xlsx",
+        "recognition_race_vision",
+        "recognition_race_vision_raw",
+    }
+)
+
+
+def _is_internal_warning(text: str) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return True
+    if raw in _INTERNAL_WARNINGS:
+        return True
+    if raw.startswith("recognition_race_winner="):
+        return True
+    if raw.startswith("recognition_race_ms="):
+        return True
+    return False
+
+_FLOW_NOTE_LABELS = {
+    "missing_quantity": "не указано количество",
+    "missing_unit": "не указана единица измерения",
+    "unknown_unit": "неизвестная единица измерения",
+}
+
+
+def _humanize_warning(raw: str) -> str | None:
+    text = str(raw or "").strip()
+    if not text or _is_internal_warning(text):
+        return None
+    if text.startswith("iiko_import_fallback_"):
+        return None
+
+    if text.startswith("row="):
+        body = text[4:]
+        if ":" not in body:
+            return None
+        row_no, notes_raw = body.split(":", 1)
+        notes = [_FLOW_NOTE_LABELS.get(part, part) for part in notes_raw.split(",") if part]
+        if not notes:
+            return None
+        return f"позиция {row_no}: {', '.join(notes)}"
+
+    return text
+
+
+def user_visible_warnings(warnings: list[Any] | None) -> list[str]:
+    """Drop pipeline-internal codes; keep only human-readable notices."""
+    visible: list[str] = []
+    for raw in warnings or []:
+        label = _humanize_warning(str(raw))
+        if label and label not in visible:
+            visible.append(label)
+    return visible
 
 
 def short_request_code(request_id: str | None) -> str | None:
@@ -99,7 +159,7 @@ def format_user_response(payload: dict[str, Any]) -> str:
 
     status = payload.get("status")
     parsed = payload.get("parsed") or {}
-    warnings = parsed.get("warnings") or []
+    warnings = user_visible_warnings(parsed.get("warnings") or [])
     items = parsed.get("items") or []
     source_type = str(parsed.get("source_type") or payload.get("source_type") or "").lower()
     is_batch = bool(payload.get("batch")) or source_type == "batch"

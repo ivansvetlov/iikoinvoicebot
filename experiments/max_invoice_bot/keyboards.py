@@ -25,4 +25,4 @@ def dict_to_markup(markup: dict[str, Any] | None):
         if buttons:
             kb.row(*buttons)
     built = kb.as_markup()
-    return built if built else None
+    return [built] if built else None

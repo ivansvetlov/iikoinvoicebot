@@ -3,7 +3,12 @@ from __future__ import annotations
 import unittest
 
 from app.bot.messages import Msg
-from app.utils.user_messages import format_invoice_markdown, format_user_response, short_request_code
+from app.utils.user_messages import (
+    format_invoice_markdown,
+    format_user_response,
+    short_request_code,
+    user_visible_warnings,
+)
 
 
 class UserMessagesTests(unittest.TestCase):
@@ -79,6 +84,29 @@ class UserMessagesTests(unittest.TestCase):
         }
         text = format_invoice_markdown(payload)
         self.assertIn(Msg.INVOICE_IMPORT_READY.format(fmt="XLSX"), text)
+
+    def test_user_visible_warnings_hides_internal_pipeline_codes(self) -> None:
+        hidden = user_visible_warnings(
+            ["fast_parser_used", "sotaocr_hybrid_used", "iiko_import_fallback_csv"]
+        )
+        self.assertEqual(hidden, [])
+
+    def test_user_visible_warnings_humanizes_flow_row_notes(self) -> None:
+        visible = user_visible_warnings(["row=3:missing_unit,unknown_unit"])
+        self.assertEqual(visible, ["позиция 3: не указана единица измерения, неизвестная единица измерения"])
+
+    def test_format_user_response_hides_internal_warnings(self) -> None:
+        payload = {
+            "status": "ok",
+            "parsed": {
+                "items": [{"name": "Молоко"}],
+                "warnings": ["sotaocr_hybrid_used", "fast_parser_used"],
+            },
+        }
+        text = format_user_response(payload)
+        self.assertNotIn("sotaocr_hybrid_used", text)
+        self.assertNotIn("fast_parser_used", text)
+        self.assertNotIn(Msg.RESP_WARNINGS.split("{")[0], text)
 
     def test_format_invoice_markdown_uses_document_level_vat_when_item_vat_missing(self) -> None:
         payload = {

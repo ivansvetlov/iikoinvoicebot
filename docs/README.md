@@ -20,6 +20,7 @@
 
 ## Правила для агентов
 - Основные правила и стандарты: `docs/AGENTS.md`.
+- **Memory Bank** (контекст между тредами): `docs/governance/MEMORY_BANK.md`.
 - Проверенные команды запуска/диагностики: `docs/operations/DEBUG.md`.
 
 ## Архитектура

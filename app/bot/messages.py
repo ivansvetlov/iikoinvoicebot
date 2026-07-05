@@ -53,9 +53,15 @@ class Msg:
         "Проверьте логин, пароль и доступ API.\n\n"
         "Введите логин iiko:"
     )
+    AUTH_NETWORK_ERROR = (
+        "Сервер интеграции с iiko сейчас недоступен.\n"
+        "Проверьте интернет или VPN и повторите позже.\n"
+        "Веб-вход в iikoWeb и API — разные контуры.\n\n"
+        "Введите логин снова:"
+    )
     AUTH_API_NOT_CONFIGURED = (
-        "Интеграция iiko API не настроена на сервере.\n"
-        "Проверьте IIKO_API_BASE_URL и повторите попытку."
+        "Интеграция с iiko не настроена на сервере.\n"
+        "Обратитесь к администратору и повторите позже."
     )
     AUTH_SAVED = (
         "Авторизация подтверждена.\n"
@@ -102,6 +108,10 @@ class Msg:
         "Не удалось отправить файлы на обработку.\n"
         "Проверьте соединение и попробуйте снова."
     )
+    HANDLER_ERROR = (
+        "Не удалось обработать сообщение.\n"
+        "Попробуйте ещё раз или отправьте /start."
+    )
     BACKEND_SEND_FILE_FAILED = (
         "Не удалось отправить файл на обработку.\n"
         "Проверьте соединение и попробуйте снова."
@@ -118,7 +128,7 @@ class Msg:
         "📄 Файл добавлен.\n"
         "Можно отправить ещё фото.\n"
         "\n"
-        "ВАЖНО: когда будете готовы, нажмите\n «▶️ Отправить в обработку».\n"
+        "ВАЖНО: когда будете готовы, нажмите\n«▶️ Обработать сейчас».\n"
     )
     PENDING_MULTI = (
         "Собрано файлов: {count}.\n"
@@ -168,11 +178,11 @@ class Msg:
     )
     SYNC_NOM_PROGRESS = "Синхронизирую номенклатуру в iiko…"
     SYNC_NOM_DONE_NOTE = (
-        "_Номенклатура синхронизирована._\n"
+        "Номенклатура синхронизирована.\n"
         "Строк: {total_rows}, сопоставлено: {matched}, создано товаров: {created}.\n"
         "\n"
-        "_Синхронизация не выполняет оприходование._\n"
-        "_Для движения остатков используйте «✅ Оприходовать»._"
+        "Синхронизация не выполняет оприходование.\n"
+        "Для движения остатков используйте «✅ Оприходовать»."
     )
 
     POSTING_REVIEW_TITLE = "Проверка перед оприходованием"
@@ -221,10 +231,12 @@ class Msg:
         "Выберите режим обработки этого PDF.\n"
         "Текущий режим по умолчанию: {current}.\n"
         "\n"
-        "Если документ нечеткий, выбирайте accurate."
+        "Если документ нечёткий, выбирайте «Точно»."
     )
-    PDF_SET_FAST = "Режим PDF установлен: fast."
-    PDF_SET_ACCURATE = "Режим PDF установлен: accurate."
+    PDF_SET_FAST = "Режим PDF: быстрый."
+    PDF_SET_ACCURATE = "Режим PDF: точный."
+    PDF_MODE_FAST = "быстрый"
+    PDF_MODE_ACCURATE = "точный"
     NO_PENDING_FILE_REUPLOAD = "Нет ожидающих файлов.\nОтправьте файл заново."
 
     SPLIT_WAIT = (
@@ -261,8 +273,8 @@ class Msg:
         "Я не блокирую их и оставляю в черновике."
     )
 
-    BTN_FAST = "⚡ fast"
-    BTN_ACCURATE = "🎯 accurate"
+    BTN_FAST = "⚡ Быстро"
+    BTN_ACCURATE = "🎯 Точно"
     BTN_PROCESS_NOW = "▶️ Обработать сейчас"
     BTN_MERGE_SEND = "🟩 Объединить и отправить"
     BTN_DEDUP = "🧹 Удалить дубликаты"
@@ -317,7 +329,17 @@ class Msg:
     RESP_ITEMS_RECOGNIZED = "Распознано позиций: {count}"
     RESP_IIKO_UPLOADED = "iiko: загружено."
     RESP_IIKO_IMPORT_READY = "iiko: подготовлен файл импорта ({fmt})."
-    RESP_WARNINGS = "Предупреждения: {warnings}"
+    RESP_WARNINGS = "Обратите внимание: {warnings}"
+    STATUS_PROCESSING_PING = "⏳ Обрабатываю накладную…"
+    PROCESSING_STAGES = (
+        "⏳ Отправляю на обработку…",
+        "📄 Читаю документ…",
+        "🔍 Ищу таблицу позиций…",
+        "🧾 Сверяю суммы и НДС…",
+        "⏳ Почти готово…",
+    )
+    STATUS_TIMEOUT = "⏱ Превышено время ожидания.\nПроверьте /status или отправьте файл снова."
+    ACCESS_DENIED = "Доступ запрещён."
     RESP_CODE = "Код заявки: {code}"
     CODE_LINE = "\n\nКод заявки: {code}"
 
@@ -371,3 +393,12 @@ class Msg:
     INVOICE_SEPARATOR = "──────────"
     INVOICE_VAT_SUM = "📊 Сумма НДС: {vat} ₽"
     INVOICE_TOTAL_SUM = "💰 ИТОГО с НДС: {total} ₽"
+
+
+def pdf_mode_label(mode: str) -> str:
+    """Human-readable PDF mode label for user messages."""
+    mapping = {
+        "fast": Msg.PDF_MODE_FAST,
+        "accurate": Msg.PDF_MODE_ACCURATE,
+    }
+    return mapping.get((mode or "").strip().lower(), mode or Msg.PDF_MODE_ACCURATE)

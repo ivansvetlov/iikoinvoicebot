@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import re
@@ -19,6 +20,7 @@ from PIL import Image, ImageFilter, ImageOps
 
 from app.bot.messages import Msg
 from app.config import settings
+from app.ocr.vpn import ensure_api_vpn
 from app.errors import UserFacingError
 from app.iiko.import_export import IikoImportExporter
 from app.iiko.server_client import IikoServerClient, IikoUploadResult
@@ -777,6 +779,202 @@ class InvoicePipelineService:
         warnings = [*parser_warnings, "fast_parser_used"]
         return llm_like_data, items, warnings
 
+    def _load_sotaocr_hybrid_prompt(self) -> str:
+        path = Path(settings.sotaocr_hybrid_prompt_path)
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parents[2] / path
+        template = path.read_text(encoding="utf-8")
+        venue = (settings.invoice_venue_context or "ресторан или кофейня").strip()
+        return template.replace("{venue_context}", venue)
+
+    def _build_ocr_prompt(self, base: str) -> str:
+        return (
+            base
+            + " Fix only obvious OCR character errors; do not substitute different products. "
+            + "Keep article numbers and vendor names unchanged."
+        )
+
+    async def _probe_openai_for_hybrid(self, request_id: str) -> None:
+        """Cheap OpenAI ping — hybrid text-parse is skipped when this fails."""
+        if not (settings.openai_api_key or "").strip():
+            raise RuntimeError("OPENAI_API_KEY is not configured")
+        ensure_api_vpn(raise_on_failure=True)
+        timeout = float(max(5, int(settings.sotaocr_hybrid_openai_probe_timeout_sec or 15)))
+        model = (settings.openai_model or "gpt-4o-mini").strip()
+        headers = {
+            "authorization": f"Bearer {settings.openai_api_key}",
+            "content-type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "ping"}],
+                }
+            ],
+            "max_output_tokens": 8,
+        }
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/responses",
+                headers=headers,
+                json=payload,
+            )
+            if response.status_code >= 400:
+                logger.warning(
+                    "OpenAI hybrid probe HTTP %s: %s",
+                    response.status_code,
+                    response.text[:300],
+                    extra={"request_id": request_id},
+                )
+                response.raise_for_status()
+            response.raise_for_status()
+
+    async def _sotaocr_with_openai_probe(
+        self,
+        client: Any,
+        content: bytes,
+        filename: str,
+        request_id: str,
+    ) -> Any:
+        """Run SotaOCR extract in parallel with a fast OpenAI probe."""
+        ocr_task = asyncio.create_task(
+            client.extract_text(content, filename, result_format="text"),
+            name=f"sotaocr-{request_id[:12]}",
+        )
+        probe_task = asyncio.create_task(
+            self._probe_openai_for_hybrid(request_id),
+            name=f"openai-probe-{request_id[:12]}",
+        )
+        try:
+            while not probe_task.done():
+                if ocr_task.done():
+                    break
+                await asyncio.wait({probe_task}, timeout=0.25)
+            await probe_task
+            _job, result = await ocr_task
+            return result
+        except Exception:
+            if not ocr_task.done():
+                ocr_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await ocr_task
+            raise
+        finally:
+            if not probe_task.done():
+                probe_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await probe_task
+
+    async def _try_sotaocr_hybrid_core(
+        self,
+        filename: str,
+        content: bytes,
+        user_id: str | None,
+        request_id: str,
+        *,
+        ocr_timeout_sec: float | None = None,
+        llm_timeout_sec: float | None = None,
+        skip_openai_probe: bool = False,
+    ) -> tuple[dict[str, Any], list[InvoiceItem], list[str]] | None:
+        if not (settings.sotaocr_api_key or "").strip() or not settings.sotaocr_hybrid_enabled:
+            return None
+
+        from app.ocr.html_table import html_tables_to_text
+        from app.ocr.sotaocr_client import SotaOcrClient, SotaOcrError
+
+        min_chars = int(getattr(settings, "fast_parser_min_chars", 120) or 120)
+        min_items = int(getattr(settings, "fast_parser_min_items", 2) or 2)
+
+        llm_timeout = float(
+            max(15, int(llm_timeout_sec or settings.sotaocr_hybrid_llm_timeout_sec or 45))
+        )
+        ocr_timeout = float(ocr_timeout_sec or settings.sotaocr_timeout_sec or 600)
+
+        try:
+            client = SotaOcrClient(timeout_sec=ocr_timeout)
+            if skip_openai_probe:
+                _job, result = await client.extract_text(content, filename, result_format="text")
+            else:
+                result = await self._sotaocr_with_openai_probe(
+                    client,
+                    content,
+                    filename,
+                    request_id,
+                )
+            plain = html_tables_to_text(result.content).strip()
+            if len(plain) < max(20, min_chars):
+                logger.info(
+                    "SotaOCR hybrid skipped: OCR text too short",
+                    extra={"request_id": request_id, "chars": len(plain)},
+                )
+                return None
+
+            prompt = self._build_ocr_prompt(self._load_sotaocr_hybrid_prompt())
+            llm_data, items, garbage_reasons = await asyncio.wait_for(
+                self._run_llm_pass(
+                    prompt,
+                    "text",
+                    "sotaocr.txt",
+                    plain.encode("utf-8"),
+                    plain,
+                    user_id,
+                    request_id,
+                ),
+                timeout=llm_timeout,
+            )
+            if garbage_reasons or len(items) < max(1, min_items):
+                logger.info(
+                    "SotaOCR hybrid skipped: insufficient parse (%s items, garbage=%s)",
+                    len(items),
+                    bool(garbage_reasons),
+                    extra={"request_id": request_id},
+                )
+                return None
+
+            logger.info(
+                "SotaOCR hybrid parse succeeded",
+                extra={"request_id": request_id, "items": len(items)},
+            )
+            return llm_data, items, ["sotaocr_hybrid_used"]
+        except SotaOcrError as exc:
+            logger.warning(
+                "SotaOCR hybrid failed, will fall back to vision: %s",
+                exc,
+                extra={"request_id": request_id},
+            )
+            return None
+        except asyncio.TimeoutError:
+            logger.warning(
+                "SotaOCR hybrid LLM timed out after %.0fs, will fall back to vision",
+                llm_timeout,
+                extra={"request_id": request_id},
+            )
+            return None
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            logger.warning(
+                "SotaOCR hybrid OpenAI failed, will fall back to vision: %s",
+                exc,
+                extra={"request_id": request_id},
+            )
+            return None
+
+    async def _try_sotaocr_hybrid(
+        self,
+        filename: str,
+        content: bytes,
+        user_id: str | None,
+        request_id: str,
+    ) -> tuple[dict[str, Any], list[InvoiceItem], list[str]] | None:
+        return await self._try_sotaocr_hybrid_core(
+            filename,
+            content,
+            user_id,
+            request_id,
+            skip_openai_probe=False,
+        )
+
     def _find_header_number_line(self, text: str) -> str | None:
         if not text:
             return None
@@ -1025,6 +1223,7 @@ class InvoicePipelineService:
     ) -> dict[str, Any]:
         if not settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is not configured")
+        ensure_api_vpn(raise_on_failure=True)
 
         file_id: str | None = None
         if source_type == "pdf":
@@ -2073,11 +2272,52 @@ class InvoicePipelineService:
                     raw_text = ocr_text[:MAX_TEXT_HINT_CHARS]
                     text_hint = raw_text
 
+            hybrid_result = None
+            race_result = None
+            from app.channels import is_max_channel_user
+
+            use_race = (
+                not use_fast_parser
+                and source_type == "image"
+                and is_max_channel_user(user_id)
+                and bool(getattr(settings, "max_recognition_race_enabled", True))
+            )
+
             prompt = self._build_prompt(base_prompt, text_hint)
+
+            if use_race:
+                from app.services.recognition_race import race_image_recognition
+
+                race_result = await race_image_recognition(
+                    self,
+                    prompt=prompt,
+                    prepared_filename=filename,
+                    prepared_content=content,
+                    original_filename=original_filename,
+                    original_content=original_content,
+                    text_hint=text_hint,
+                    user_id=user_id,
+                    request_id=request_id,
+                )
+            elif not use_fast_parser and source_type == "image":
+                hybrid_result = await self._try_sotaocr_hybrid(
+                    original_filename,
+                    original_content,
+                    user_id,
+                    request_id,
+                )
 
             if use_fast_parser:
                 llm_data, items, warnings = fast_result
                 garbage_reasons: list[str] = []
+            elif race_result is not None:
+                llm_data = race_result.llm_data
+                items = race_result.items
+                warnings = race_result.warnings
+                garbage_reasons = []
+            elif hybrid_result is not None:
+                llm_data, items, warnings = hybrid_result
+                garbage_reasons = []
             else:
                 llm_data, items, garbage_reasons = await self._run_llm_pass(
                     prompt, source_type, filename, content, text_hint, user_id, request_id

@@ -6,7 +6,10 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+
+import httpx
 
 from app.schemas import InvoiceItem, InvoiceParseResult
 from app.services.invoice_validator import is_likely_invoice
@@ -413,6 +416,109 @@ class PipelineIikoUploadByRequestTests(unittest.TestCase):
         self.assertTrue(response.iiko_import_ready)
         self.assertEqual(response.iiko_import_format, "csv")
         self.assertTrue(export_exists)
+
+
+class SotaOcrHybridTests(unittest.IsolatedAsyncioTestCase):
+    def test_load_hybrid_prompt_includes_venue_context(self) -> None:
+        service = InvoicePipelineService()
+        with patch("app.services.pipeline.settings.invoice_venue_context", "кофейня"):
+            prompt = service._load_sotaocr_hybrid_prompt()
+        self.assertIn("кофейня", prompt)
+        self.assertNotIn("{venue_context}", prompt)
+
+    async def test_hybrid_skipped_when_disabled(self) -> None:
+        service = InvoicePipelineService()
+        with patch("app.services.pipeline.settings.sotaocr_hybrid_enabled", False):
+            with patch("app.services.pipeline.settings.sotaocr_api_key", "test-key"):
+                result = await service._try_sotaocr_hybrid("invoice.jpg", b"img", "42", "req-1")
+        self.assertIsNone(result)
+
+    async def test_hybrid_skipped_when_openai_probe_fails(self) -> None:
+        service = InvoicePipelineService()
+        with patch("app.services.pipeline.settings.sotaocr_api_key", "test-key"):
+            with patch.object(
+                service,
+                "_sotaocr_with_openai_probe",
+                AsyncMock(side_effect=httpx.TimeoutException("probe timeout")),
+            ):
+                result = await service._try_sotaocr_hybrid("invoice.jpg", b"img", "42", "req-1")
+        self.assertIsNone(result)
+
+    async def test_sotaocr_probe_failure_cancels_ocr_task(self) -> None:
+        service = InvoicePipelineService()
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def slow_ocr(*_args, **_kwargs):
+            started.set()
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            return None, SimpleNamespace(content="text")
+
+        client = SimpleNamespace(extract_text=slow_ocr)
+        with patch.object(
+            service,
+            "_probe_openai_for_hybrid",
+            AsyncMock(side_effect=httpx.ConnectError("down")),
+        ):
+            with self.assertRaises(httpx.ConnectError):
+                await service._sotaocr_with_openai_probe(client, b"x", "f.jpg", "req-1")
+        self.assertTrue(started.is_set())
+        self.assertTrue(cancelled.is_set())
+
+    async def test_hybrid_llm_timeout_returns_none(self) -> None:
+        service = InvoicePipelineService()
+        with patch("app.services.pipeline.settings.sotaocr_api_key", "test-key"):
+            with patch.object(
+                service,
+                "_sotaocr_with_openai_probe",
+                AsyncMock(return_value=SimpleNamespace(content="x" * 200)),
+            ):
+                with patch(
+                    "app.services.pipeline.asyncio.wait_for",
+                    AsyncMock(side_effect=asyncio.TimeoutError()),
+                ):
+                    result = await service._try_sotaocr_hybrid("invoice.jpg", b"img", "42", "req-1")
+        self.assertIsNone(result)
+
+    async def test_process_image_uses_hybrid_without_vision(self) -> None:
+        service = InvoicePipelineService()
+        item = InvoiceItem(name="Молоко 3.2%", unit_amount=Decimal("10"), total_cost=Decimal("500"))
+        hybrid_payload = (
+            {
+                "invoice_number": "01517",
+                "invoice_date": "01.01.2026",
+                "vendor_name": "Поставщик",
+                "total_amount": 500,
+                "items": [{"description": "Молоко 3.2%", "quantity": 10, "line_total": 500}],
+            },
+            [item],
+            ["sotaocr_hybrid_used"],
+        )
+
+        with patch("app.services.pipeline.FileTextExtractor.extract", return_value=("image", "")):
+            with patch.object(
+                service,
+                "_prepare_image_payload",
+                return_value=("invoice.jpg", b"fake-image", ""),
+            ):
+                with patch.object(service, "_try_sotaocr_hybrid", AsyncMock(return_value=hybrid_payload)):
+                    with patch.object(service, "_run_llm_pass", AsyncMock()) as vision_mock:
+                        with patch.object(service, "_apply_invoice_flow", return_value=([item], [])):
+                            response = await service.process(
+                                "invoice.jpg",
+                                b"fake-image",
+                                push_to_iiko=False,
+                                user_id="42",
+                            )
+
+        vision_mock.assert_not_called()
+        self.assertEqual(response.status, "ok")
+        self.assertEqual(len(response.parsed.items), 1)
+        self.assertIn("sotaocr_hybrid_used", response.parsed.warnings)
 
 
 class PipelineCostSummaryTests(unittest.TestCase):

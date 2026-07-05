@@ -24,6 +24,8 @@ Thumbs.db
 
 # --- Project secrets ---
 .env
+config/wireguard/*.conf
+!config/wireguard/*.conf.example
 id_ed25519
 id_ed25519.pub
 github_ssh_private_ed25519

@@ -179,7 +179,37 @@ curl http://127.0.0.1:8000/health
 - Команды бота и сценарии: `docs/operations/BOT_COMMAND_MATRIX.md`
 - Диагностика по коду заявки: `scripts/diagnose_request.py` + `docs/governance/AGENT_HANDOFF.md`
 
-## 7. Повторяемый сценарий для нового разработчика (чек-лист)
+## 7. Быстрый restart стека 1/2/5
+
+Один вызов вместо ручного поднятия трёх процессов (и без PowerShell-ловушек агента):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\dev_stack_ctl.py restart
+.\.venv\Scripts\python.exe scripts\dev_stack_ctl.py status
+```
+
+Конфиги PyCharm: `.idea/runConfigurations/1__backend.xml`, `2__worker.xml`, `5__max_invoice_bot.xml`.
+Skill для агентов: `.agents/skills/dev-stack-restart/SKILL.md`.
+
+## 8. Tray monitor (1/2/5/8 + IDE + Memory Bank)
+
+Ветка/worktree: `feature/dev-process-monitor` → `scripts/dev_process_monitor.py`.
+
+```powershell
+.\.venv\Scripts\pythonw.exe scripts\dev_process_monitor.py
+# отладка без трея:
+.\.venv\Scripts\python.exe scripts\dev_process_monitor.py --once
+```
+
+При наведении на иконку tooltip **колонкой** (каждый компонент — отдельная строка):
+
+- `1. backend`, `2. worker`, `5. MAX bot`, `8. VPN`
+- `IDE Cursor …MB` — RAM процесса Cursor/VS Code/PyCharm
+- `Bank …KB` — размер `docs/governance/MEMORY_BANK.md`; суффикс `!` если ≥ 20 KB (пора новый тред)
+
+Memory Bank — см. `docs/governance/MEMORY_BANK.md` и `docs/AGENTS.md`.
+
+## 9. Повторяемый сценарий для нового разработчика (чек-лист)
 
 1. Клонировать репозиторий и создать `.env` на основе `.env.example`.
 2. Установить зависимости:

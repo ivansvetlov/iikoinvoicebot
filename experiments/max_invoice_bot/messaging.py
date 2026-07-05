@@ -11,8 +11,14 @@ from maxapi.types.updates import MessageCallback
 
 from experiments.max_invoice_bot.keyboards import dict_to_markup
 
-TEXT_LIMIT = 3800
+MAX_API_TEXT_LIMIT = 4000
+TEXT_LIMIT = 3900
 HTML = ParseMode.HTML
+
+
+def prepare_outgoing_text(text: str, *, limit: int = TEXT_LIMIT) -> str:
+    """Keep a single MAX message within API text limits."""
+    return split_text(text, limit=limit)[0]
 
 
 def split_text(text: str, limit: int = TEXT_LIMIT) -> list[str]:
@@ -33,6 +39,12 @@ def split_text(text: str, limit: int = TEXT_LIMIT) -> list[str]:
         chunks.append(rest[:cut].strip())
         rest = rest[cut:].strip()
     return chunks
+
+
+def keyboard_to_edit_attachments(keyboard: dict[str, Any] | None) -> list[Any]:
+    """MAX edit/callback: None keyboard clears inline buttons; dict replaces them."""
+    markup = dict_to_markup(keyboard)
+    return [] if markup is None else markup
 
 
 async def send_to_user(
@@ -66,8 +78,12 @@ async def edit_message(
     text: str,
     keyboard: dict[str, Any] | None = None,
 ) -> None:
-    attachments = dict_to_markup(keyboard)
-    await message.edit(text=split_text(text)[0], attachments=attachments, format=HTML)
+    attachments = keyboard_to_edit_attachments(keyboard)
+    await message.edit(
+        text=prepare_outgoing_text(text),
+        attachments=attachments,
+        format=HTML,
+    )
 
 
 async def reply_or_edit(
@@ -99,5 +115,9 @@ async def callback_update(
     text: str,
     keyboard: dict[str, Any] | None = None,
 ) -> None:
-    attachments = dict_to_markup(keyboard)
-    await event.answer(new_text=split_text(text)[0], attachments=attachments, format=HTML)
+    attachments = keyboard_to_edit_attachments(keyboard)
+    await event.answer(
+        new_text=prepare_outgoing_text(text),
+        attachments=attachments,
+        format=HTML,
+    )

@@ -15,3 +15,8 @@ def parse_store_user_id(store_id: str) -> int | None:
         if tail.isdigit():
             return int(tail)
     return None
+
+
+def storage_dir_key(store_key: str) -> str:
+    """Filesystem-safe key for pending/split dirs (Windows rejects ':' in paths)."""
+    return store_key.replace(":", "_")

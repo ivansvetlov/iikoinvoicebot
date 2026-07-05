@@ -5,6 +5,8 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
+import sys
 from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,7 +16,7 @@ from maxapi import Bot, Dispatcher
 from maxapi.enums.parse_mode import ParseMode
 from maxapi.filters.command import Command
 from maxapi.types.message import Message
-from maxapi.types.updates import MessageCallback, MessageCreated
+from maxapi.types.updates import BotStarted, MessageCallback, MessageCreated
 
 from app.bot.backend_client import (
     send_batch_to_backend,
@@ -43,7 +45,7 @@ from app.bot.invoice_posting import (
     format_posting_review_text,
     format_sync_note,
 )
-from app.bot.messages import Msg
+from app.bot.messages import Msg, pdf_mode_label
 from app.config import settings as app_settings
 from app.iiko.server_client import IikoServerClient
 from app.services.user_store import (
@@ -60,13 +62,19 @@ from app.task_store import (
 )
 from app.utils.user_messages import format_invoice_markdown, format_user_response, short_request_code
 from experiments.grok_telegram_bridge.security import is_allowed
-from experiments.max_invoice_bot.attachments import download_from_message
+from experiments.max_invoice_bot.attachments import download_from_message, has_downloadable_attachments
 from experiments.max_invoice_bot.config import settings
 from experiments.max_invoice_bot.edit_state import EditState
 from experiments.max_invoice_bot.keyboards import dict_to_markup
-from experiments.max_invoice_bot.messaging import callback_update, reply_or_edit, send_to_user
+from experiments.max_invoice_bot.messaging import (
+    callback_update,
+    prepare_outgoing_text,
+    reply_or_edit,
+    send_to_user,
+)
+
 from experiments.max_invoice_bot.task_watcher import schedule_watch
-from experiments.max_invoice_bot.user_ids import store_user_id
+from experiments.max_invoice_bot.user_ids import storage_dir_key, store_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -75,15 +83,29 @@ INFO_FIELDS = Msg.INFO_FIELDS
 ITEM_FIELDS = Msg.ITEM_FIELDS
 REQUESTS_DIR = Path(__file__).resolve().parents[2] / "logs" / "requests"
 JOBS_DIR = Path(__file__).resolve().parents[2] / "data" / "jobs"
-ACCESS_DENIED = "Доступ запрещён."
 
 
-def _sender_id(event: MessageCreated | MessageCallback) -> int | None:
+
+def _sender_id(event: MessageCreated | MessageCallback | BotStarted) -> int | None:
+    if isinstance(event, BotStarted):
+        return event.user.user_id
     if isinstance(event, MessageCallback):
         return event.callback.user.user_id
     if event.message.sender:
         return event.message.sender.user_id
     return None
+
+
+def _auth_failure_message(exc: Exception) -> str:
+    text = str(exc or "").strip()
+    if "IIKO_API_BASE_URL is not configured" in text:
+        return Msg.AUTH_API_NOT_CONFIGURED
+    if any(
+        token in text
+        for token in ("getaddrinfo", "Name or service not known", "nodename nor servname", "ConnectError")
+    ):
+        return Msg.AUTH_NETWORK_ERROR
+    return Msg.AUTH_FAILED
 
 
 def _message_mid(message: Message) -> str | None:
@@ -138,6 +160,7 @@ class MaxInvoiceBot:
         logger.info("MaxInvoiceBot initialized")
 
     def _register(self) -> None:
+        self.dp.bot_started.register(self.on_bot_started)
         self.dp.message_created.register(self.cmd_start, Command("start"))
         self.dp.message_created.register(self.cmd_status, Command("status"))
         self.dp.message_created.register(self.cmd_split, Command("split"))
@@ -151,10 +174,10 @@ class MaxInvoiceBot:
         return store_user_id(max_user_id)
 
     async def _deny_message(self, event: MessageCreated) -> None:
-        await event.message.answer(ACCESS_DENIED, format=HTML)
+        await event.message.answer(Msg.ACCESS_DENIED, format=HTML)
 
     async def _deny_callback(self, event: MessageCallback) -> None:
-        await event.ack(notification=ACCESS_DENIED)
+        await event.ack(notification=Msg.ACCESS_DENIED)
 
     async def _answer(
         self,
@@ -164,9 +187,13 @@ class MaxInvoiceBot:
     ) -> Message:
         attachments = dict_to_markup(keyboard)
         kw: dict[str, Any] = {"format": HTML}
-        if attachments:
+        if attachments is not None:
             kw["attachments"] = attachments
-        sent = await message.answer(text, **kw)
+        try:
+            sent = await message.answer(prepare_outgoing_text(text), **kw)
+        except Exception:
+            logger.exception("Failed to answer message")
+            raise
         if sent and getattr(sent, "message", None):
             return sent.message
         return message
@@ -218,38 +245,50 @@ class MaxInvoiceBot:
         self._recent_hashes[store_key] = bucket
         return False
 
+    @staticmethod
+    def _pending_dir_key(store_key: str) -> str:
+        return storage_dir_key(store_key)
+
     def _collect_pending_files(self, store_key: str) -> list[tuple[str, bytes]]:
-        return self._storage.collect_pending_files(store_key)
+        return self._storage.collect_pending_files(self._pending_dir_key(store_key))
 
     def _collect_split_files(self, store_key: str) -> list[tuple[str, bytes]]:
-        return self._storage.collect_split_files(store_key)
+        return self._storage.collect_split_files(self._pending_dir_key(store_key))
 
     def _clear_pending_dir(self, store_key: str) -> None:
-        self._storage.clear_pending_dir(store_key)
+        self._storage.clear_pending_dir(self._pending_dir_key(store_key))
 
     def _clear_split_dir(self, store_key: str) -> None:
-        self._storage.clear_split_dir(store_key)
+        self._storage.clear_split_dir(self._pending_dir_key(store_key))
 
     def _deduplicate_pending_dir(self, store_key: str) -> dict[str, int]:
-        return self._storage.deduplicate_pending_files(store_key)
+        return self._storage.deduplicate_pending_files(self._pending_dir_key(store_key))
 
     def _deduplicate_split_dir(self, store_key: str) -> dict[str, int]:
-        return self._storage.deduplicate_split_files(store_key)
+        return self._storage.deduplicate_split_files(self._pending_dir_key(store_key))
 
     def _pending_duplicates_count(self, store_key: str) -> int:
-        return self._storage.count_pending_duplicates(store_key)
+        return self._storage.count_pending_duplicates(self._pending_dir_key(store_key))
 
     def _split_duplicates_count(self, store_key: str) -> int:
-        return self._storage.count_split_duplicates(store_key)
+        return self._storage.count_split_duplicates(self._pending_dir_key(store_key))
 
     def _store_pending_bytes(self, store_key: str, filename: str, content: bytes) -> bool:
         is_dup = self._is_duplicate(store_key, content)
-        self._storage.store_pending_bytes(user_id=store_key, filename=filename, content=content)
+        self._storage.store_pending_bytes(
+            user_id=self._pending_dir_key(store_key),
+            filename=filename,
+            content=content,
+        )
         return is_dup
 
     def _store_split_bytes(self, store_key: str, filename: str, content: bytes) -> bool:
         is_dup = self._is_duplicate(store_key, content)
-        self._storage.store_split_bytes(user_id=store_key, filename=filename, content=content)
+        self._storage.store_split_bytes(
+            user_id=self._pending_dir_key(store_key),
+            filename=filename,
+            content=content,
+        )
         return is_dup
 
     def _ensure_pending_user(self, store_key: str) -> bool:
@@ -384,18 +423,35 @@ class MaxInvoiceBot:
 
         await reply_or_edit(status_msg, self._format_response(result))
 
+    def _prepare_auth_start(self, store_key: str) -> tuple[str, dict[str, Any] | None]:
+        self._reset_user_buffers(store_key)
+        if get_iiko_credentials(store_key):
+            return Msg.AUTH_ALREADY, self._auth_already_keyboard()
+        self._auth_state[store_key] = "await_login"
+        return Msg.AUTH_START, None
+
+    async def on_bot_started(self, event: BotStarted) -> None:
+        max_uid = _sender_id(event)
+        if max_uid is None or not is_allowed(max_uid, self.allowed):
+            return
+        store_key = self._uid(max_uid)
+        text, keyboard = self._prepare_auth_start(store_key)
+        await send_to_user(
+            self.bot,
+            chat_id=event.chat_id,
+            user_id=max_uid,
+            text=text,
+            keyboard=keyboard,
+        )
+
     async def cmd_start(self, event: MessageCreated) -> None:
         max_uid = _sender_id(event)
         if max_uid is None or not is_allowed(max_uid, self.allowed):
             await self._deny_message(event)
             return
         store_key = self._uid(max_uid)
-        self._reset_user_buffers(store_key)
-        if get_iiko_credentials(store_key):
-            await self._answer(event.message, Msg.AUTH_ALREADY, self._auth_already_keyboard())
-            return
-        await self._answer(event.message, Msg.AUTH_START)
-        self._auth_state[store_key] = "await_login"
+        text, keyboard = self._prepare_auth_start(store_key)
+        await self._answer(event.message, text, keyboard)
 
     async def cmd_status(self, event: MessageCreated) -> None:
         max_uid = _sender_id(event)
@@ -469,6 +525,14 @@ class MaxInvoiceBot:
             return
 
         message = event.message
+        try:
+            await self._on_message_body(message, max_uid)
+        except Exception:
+            logger.exception("on_message failed for user %s", max_uid)
+            with suppress(Exception):
+                await self._answer(message, Msg.HANDLER_ERROR)
+
+    async def _on_message_body(self, message: Message, max_uid: int) -> None:
         body = message.body
         text = (body.text if body else "") or ""
         text = text.strip()
@@ -478,7 +542,7 @@ class MaxInvoiceBot:
 
         store_key = self._uid(max_uid)
 
-        if body and body.attachments:
+        if has_downloadable_attachments(message):
             await self._handle_attachments(message, max_uid, store_key)
             return
 
@@ -513,13 +577,16 @@ class MaxInvoiceBot:
             try:
                 await self._iiko_client.verify_credentials(login, text)
             except Exception as exc:
+                logger.warning(
+                    "iiko auth failed for %s (store=%s): %s",
+                    login,
+                    store_key,
+                    exc,
+                    exc_info=True,
+                )
                 self._auth_state[store_key] = "await_login"
                 self._pending_login.pop(store_key, None)
-                error_text = str(exc or "").strip()
-                if "IIKO_API_BASE_URL is not configured" in error_text:
-                    await self._answer(message, Msg.AUTH_API_NOT_CONFIGURED)
-                else:
-                    await self._answer(message, Msg.AUTH_FAILED)
+                await self._answer(message, _auth_failure_message(exc))
                 return
             set_iiko_credentials(store_key, login, text)
             self._auth_state.pop(store_key, None)
@@ -629,7 +696,7 @@ class MaxInvoiceBot:
                     await old_msg.edit(text=" ", format=None)
 
     async def _handle_pdf_mode_choice(self, message: Message, store_key: str) -> None:
-        current = get_pdf_mode(store_key)
+        current = pdf_mode_label(get_pdf_mode(store_key))
         keyboard = {
             "inline_keyboard": [
                 [_button(Msg.BTN_FAST, "pdf:fast", style="primary")],
@@ -808,7 +875,6 @@ class MaxInvoiceBot:
             await reply_or_edit(status_msg, Msg.BATCH_COLLECTED.format(count=len(files)))
         else:
             status_msg = await self._answer(message, Msg.BATCH_COLLECTED.format(count=len(files)))
-
         chat_id = _chat_id(message)
         try:
             result = await send_batch_to_backend(
@@ -1626,11 +1692,100 @@ def _sender_id_from_message(message: Message) -> int | None:
     return None
 
 
+def _max_bot_cmdline_markers() -> tuple[str, ...]:
+    return ("experiments.max_invoice_bot", "app.entrypoints.max_bot")
+
+
+def _ancestor_pids_windows() -> set[int]:
+    import subprocess
+
+    current = os.getpid()
+    ps = (
+        f"$procId = {current}; $seen = @(); "
+        "while ($procId -gt 0 -and $seen -notcontains $procId) { "
+        "$seen += $procId; "
+        "$p = Get-CimInstance Win32_Process -Filter \"ProcessId=$procId\"; "
+        "$procId = [int]($p.ParentProcessId); "
+        "}; $seen | ConvertTo-Json -Compress"
+    )
+    try:
+        raw = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", ps],
+            text=True,
+            timeout=10,
+        ).strip()
+    except Exception:
+        return {current}
+    if not raw or raw == "null":
+        return {current}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {current}
+    if isinstance(data, int):
+        return {data, current}
+    return {int(x) for x in data if int(x) > 0} | {current}
+
+
+def _ensure_single_instance() -> None:
+    """Refuse to start if another MAX invoice bot is already polling."""
+    if os.name != "nt":
+        return
+    import subprocess
+
+    current = os.getpid()
+    protected = _ancestor_pids_windows()
+    ps = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.Name -in @('python.exe','pythonw.exe') } | "
+        "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
+    )
+    try:
+        raw = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", ps],
+            text=True,
+            timeout=20,
+        ).strip()
+    except Exception:
+        logger.warning("Could not scan for duplicate MAX bot processes")
+        return
+    if not raw or raw == "null":
+        return
+    try:
+        rows = json.loads(raw)
+    except json.JSONDecodeError:
+        return
+    if isinstance(rows, dict):
+        rows = [rows]
+
+    markers = _max_bot_cmdline_markers()
+    victims: list[int] = []
+    for row in rows:
+        try:
+            pid = int(row.get("ProcessId") or 0)
+        except (TypeError, ValueError):
+            continue
+        if pid <= 0 or pid == current or pid in protected:
+            continue
+        cmd = str(row.get("CommandLine") or "")
+        if any(marker in cmd for marker in markers):
+            victims.append(pid)
+    if not victims:
+        return
+    logger.error(
+        "MAX invoice bot already running (PIDs: %s). "
+        "Stop other instances first — duplicate pollers send double replies.",
+        victims,
+    )
+    raise SystemExit(1)
+
+
 async def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
+    _ensure_single_instance()
     bot = MaxInvoiceBot()
     backoff = 5
     while True:

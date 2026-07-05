@@ -27,14 +27,33 @@ def _url_from_payload(payload) -> str | None:
     return None
 
 
+def _iter_file_attachments(message: Message):
+    """Attachments from message body and from forwarded/replied linked message."""
+    bodies = []
+    if message.body:
+        bodies.append(message.body)
+    link = message.link
+    if link and link.message:
+        bodies.append(link.message)
+    for body in bodies:
+        for att in body.attachments or []:
+            atype = getattr(att, "type", None)
+            if atype in (AttachmentType.FILE, AttachmentType.IMAGE):
+                yield att
+
+
+def has_downloadable_attachments(message: Message) -> bool:
+    return next(_iter_file_attachments(message), None) is not None
+
+
 async def download_from_message(message: Message, *, auth_token: str) -> list[DownloadedFile]:
-    body = message.body
-    if not body or not body.attachments:
+    attachments = list(_iter_file_attachments(message))
+    if not attachments:
         return []
     headers = {"Authorization": auth_token}
     results: list[DownloadedFile] = []
     async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
-        for att in body.attachments:
+        for att in attachments:
             atype = getattr(att, "type", None)
             if atype == AttachmentType.INLINE_KEYBOARD:
                 continue

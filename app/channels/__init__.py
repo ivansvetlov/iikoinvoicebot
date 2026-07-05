@@ -10,6 +10,11 @@ from app.channels.protocol import (
     OutgoingEdit,
     OutgoingMessage,
 )
+from app.channels.users import (
+    MAX_PREFIX,
+    channel_of,
+    is_max_channel_user,
+)
 
 __all__ = [
     "ChannelKind",
@@ -17,7 +22,10 @@ __all__ = [
     "IncomingEvent",
     "IncomingFile",
     "IncomingKind",
+    "MAX_PREFIX",
     "OutgoingAction",
     "OutgoingEdit",
     "OutgoingMessage",
+    "channel_of",
+    "is_max_channel_user",
 ]

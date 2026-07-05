@@ -4,6 +4,21 @@
 
 > **Нумерация:** новые записи — **вверху**. Ниже есть исторические блоки с теми же номерами (§50–§54, iiko 2026-04). При конфликте приоритет у верхней записи с более свежей датой.
 
+## 61) dev_stack_ctl — fast 1/2/5 restart for agents (2026-07-03)
+- Files: `scripts/dev_stack_ctl.py`, `scripts/dev_stack_ctl.ps1`, `.agents/skills/dev-stack-restart/SKILL.md`.
+- Why: agent `(cd ; uvicorn --port 8000)` breaks PowerShell parser; retries cost ~1–2 min.
+- Command: `.venv\Scripts\python.exe scripts\dev_stack_ctl.py restart` (~15 s).
+- Maps PyCharm: `1__backend.xml`, `2__worker.xml`, `5__max_invoice_bot.xml`.
+
+## 60) Memory Bank + MAX preflight removed + tray IDE hints (2026-07-03)
+- Files: `docs/governance/MEMORY_BANK.md`, `docs/AGENTS.md`, `docs/README.md`; `experiments/max_invoice_bot/bot.py` (no preflight); `.worktrees/dev-process-monitor/scripts/dev_process_monitor.py`, `dev_ide_probe.py`.
+- Behavior:
+  - **Memory Bank** — журнал для смены тредов (chat dumps с `kotlin.Unit` ненадёжны); агенты читают/дописывают по правилам в `docs/AGENTS.md`.
+  - **MAX upload** — без preflight (~20 с экономии); ошибки из worker/race как раньше.
+  - **Tray monitor** — tooltip колонкой (`\n`); строка IDE: RAM + размер Memory Bank.
+- Diagnosis ref: заявка `20260703_164149` — `llm_timeout` = SotaOCR `upstream_unavailable` (109.230.162.227:8090) + OpenAI vision timeout.
+- Quick check: `.venv\Scripts\python.exe -m unittest tests.test_max_recognition_race -v`; tray: `dev_process_monitor.py --once` в worktree `dev-process-monitor`.
+
 ## 59) MAX token separation + stage6 pipeline (2026-06-29)
 - Tokens: `MAX_INVOICE_BOT_TOKEN` (Pusher `@id780246960018_1_bot`) ≠ `GROK_MAX_BRIDGE_TOKEN` (отдельный dev-бот).
 - Guard: `app/bot/max_tokens.py` — startup check, no shared token.

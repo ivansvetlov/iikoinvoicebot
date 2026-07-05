@@ -103,5 +103,39 @@ class Settings(BaseSettings):
     # Options: "db" (default, backward compatible), "redis", "hybrid" (future)
     state_backend: str = Field(default="db", alias="STATE_BACKEND")
 
+    # SotaOCR (optional OCR provider — https://sotaocr.com/docs)
+    sotaocr_api_key: str = Field(default="", alias="SOTAOCR_API_KEY")
+    sotaocr_base_url: str = Field(default="https://sotaocr.com", alias="SOTAOCR_BASE_URL")
+    sotaocr_timeout_sec: int = Field(default=600, alias="SOTAOCR_TIMEOUT_SEC")
+    sotaocr_poll_interval_sec: float = Field(default=1.0, alias="SOTAOCR_POLL_INTERVAL_SEC")
+    sotaocr_model_profile: str = Field(default="", alias="SOTAOCR_MODEL_PROFILE")
+    sotaocr_max_retries: int = Field(default=3, alias="SOTAOCR_MAX_RETRIES")
+    # Transport: "requests" (default) or "auto" (curl for multipart uploads on Windows).
+    sotaocr_prefer_curl: str = Field(default="auto", alias="SOTAOCR_PREFER_CURL")
+    sotaocr_wg_config: str = Field(
+        default="config/wireguard/vpn188958_split_sotaocr.conf",
+        alias="SOTAOCR_WG_CONFIG",
+    )
+    sotaocr_hybrid_enabled: bool = Field(default=True, alias="SOTAOCR_HYBRID_ENABLED")
+    sotaocr_hybrid_prompt_path: str = Field(
+        default="prompts/sotaocr_hybrid_parse.txt",
+        alias="SOTAOCR_HYBRID_PROMPT_PATH",
+    )
+    sotaocr_hybrid_llm_timeout_sec: int = Field(default=45, alias="SOTAOCR_HYBRID_LLM_TIMEOUT_SEC")
+    sotaocr_hybrid_openai_probe_timeout_sec: int = Field(
+        default=15,
+        alias="SOTAOCR_HYBRID_OPENAI_PROBE_TIMEOUT_SEC",
+    )
+    invoice_venue_context: str = Field(
+        default="ресторан или кофейня",
+        alias="INVOICE_VENUE_CONTEXT",
+    )
+    # MAX-only parallel recognition (enabled when user_id starts with "max:")
+    max_recognition_race_enabled: bool = Field(default=True, alias="MAX_RECOGNITION_RACE_ENABLED")
+    recognition_race_budget_sec: int = Field(default=90, alias="RECOGNITION_RACE_BUDGET_SEC")
+    recognition_vision_budget_sec: int = Field(default=45, alias="RECOGNITION_VISION_BUDGET_SEC")
+    recognition_sotaocr_budget_sec: int = Field(default=60, alias="RECOGNITION_SOTA_OCR_BUDGET_SEC")
+    max_watch_timeout_sec: int = Field(default=150, alias="MAX_WATCH_TIMEOUT_SEC")
+
 
 settings = Settings()
