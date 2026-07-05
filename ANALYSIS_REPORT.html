@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Анализ: внешние идеи + проект</title>
+<style>
+:root {
+  --bg:#0b1220; --card:#151f32; --card2:#1a2740; --text:#e8eef7; --muted:#8fa3bf;
+  --done:#34d399; --todo:#fbbf24; --accent:#60a5fa; --accent2:#a78bfa;
+  --err:#f87171; --warn:#fbbf24; --border:#2a3a55; --tab:#1a2740;
+  --gap:#fb923c;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:radial-gradient(1400px 700px at 5% -5%,#1e3a5f 0%,var(--bg) 55%);color:var(--text);line-height:1.55}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 20px 60px}
+header{margin-bottom:28px}
+header h1{margin:0 0 8px;font-size:2rem;font-weight:700;letter-spacing:-.02em}
+header h1 span{color:var(--accent)}
+.subtitle{color:var(--muted);font-size:.95rem;max-width:720px}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin:20px 0}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 16px}
+.stat b{display:block;font-size:1.5rem;color:var(--accent);margin:4px 0}
+.stat small{color:var(--muted);font-size:.8rem}
+.stat.done b{color:var(--done)}
+.stat.warn b{color:var(--warn)}
+.stat.gap b{color:var(--gap)}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0 20px;position:sticky;top:0;z-index:10;background:rgba(11,18,32,.92);backdrop-filter:blur(8px);padding:10px 0;border-bottom:1px solid var(--border)}
+.tab{padding:10px 18px;border-radius:10px;border:1px solid var(--border);background:var(--tab);cursor:pointer;color:var(--text);font-size:.9rem;transition:.15s}
+.tab:hover{border-color:var(--accent);color:var(--accent)}
+.tab.active{background:linear-gradient(135deg,var(--accent),#3b82f6);color:#0b1220;font-weight:700;border-color:transparent}
+.panel{display:none;animation:fade .25s ease}
+.panel.active{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+h2.section{margin:0 0 16px;font-size:1.35rem;color:var(--text)}
+h3{margin:18px 0 10px;font-size:1.05rem;color:var(--accent)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;margin-bottom:14px;overflow:hidden}
+.card-head{padding:14px 18px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;font-weight:600;font-size:.95rem}
+.card-head:hover{background:var(--card2)}
+.card-body{padding:0 18px 16px;display:none}
+.card-body.open{display:block}
+.badge{font-size:.75rem;padding:3px 10px;border-radius:20px;font-weight:600;white-space:nowrap}
+.badge.done{background:rgba(52,211,153,.15);color:var(--done)}
+.badge.partial{background:rgba(251,191,36,.15);color:var(--warn)}
+.badge.gap{background:rgba(251,146,60,.15);color:var(--gap)}
+.badge.info{background:rgba(96,165,250,.15);color:var(--accent)}
+.badge.pause{background:rgba(143,163,191,.15);color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th,td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+tr:hover td{background:rgba(26,39,64,.5)}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:.75rem;margin:2px 4px 2px 0;background:#0a101c;border:1px solid var(--border);color:var(--muted)}
+.tag.hot{border-color:var(--accent);color:var(--accent)}
+.tag.src{border-color:#4b5563}
+.arch{background:#0a101c;border:1px solid var(--border);border-radius:12px;padding:16px 18px;font-family:Consolas,"Cascadia Mono",monospace;font-size:.82rem;line-height:1.6;overflow-x:auto;white-space:pre;color:#a5d8ff;margin:12px 0}
+.timeline{position:relative;padding-left:28px;margin:16px 0}
+.timeline::before{content:"";position:absolute;left:8px;top:4px;bottom:4px;width:2px;background:var(--border)}
+.tl-item{position:relative;margin-bottom:16px}
+.tl-item::before{content:"";position:absolute;left:-24px;top:6px;width:12px;height:12px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
+.tl-item.hot::before{background:var(--accent2)}
+.tl-date{font-size:.78rem;color:var(--muted);margin-bottom:2px}
+.tl-title{font-weight:600}
+.tl-desc{font-size:.88rem;color:var(--muted);margin-top:4px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}}
+.mini-card{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.mini-card h4{margin:0 0 8px;font-size:.92rem;color:var(--accent)}
+.mini-card p{margin:0;font-size:.85rem;color:var(--muted)}
+.priority{display:flex;align-items:center;gap:8px}
+.pri-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.pri-1{background:var(--done)} .pri-2{background:var(--accent)} .pri-3{background:var(--warn)}
+footer{margin-top:40px;padding-top:20px;border-top:1px solid var(--border);color:var(--muted);font-size:.82rem;text-align:center}
+.chev{color:var(--muted);transition:transform .2s}
+.card.open .chev{transform:rotate(180deg)}
+ul.compact{margin:8px 0;padding-left:18px;font-size:.88rem}
+ul.compact li{margin:4px 0;color:var(--muted)}
+ul.compact li strong{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Анализ <span>избранного Telegram</span> + проект</h1>
+  <p class="subtitle">
+    Внешние идеи из Saved Messages (янв–июль 2026) и сопоставление с реализацией
+    <code style="color:var(--accent)">PythonProject</code>.
+    Источник: экспорт Telegram Desktop · 128 внешних идей · 274 dev-сообщения после фильтрации.
+  </p>
+  <div class="stats">
+    <div class="stat"><small>Внешних идей</small><b>128</b><small>пересланные + ссылки</small></div>
+    <div class="stat done"><small>Уже в проекте</small><b>9</b><small>из 14 паттернов</small></div>
+    <div class="stat warn"><small>Частично</small><b>4</b><small>нужно дозаполнить</small></div>
+    <div class="stat gap"><small>Gap</small><b>5</b><small>к внедрению</small></div>
+    <div class="stat"><small>Пик идей</small><b>июн</b><small>54 сообщения</small></div>
+    <div class="stat"><small>Ветка</small><b style="font-size:.95rem">channel-max</b><small>активная</small></div>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab active" data-tab="overview">Обзор</button>
+  <button class="tab" data-tab="external">Внешние идеи</button>
+  <button class="tab" data-tab="project">Проект</button>
+  <button class="tab" data-tab="mapping">Сопоставление</button>
+  <button class="tab" data-tab="roadmap">Roadmap</button>
+  <button class="tab" data-tab="links">Ссылки</button>
+</nav>
+
+<!-- OVERVIEW -->
+<section id="overview" class="panel active">
+  <h2 class="section">Резюме</h2>
+  <div class="grid2">
+    <div class="mini-card">
+      <h4>Что анализировали</h4>
+      <p>Экспорт избранного Telegram (<code>result.json</code>, 1731 сообщение). Отсеяны личные промпты, логи Termux/SSH, всё по <code>iikoinvoicebot</code>. Оставлены пересланные посты из AI-каналов и сохранённые ссылки.</p>
+    </div>
+    <div class="mini-card">
+      <h4>Главный вывод</h4>
+      <p>Внешние идеи — не «новое направление», а <strong style="color:var(--text)">дозаполнение</strong> уже начатого AI Native workspace. Проект уже имеет memory bank, skills, bridges, dashboards — осталось мультиагентность, semantic testing, sandbox, VPS.</p>
+    </div>
+  </div>
+
+  <h3>Целевая архитектура AI Workspace</h3>
+  <div class="arch">┌─────────────────────────────────────────────────────────┐
+│  Harness (rules, skills, MEMORY_BANK, SHELL_PITFALLS)   │
+├─────────────────────────────────────────────────────────┤
+│  Агент: Grok CLI / Codex / Cursor                       │
+├─────────────────────────────────────────────────────────┤
+│  MCP: Playwright, Context7, project-specific            │
+├─────────────────────────────────────────────────────────┤
+│  Репозиторий: AGENTS.md, docs/, prompts/, bridges      │
+├─────────────────────────────────────────────────────────┤
+│  Продукт: FastAPI + RQ + Telegram/MAX + iiko pipeline   │
+└─────────────────────────────────────────────────────────┘</div>
+
+  <h3>Топ каналов-источников</h3>
+  <table>
+    <thead><tr><th>Канал</th><th>Сообщений</th><th>Темы</th></tr></thead>
+    <tbody>
+      <tr><td>Глеб Кудрявцев про AI</td><td>10</td><td>верстка SAM3, ralphy, GitHub-интеграция GPT-5</td></tr>
+      <tr><td>LLM под капотом</td><td>9</td><td>SDD, harness engineering, Personal OS, вебинары</td></tr>
+      <tr><td>AI for Devs</td><td>8</td><td>модели, Dynamic Workflows, Fable 5, GLM</td></tr>
+      <tr><td>Валера Ковальский</td><td>7</td><td>NeuralDeep, GitMark, copyosity, sandboxes</td></tr>
+      <tr><td>Силиконовый Мешок</td><td>6</td><td>промптинг, TicNote, Google Workspace CLI</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- EXTERNAL -->
+<section id="external" class="panel">
+  <h2 class="section">Внешние идеи по категориям</h2>
+
+  <div class="card open">
+    <div class="card-head" onclick="toggleCard(this)">
+      <span>AI-агенты и coding assistants</span>
+      <span class="badge info">85 сообщений</span><span class="chev">▼</span>
+    </div>
+    <div class="card-body open">
+      <table>
+        <thead><tr><th>Идея</th><th>Источник</th><th>Суть</th></tr></thead>
+        <tbody>
+          <tr><td>Fable 5 + 93 субагента</td><td>nlp_daily</td><td>PRD.md + CLAUDE.md → планёрка → разведчики → код с нуля</td></tr>
+          <tr><td>Dynamic Workflows</td><td>AI for Devs</td><td>Claude Code генерирует JS-harness под задачу на лету</td></tr>
+          <tr><td>Codex <code>/goal</code></td><td>nlp_daily</td><td>Ralph loop — жжёт токены до достижения цели</td></tr>
+          <tr><td>Playwright MCP</td><td>Alex M.</td><td>GPT-5.4 + browser use для агентов</td></tr>
+          <tr><td>agent-browser</td><td>AI для Инженеров</td><td>Легковесная альтернатива MCP от Vercel</td></tr>
+          <tr><td>Antigravity Chrome</td><td>Ruslan Vakhitov</td><td>Деплой → UI-тест → скринкаст → фикс</td></tr>
+          <tr><td>Anthropic Channels</td><td>LLM под капотом</td><td>Управление Claude Code из Telegram</td></tr>
+          <tr><td>cmux</td><td>Mikhail Pershin</td><td>macOS-терминал для нескольких AI-агентов</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head" onclick="toggleCard(this)">
+      <span>Knowledge / RAG / память</span>
+      <span class="badge info">16 сообщений</span><span class="chev">▼</span>
+    </div>
+    <div class="card-body">
+      <table>
+        <thead><tr><th>Идея</th><th>Суть</th></tr></thead>
+        <tbody>
+          <tr><td>Karpathy LLM wiki</td><td>Markdown + ссылки вместо классического RAG; Obsidian как frontend</td></tr>
+          <tr><td>ungrep + tree + read</td><td>Поиск по папкам без embedding-RAG (Konstantin Kalinin)</td></tr>
+          <tr><td>DCD Design</td><td>Domain → Collection → Document для RAG (<a href="https://arxiv.org/abs/2604.07590">arxiv</a>)</td></tr>
+          <tr><td>GitMark Memory Bank</td><td>Граф документации, точка входа CLAUDE.md / AGENTS.md</td></tr>
+          <tr><td>Personal OS v2.1</td><td>Codex как персональный ассистент без привязки к провайдеру</td></tr>
+          <tr><td>SHELL_PITFALLS.md</td><td>Журнал shell-багов, агент читает в начале сессии</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head" onclick="toggleCard(this)">
+      <span>Мультиагентные workflow</span>
+      <span class="badge info">20 сообщений</span><span class="chev">▼</span>
+    </div>
+    <div class="card-body">
+      <table>
+        <thead><tr><th>Инструмент</th><th>Роли</th><th>Ссылка</th></tr></thead>
+        <tbody>
+          <tr><td>Goal Buddy</td><td>Scout (read-only) + Worker + Reviewer</td><td><a href="https://github.com/tolibear/goalbuddy">github</a></td></tr>
+          <tr><td>get-shit-done</td><td>Review агентами — Claude, Codex, Gemini</td><td><a href="https://github.com/gsd-build/get-shit-done">github</a></td></tr>
+          <tr><td>ralphy</td><td>Контент-завод в Codex/Claude</td><td><a href="https://github.com/alecs5am/ralphy">github</a></td></tr>
+          <tr><td>Exoskeleton</td><td>71.8 очков за 51 мин (ECOM1 Speed Leaderboard)</td><td><a href="https://bitgn.com/insights/2026-06-15-ecom1-exoskeleton-insight">bitgn</a></td></tr>
+          <tr><td>Hive Mind</td><td>Минимум нейронок, максимум кода (Konard)</td><td>link-assistant/*</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head" onclick="toggleCard(this)">
+      <span>DevOps / инфра для AI</span>
+      <span class="badge info">15 сообщений</span><span class="chev">▼</span>
+    </div>
+    <div class="card-body">
+      <table>
+        <thead><tr><th>Проект</th><th>Что делает</th></tr></thead>
+        <tbody>
+          <tr><td>mttrly.com</td><td>AI DevOps-агент на VPS: мониторинг, MCP, управление сервером</td></tr>
+          <tr><td>docker-git</td><td>Изолированные среды для агентов через SSH в контейнеры</td></tr>
+          <tr><td>multica-ai</td><td>Подписки Claude/Codex на VM, агенты с ролями</td></tr>
+          <tr><td>NeuralDeep Hub</td><td>vLLM + router + Drift API + firecracker microVM</td></tr>
+          <tr><td>Sandboxes for AI</td><td>Обзор песочниц (Cowork, OpenClaw-клоны)</td></tr>
+          <tr><td>lightassay</td><td>Semantic e2e-тестирование LLM-workflow одной командой</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Хронология внешних идей</h3>
+  <div class="timeline">
+    <div class="tl-item"><div class="tl-date">Март 2026</div><div class="tl-title">Browser automation взлетает</div><div class="tl-desc">Playwright MCP, agent-browser, Claude 1M контекст, Channels</div></div>
+    <div class="tl-item"><div class="tl-date">Апрель</div><div class="tl-title">Karpathy LLM wiki, Manus MCP, docker-git</div></div>
+    <div class="tl-item hot"><div class="tl-date">Май</div><div class="tl-title">Codex /goal, Qwen3.7 (35ч автономно), GLM-5.1 400 tok/s</div></div>
+    <div class="tl-item hot"><div class="tl-date">Июнь</div><div class="tl-title">Пик: AI workspace, мультиагенты, SDD vs harness, GLM-5.2 MIT</div></div>
+    <div class="tl-item"><div class="tl-date">Июль</div><div class="tl-title">Fable 5 промптинг, GPT-5.6, Codex HTML-отчёты</div></div>
+  </div>
+</section>
+
+<!-- PROJECT -->
+<section id="project" class="panel">
+  <h2 class="section">Как реализовано в PythonProject</h2>
+
+  <h3>Продуктовая архитектура</h3>
+  <div class="arch">Telegram / MAX bot
+    → POST /process | /process-batch
+        → data/jobs/&lt;id&gt;/payload.json
+        → RQ queue (Redis)
+            → worker: process_invoice_task()
+                → InvoicePipelineService
+                    → recognition_race (OpenAI vision ∥ SotaOCR)
+                    → LLM parse → iiko API | CSV/XLSX
+                → уведомление пользователю</div>
+
+  <div class="grid3">
+    <div class="mini-card">
+      <h4>Backend</h4>
+      <p><code>app/api.py</code> — FastAPI, webhook, metrics middleware</p>
+    </div>
+    <div class="mini-card">
+      <h4>Worker</h4>
+      <p><code>app/tasks.py</code> — RQ, Telegram edit/send</p>
+    </div>
+    <div class="mini-card">
+      <h4>Pipeline</h4>
+      <p><code>app/services/pipeline.py</code> — OCR → LLM → iiko</p>
+    </div>
+    <div class="mini-card">
+      <h4>Telegram</h4>
+      <p><code>app/bot/manager.py</code> — aiogram, post-recognition UX</p>
+    </div>
+    <div class="mini-card">
+      <h4>MAX (активно)</h4>
+      <p><code>experiments/max_invoice_bot/</code> — task_watcher poll</p>
+    </div>
+    <div class="mini-card">
+      <h4>Observability</h4>
+      <p><code>app/observability.py</code> — metrics.jsonl, alerts</p>
+    </div>
+  </div>
+
+  <h3>AI Native Harness (уже есть)</h3>
+  <table>
+    <thead><tr><th>Компонент</th><th>Путь</th><th>Аналог из избранного</th></tr></thead>
+    <tbody>
+      <tr><td>AGENTS.md</td><td><code>docs/AGENTS.md</code></td><td>Правила агентов, без костылей</td></tr>
+      <tr><td>Memory Bank</td><td><code>docs/governance/MEMORY_BANK.md</code></td><td>Karpathy wiki + GitMark</td></tr>
+      <tr><td>Agent Handoff</td><td><code>docs/governance/AGENT_HANDOFF.md</code></td><td>Handoff для Cursor/Grok</td></tr>
+      <tr><td>Skills (8 шт.)</td><td><code>.agents/skills/</code></td><td>Veai Skills, learn-claude-code</td></tr>
+      <tr><td>SHELL_PITFALLS</td><td><code>powershell-windows</code> skill</td><td>Виталий Власов / Codex knowledge</td></tr>
+      <tr><td>DCD docs</td><td><code>docs/governance|operations|architecture|iiko|planning</code></td><td>DCD Design</td></tr>
+      <tr><td>Grok TG bridge</td><td><code>experiments/grok_telegram_bridge/</code></td><td>Anthropic Channels</td></tr>
+      <tr><td>Grok MAX bridge</td><td><code>experiments/grok_max_bridge/</code></td><td>Remote agent</td></tr>
+      <tr><td>HTML dashboards</td><td><code>docs/assets/project-dashboard.html</code></td><td>Codex HTML-отчёты</td></tr>
+      <tr><td>Dev stack ctl</td><td><code>scripts/dev_stack_ctl.py</code></td><td>Harness для запуска 1/2/5/8</td></tr>
+      <tr><td>State backends</td><td><code>app/state/</code> (db | redis)</td><td>AGENT_PRIME C1</td></tr>
+      <tr><td>Recognition race</td><td><code>app/services/recognition_race.py</code></td><td>Parallel OCR paths</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Активная ветка: feature/channel-max</h3>
+  <ul class="compact">
+    <li><strong>MAX invoice bot</strong> — <code>experiments/max_invoice_bot/</code>, long polling, task_watcher</li>
+    <li><strong>Recognition race</strong> — OpenAI vision ∥ SotaOCR hybrid (только MAX)</li>
+    <li><strong>VPN компонент 8</strong> — WireGuard для SotaOCR upstream</li>
+    <li><strong>Preflight убран</strong> (2026-07-03) — ложные OK при мёртвом worker 109.230.162.227</li>
+    <li><strong>Telegram не трогаем</strong> — параллельный трек</li>
+  </ul>
+
+  <h3>На паузе</h3>
+  <table>
+    <thead><tr><th>Трек</th><th>Статус</th><th>Причина</th></tr></thead>
+    <tbody>
+      <tr><td>AGENT_PRIME (distributed agents)</td><td><span class="badge pause">PAUSED</span></td><td>Нет VPS; C2/C5 ждут сервер</td></tr>
+      <tr><td>Telegram favorites research</td><td><span class="badge pause">PAUSED</span></td><td>Нет TELEGRAM_API_ID/HASH; есть desktop export</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- MAPPING -->
+<section id="mapping" class="panel">
+  <h2 class="section">Сопоставление: идея → проект</h2>
+  <table>
+    <thead>
+      <tr><th>Внешняя идея</th><th>В проекте</th><th>Статус</th><th>Где / что делать</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>AGENTS.md + Memory Bank</td>
+        <td><code>docs/AGENTS.md</code>, <code>MEMORY_BANK.md</code></td>
+        <td><span class="badge done">✓ Готово</span></td>
+        <td>Продолжать вести журнал</td>
+      </tr>
+      <tr>
+        <td>Skills (открытый стандарт)</td>
+        <td><code>.agents/skills/</code> — 8 скиллов</td>
+        <td><span class="badge done">✓ Готово</span></td>
+        <td>Добавить project-specific skills</td>
+      </tr>
+      <tr>
+        <td>SHELL_PITFALLS</td>
+        <td><code>powershell-windows</code> skill</td>
+        <td><span class="badge done">✓ Готово</span></td>
+        <td>Обновлять §10 при новых багах PS</td>
+      </tr>
+      <tr>
+        <td>DCD / docs hierarchy</td>
+        <td><code>docs/governance|operations|…</code></td>
+        <td><span class="badge done">✓ Готово</span></td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>Remote agent / Channels</td>
+        <td>Grok TG + MAX bridges</td>
+        <td><span class="badge done">✓ Готово</span></td>
+        <td>HANDOFF_LATEST.md workflow</td>
+      </tr>
+      <tr>
+        <td>HTML dashboards</td>
+        <td><code>project-dashboard.html</code></td>
+        <td><span class="badge done">✓ Готово</span></td>
+        <td>Этот отчёт — пример</td>
+      </tr>
+      <tr>
+        <td>Personal OS</td>
+        <td>Bridges + memory bank + bootstrap</td>
+        <td><span class="badge partial">~ Частично</span></td>
+        <td>Нет единого «sub-personality» слоя</td>
+      </tr>
+      <tr>
+        <td>ungrep вместо RAG</td>
+        <td><code>file-search</code> skill</td>
+        <td><span class="badge partial">~ Частично</span></td>
+        <td>Добавить tree + typed read</td>
+      </tr>
+      <tr>
+        <td>Scout / Worker / Reviewer</td>
+        <td>handoff + diagnosing-bugs</td>
+        <td><span class="badge partial">~ Частично</span></td>
+        <td>Goal Buddy или Codex /goal</td>
+      </tr>
+      <tr>
+        <td>Semantic e2e (lightassay)</td>
+        <td><code>tests/</code>, <code>diagnose_request.py</code></td>
+        <td><span class="badge partial">~ Частично</span></td>
+        <td>lightassay для recognition_race</td>
+      </tr>
+      <tr>
+        <td>Playwright MCP</td>
+        <td>—</td>
+        <td><span class="badge gap">Gap</span></td>
+        <td>iiko UI automation (в TODO)</td>
+      </tr>
+      <tr>
+        <td>get-shit-done review</td>
+        <td>—</td>
+        <td><span class="badge gap">Gap</span></td>
+        <td>Cross-review Grok ↔ Cursor</td>
+      </tr>
+      <tr>
+        <td>Codex /goal ralph loop</td>
+        <td>—</td>
+        <td><span class="badge gap">Gap</span></td>
+        <td>Оптимизация, бенчмарки</td>
+      </tr>
+      <tr>
+        <td>docker-git sandbox</td>
+        <td><code>docker-compose</code> only</td>
+        <td><span class="badge gap">Gap</span></td>
+        <td>Agent sandbox для экспериментов</td>
+      </tr>
+      <tr>
+        <td>mttrly AI DevOps</td>
+        <td><code>vpn_ctl</code>, планы traefik</td>
+        <td><span class="badge gap">Gap</span></td>
+        <td>AGENT_PRIME C2/C5 + VPS</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="grid2" style="margin-top:20px">
+    <div class="mini-card" style="border-color:rgba(52,211,153,.3)">
+      <h4 style="color:var(--done)">Сильные стороны</h4>
+      <p>Harness уже зрелый: docs governance, skills, bridges, memory bank, dev_stack_ctl, observability. Продукт production-ready.</p>
+    </div>
+    <div class="mini-card" style="border-color:rgba(251,146,60,.3)">
+      <h4 style="color:var(--gap)">Зоны роста</h4>
+      <p>Мультиагентность, semantic testing, agent sandbox, VPS DevOps — всё из избранного, чего ещё нет.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ROADMAP -->
+<section id="roadmap" class="panel">
+  <h2 class="section">Roadmap внедрения внешних идей</h2>
+  <p style="color:var(--muted);margin-bottom:20px">Не строить workspace с нуля — дозаполнить существующий harness.</p>
+
+  <table>
+    <thead><tr><th>#</th><th>Задача</th><th>Effort</th><th>Impact</th><th>Источник</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="priority"><span class="pri-dot pri-1"></span>1</span></td>
+        <td>Goal Buddy / Codex <code>/goal</code> — scout/worker/reviewer</td>
+        <td>4ч</td>
+        <td>★★★★★</td>
+        <td>nlp_daily, goalbuddy</td>
+      </tr>
+      <tr>
+        <td><span class="priority"><span class="pri-dot pri-1"></span>2</span></td>
+        <td>lightassay — semantic e2e для recognition_race + pipeline</td>
+        <td>1 день</td>
+        <td>★★★★★</td>
+        <td>Vadim / lightassay</td>
+      </tr>
+      <tr>
+        <td><span class="priority"><span class="pri-dot pri-2"></span>3</span></td>
+        <td>get-shit-done — cross-review Grok bridge ↔ Cursor</td>
+        <td>2ч</td>
+        <td>★★★★</td>
+        <td>gsd-build</td>
+      </tr>
+      <tr>
+        <td><span class="priority"><span class="pri-dot pri-2"></span>4</span></td>
+        <td>Playwright MCP — iiko UI automation</td>
+        <td>2ч</td>
+        <td>★★★★</td>
+        <td>playwright-mcp</td>
+      </tr>
+      <tr>
+        <td><span class="priority"><span class="pri-dot pri-2"></span>5</span></td>
+        <td>ungrep + tree — расширить file-search skill</td>
+        <td>4ч</td>
+        <td>★★★</td>
+        <td>Konstantin Kalinin</td>
+      </tr>
+      <tr>
+        <td><span class="priority"><span class="pri-dot pri-3"></span>6</span></td>
+        <td>docker-git sandbox для агентов</td>
+        <td>2 дня</td>
+        <td>★★★</td>
+        <td>ProverCoderAI</td>
+      </tr>
+      <tr>
+        <td><span class="priority"><span class="pri-dot pri-3"></span>7</span></td>
+        <td>VPS + AGENT_PRIME C2/C5 (снять паузу)</td>
+        <td>неделя</td>
+        <td>★★★★</td>
+        <td>mttrly, DISTRIBUTED_AGENTS</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Не тащить сейчас</h3>
+  <ul class="compact">
+    <li><strong>link-foundation</strong> (30+ репо) — overhead огромный</li>
+    <li><strong>NeuralDeep Hub целиком</strong> — если не нужен свой LLM-gateway</li>
+    <li><strong>Fable 93 субагента</strong> — overkill; хватит scout/worker/reviewer</li>
+    <li><strong>cmux</strong> — только при переходе на Mac</li>
+  </ul>
+</section>
+
+<!-- LINKS -->
+<section id="links" class="panel">
+  <h2 class="section">Сохранённые GitHub-репозитории</h2>
+  <p style="color:var(--muted);margin-bottom:16px">66 уникальных ссылок из избранного · топ по релевантности для проекта</p>
+
+  <div class="grid2">
+    <div class="card" style="margin:0">
+      <div class="card-head" style="cursor:default"><span>Агенты & workflow</span></div>
+      <div class="card-body open" style="display:block">
+        <ul class="compact">
+          <li><a href="https://github.com/microsoft/playwright-mcp">playwright-mcp</a></li>
+          <li><a href="https://github.com/vercel-labs/agent-browser">agent-browser</a></li>
+          <li><a href="https://github.com/tolibear/goalbuddy">goalbuddy</a></li>
+          <li><a href="https://github.com/gsd-build/get-shit-done">get-shit-done</a></li>
+          <li><a href="https://github.com/mldogs/bitgn_ralph_loop_agent">bitgn_ralph_loop_agent</a></li>
+          <li><a href="https://github.com/alecs5am/ralphy">ralphy</a></li>
+          <li><a href="https://github.com/shareAI-lab/learn-claude-code">learn-claude-code</a></li>
+          <li><a href="https://github.com/manaflow-ai/cmux">cmux</a></li>
+          <li><a href="https://github.com/aruxojuyu665/Manus-MCP">Manus-MCP</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="card" style="margin:0">
+      <div class="card-head" style="cursor:default"><span>Knowledge & testing</span></div>
+      <div class="card-body open" style="display:block">
+        <ul class="compact">
+          <li><a href="https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f">karpathy LLM wiki gist</a></li>
+          <li><a href="https://github.com/redmadrobot-rnd/dcd">DCD Design</a></li>
+          <li><a href="https://github.com/VadimLarinTech/lightassay">lightassay</a></li>
+          <li><a href="https://github.com/blader/humanizer">humanizer</a></li>
+          <li><a href="https://arxiv.org/abs/2604.07590">DCD arxiv</a></li>
+          <li><a href="https://openai.com/index/harness-engineering/">harness-engineering</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="card" style="margin:0">
+      <div class="card-head" style="cursor:default"><span>DevOps & infra</span></div>
+      <div class="card-body open" style="display:block">
+        <ul class="compact">
+          <li><a href="https://github.com/ProverCoderAI/docker-git">docker-git</a></li>
+          <li><a href="https://github.com/multica-ai/multica">multica</a></li>
+          <li><a href="https://github.com/vllm-project/router">vllm-router</a></li>
+          <li><a href="https://hub.neuraldeep.ru/">NeuralDeep Hub</a></li>
+          <li><a href="https://www.luiscardoso.dev/blog/sandboxes-for-ai">sandboxes-for-ai</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="card" style="margin:0">
+      <div class="card-head" style="cursor:default"><span>Утилиты</span></div>
+      <div class="card-body open" style="display:block">
+        <ul class="compact">
+          <li><a href="https://github.com/googleworkspace/cli/">googleworkspace/cli</a></li>
+          <li><a href="https://github.com/vakovalskii/copyosity">copyosity</a></li>
+          <li><a href="https://github.com/kLOsk/adloop">adloop</a></li>
+          <li><a href="https://github.com/gmen1057/headhunter-mcp-server">headhunter-mcp</a></li>
+          <li><a href="https://github.com/f-normies/glueless">glueless</a></li>
+          <li><a href="https://huggingface.co/facebook/sam3">SAM3 (верстка)</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:24px">Статьи & гайды</h3>
+  <table>
+    <thead><tr><th>Тема</th><th>Ссылка</th></tr></thead>
+    <tbody>
+      <tr><td>6 паттернов мультиагентных workflow</td><td><a href="https://habr.com/ru/articles/1043002/">habr.com/1043002</a></td></tr>
+      <tr><td>AI coding бенчмарки</td><td><a href="https://habr.com/ru/articles/1042880/">habr.com/1042880</a></td></tr>
+      <tr><td>Fable 5 промптинг</td><td><a href="https://thariqs.github.io/html-effectiveness/unknowns/">thariqs.github.io</a></td></tr>
+      <tr><td>Exoskeleton ECOM1</td><td><a href="https://bitgn.com/insights/2026-06-15-ecom1-exoskeleton-insight">bitgn insights</a></td></tr>
+      <tr><td>AI Pulse Weekly</td><td><a href="https://aipulse-weekly.ru/">aipulse-weekly.ru</a></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  Сгенерировано 2026-07-05 · Источник: ChatExport Telegram Saved Messages + анализ PythonProject ·
+  <code>ANALYSIS_REPORT.html</code>
+</footer>
+
+</div>
+
+<script>
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById(t.dataset.tab).classList.add('active');
+  });
+});
+function toggleCard(head) {
+  const card = head.parentElement;
+  const body = card.querySelector('.card-body');
+  const open = body.classList.toggle('open');
+  card.classList.toggle('open', open);
+}
+document.querySelectorAll('.card').forEach(c => {
+  if (c.querySelector('.card-body.open')) c.classList.add('open');
+});
+</script>
+</body>
+</html>

@@ -4,6 +4,18 @@
 
 > **Нумерация:** новые записи — **вверху**. Ниже есть исторические блоки с теми же номерами (§50–§54, iiko 2026-04). При конфликте приоритет у верхней записи с более свежей датой.
 
+## 65) MAX batch upload UX — design doc (2026-07-05, код не меняли)
+
+**Проблема:** при пачке файлов в MAX (`experiments/max_invoice_bot/bot.py`) бот шлёт **reply на каждый** файл и бланит старые карточки — в чате шум (инцидент 2026-07-05 22:21, `logs/dev_stack/5.log`). В TG (`app/bot/manager.py`) — одна карточка: `send_message(chat_id)` + `delete_message`, debounce альбома 2 с.
+
+**Спека:** `docs/planning/MAX_BATCH_UPLOAD_UX_DESIGN.md`
+- FSM: `idle` → `collecting` (debounce) → `draft_ready` → `processing_*` → `result_*`
+- Кнопки при 2+ файлах: **`Обработать все (N)`** + **`Одна накладная — объединить`** (сейчас только merge)
+- Пакет: один progress + **сводка** вместо `Файл i/N` в ленте
+- PR-план: PR1 draft card → PR2 debounce → PR3 кнопки → PR4–PR5 сводка → PR6 тесты
+
+**Реализация:** не начата. Следующий агент — PR1 в `bot.py` + `messaging.py`, эталон `_send_mode_keyboard_to_chat` / `_finalize_media_group` в `manager.py`.
+
 ## 64) Tech-lead audit cleanup (2026-07-05)
 
 Вход тех-лида/код-аудитора после «era Grok». Коммиты `cadbb1e` (baseline Грока) → `b78afb1`, `ea7805c`, `46fb070`.

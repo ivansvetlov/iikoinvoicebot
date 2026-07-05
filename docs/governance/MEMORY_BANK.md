@@ -39,10 +39,18 @@ Chat dumps из Grok Build / Codex часто бесполезны: вместо
 - **Канал:** MAX invoice bot (`experiments/max_invoice_bot/`), Telegram не трогаем
 - **Распознавание:** parallel race — OpenAI vision vs SotaOCR hybrid (`recognition_race.py`)
 - **Preflight перед upload:** **убран** (2026-07-03) — проверка upload ≈ реальный upload, лишняя задержка ~20 с
+- **UX пачки файлов MAX:** design doc готов, код **не трогали** — `docs/planning/MAX_BATCH_UPLOAD_UX_DESIGN.md`
 
 ---
 
 ## Журнал (новые сверху)
+
+### 2026-07-05 — MAX batch upload UX (design only)
+- **Инцидент:** 10 файлов за 11 с (2026-07-05 22:21, `logs/dev_stack/5.log`) → лавина reply + blank-сообщений в MAX
+- **Причина:** скопированы тексты TG, но не механика: `message.answer()` vs `send_message`+`delete_message`, нет debounce burst
+- **Решение (согласовано):** «липкая карточка» — один draft, кнопки «Обработать все» / «Одна накладная», сводка пакета
+- **Документ:** `docs/planning/MAX_BATCH_UPLOAD_UX_DESIGN.md` (FSM-таблица, макеты, PR1–PR6)
+- **Дальше:** PR1 draft card infra в `experiments/max_invoice_bot/bot.py` (когда owner скажет «делай»)
 
 ### 2026-07-03 — dev_stack_ctl (быстрый restart 1/2/5)
 - **Файлы:** `scripts/dev_stack_ctl.py`, `.agents/skills/dev-stack-restart/SKILL.md`

@@ -12,11 +12,12 @@
 **Статус:** Phase 2 MVP — код в `experiments/max_invoice_bot/` (2026-06-22).
 
 - План: `docs/planning/INVOICE_BOT_MAX_PORT_PLAN.md`
+- **UX пачки файлов (design):** `docs/planning/MAX_BATCH_UPLOAD_UX_DESIGN.md` — липкая карточка, debounce, сводка пакета; PR1–PR6; код пока не меняли
 - Запуск: `python -m experiments.max_invoice_bot` или `scripts/run_max_invoice_bot.ps1`
 - TG **не трогаем**; worker без `chat_id` → `task_watcher` poll
 - Тесты: `tests/test_max_invoice_bot.py`
 - Токен Pusher → `MAX_INVOICE_BOT_TOKEN` (отдельно от `GROK_MAX_BRIDGE_TOKEN`)
-- Следующий шаг: живой прогон файла + `BOT_COMMAND_MATRIX`
+- Следующий шаг: **PR1** из batch UX design (draft card infra) или живой прогон + `BOT_COMMAND_MATRIX`
 
 ## Отложено: Distributed agents (AGENT_PRIME)
 

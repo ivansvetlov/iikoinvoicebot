@@ -122,6 +122,8 @@ TG и MAX — разные id. Credentials iiko: ключ `max:{user_id}` в `us
 
 Дублирование state-machine допустимо на MVP; синхронизация фич — ручная (как TG ↔ grok bridges).
 
+**Пачка файлов (pending UI):** тексты кнопок портированы, механика чата — нет (см. инцидент 2026-07-05). Детальная спека, FSM и PR-план: [`MAX_BATCH_UPLOAD_UX_DESIGN.md`](MAX_BATCH_UPLOAD_UX_DESIGN.md). Эталон в TG: `_send_mode_keyboard_to_chat`, `_finalize_media_group` в `app/bot/manager.py`.
+
 ### 4.4 Запуск
 
 ```env
