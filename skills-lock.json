@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "skills": {
+    "conventional-commit": {
+      "source": "marcelorodrigo/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/conventional-commit/SKILL.md",
+      "computedHash": "6b74ad3ffa6f7b52ac7a7f2781274e692a68145019be05eb4f87557197f195c0"
+    },
+    "create-pr": {
+      "source": "marcelorodrigo/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/create-pr/SKILL.md",
+      "computedHash": "492328d31c0968ce8de6e68e6721dd5136290fdcb5e7acf5ea6d32e0e379add8"
+    },
+    "diagnosing-bugs": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/diagnosing-bugs/SKILL.md",
+      "computedHash": "c8743c51df3760039b2dcb8a5a61437da3128c6efb4c5381734a3f05403e9a84"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "9e1c8b3103f92fa8092568a44fe64858de7c5c9dc65ce4bea8f168080e889cfd"
+    },
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grill-me/SKILL.md",
+      "computedHash": "67e31b63e6e9e454cc2f51cd85b9cf1396ee46379a87c07a1450f33c47c1276a"
+    },
+    "powershell-windows": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/powershell-windows/SKILL.md",
+      "computedHash": "f2c5e604bb18ca5709be47e040051ec0691744fb064dbb41502cdd5a11b796b4"
+    }
+  }
+}
