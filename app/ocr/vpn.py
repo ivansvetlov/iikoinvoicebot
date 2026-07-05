@@ -94,4 +94,28 @@ def ensure_api_vpn(*, raise_on_failure: bool = False) -> bool:
     return True
 
 
+def ensure_recognition_vpn_ok() -> None:
+    """Hot-path guard for recognition APIs (SotaOCR + OpenAI) on Windows dev.
+
+    On non-Windows (production / VPS) the tunnel is a deployment concern, so
+    this is a no-op. On Windows it performs only a **fast** state check and
+    raises :class:`UserFacingError` (code ``vpn_unavailable``) if the tunnel
+    is down — it never tries to (re)start the tunnel from the request path,
+    avoiding the previous ~120 s blocking behaviour. Worker startup is
+    responsible for bringing the tunnel up once; the Windows service keeps it
+    alive (auto-restart).
+    """
+    from app.errors import UserFacingError
+
+    if sys.platform != "win32":
+        return
+    if not is_split_tunnel_running():
+        logger.warning("Recognition VPN tunnel is down; rejecting request fast")
+        raise UserFacingError(
+            "Сервис распознавания временно недоступен. Попробуйте через минуту.",
+            hint="Если ошибка повторяется, проверьте VPN-туннель.",
+            code="vpn_unavailable",
+        )
+
+
 ensure_sotaocr_vpn = ensure_api_vpn

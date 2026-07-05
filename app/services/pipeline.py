@@ -20,7 +20,7 @@ from PIL import Image, ImageFilter, ImageOps
 
 from app.bot.messages import Msg
 from app.config import settings
-from app.ocr.vpn import ensure_api_vpn
+from app.ocr.vpn import ensure_recognition_vpn_ok
 from app.errors import UserFacingError
 from app.iiko.import_export import IikoImportExporter
 from app.iiko.server_client import IikoServerClient, IikoUploadResult
@@ -798,7 +798,7 @@ class InvoicePipelineService:
         """Cheap OpenAI ping — hybrid text-parse is skipped when this fails."""
         if not (settings.openai_api_key or "").strip():
             raise RuntimeError("OPENAI_API_KEY is not configured")
-        ensure_api_vpn(raise_on_failure=True)
+        ensure_recognition_vpn_ok()
         timeout = float(max(5, int(settings.sotaocr_hybrid_openai_probe_timeout_sec or 15)))
         model = (settings.openai_model or "gpt-4o-mini").strip()
         headers = {
@@ -1223,7 +1223,7 @@ class InvoicePipelineService:
     ) -> dict[str, Any]:
         if not settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is not configured")
-        ensure_api_vpn(raise_on_failure=True)
+        ensure_recognition_vpn_ok()
 
         file_id: str | None = None
         if source_type == "pdf":

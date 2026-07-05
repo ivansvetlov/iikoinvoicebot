@@ -191,7 +191,38 @@ curl http://127.0.0.1:8000/health
 Конфиги PyCharm: `.idea/runConfigurations/1__backend.xml`, `2__worker.xml`, `5__max_invoice_bot.xml`.
 Skill для агентов: `.agents/skills/dev-stack-restart/SKILL.md`.
 
-## 8. Tray monitor (1/2/5/8 + IDE + Memory Bank)
+## 8. VPN split-tunnel (SotaOCR + OpenAI из РФ)
+
+Для доступа к `sotaocr.com` и `api.openai.com` из РФ используется WireGuard
+**split-tunnel** — через VPN идут только IP этих сервисов, остальной трафик напрямую.
+
+**Конфиг:** `config/wireguard/vpn188958_split_sotaocr.conf` (в `.gitignore`; образец —
+`...conf.example`). Сервис: `WireGuardTunnel$vpn188958_split_sotaocr`.
+
+**Одноразовая установка (от администратора):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\ensure_sotaocr_vpn.ps1
+```
+
+**Включить авто-restart сервиса** (чтобы туннель поднимался сам при сбое):
+
+```powershell
+# от администратора; restart через 60с при падении, бесконечно
+sc.exe failure "WireGuardTunnel$vpn188958_split_sotaocr" reset= 86400 actions= restart/60000
+```
+
+> **Важно для архитектуры.** Подъём VPN — ответственность этого Windows-сервиса
+> (через авто-restart) и worker-startup (одна попытка через `ensure_api_vpn`).
+> **Горячий путь распознавания** (`pipeline._call_llm`) **не пытается** поднять
+> туннель — только быстрая проверка `is_split_tunnel_running()` (~0.1 с). Если
+> туннель не активен, запрос быстро падает с `UserFacingError(code=vpn_unavailable)`
+> («попробуйте через минуту») — без прежних ~120 с блокировки.
+>
+> На Linux/VPS весь этот код no-op: туннель там — забота деплоя (systemd-wireguard
+> или выбор локации VPS).
+
+## 9. Tray monitor (1/2/5/8 + IDE + Memory Bank)
 
 Ветка/worktree: `feature/dev-process-monitor` → `scripts/dev_process_monitor.py`.
 
