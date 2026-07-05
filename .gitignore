@@ -43,6 +43,7 @@ dialogue_dump.jsonl
 # --- Agent chat dumps (eat context, not needed at runtime) ---
 dump_chat_*
 dump stage*
+dump chat*
 last chat
 groq 1 dump chat
 grok chat dump
@@ -51,6 +52,13 @@ docs/dumps/
 # --- IDE/agent local metadata ---
 .cursor/
 cursor.plan.md
+
+# --- Agent runtime metadata / scratch (local only) ---
+.agentbridge/
+.worktrees/
+agent-tools/
+terminals/
+query
 
 # --- Local scratch files ---
 tmp_*.txt
