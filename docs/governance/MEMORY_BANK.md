@@ -35,15 +35,20 @@ Chat dumps из Grok Build / Codex часто бесполезны: вместо
 
 ## Текущий фокус
 
-- **Ветка:** `feature/channel-max`
+- **Ветка UX:** `feature/max-batch-ux` — design doc + PR1–PR6 (липкая карточка, debounce, сводка пакета)
+- **Ветка MAX (runtime):** `feature/channel-max` — бот, race, worker; **без** UX-design коммита
 - **Канал:** MAX invoice bot (`experiments/max_invoice_bot/`), Telegram не трогаем
-- **Распознавание:** parallel race — OpenAI vision vs SotaOCR hybrid (`recognition_race.py`)
-- **Preflight перед upload:** **убран** (2026-07-03) — проверка upload ≈ реальный upload, лишняя задержка ~20 с
-- **UX пачки файлов MAX:** design doc готов, код **не трогали** — `docs/planning/MAX_BATCH_UPLOAD_UX_DESIGN.md`
+- **Спека:** `docs/planning/MAX_BATCH_UPLOAD_UX_DESIGN.md` (только на `feature/max-batch-ux`, коммит `bca6214`)
+- **Merge:** после PR1+ — `feature/max-batch-ux` → `feature/channel-max`
 
 ---
 
 ## Журнал (новые сверху)
+
+### 2026-07-05 — ветка `feature/max-batch-ux` (отделили от channel-max)
+- **Сделано:** design doc + `ANALYSIS_REPORT.html` в `bca6214`; ветка `feature/max-batch-ux` от того коммита
+- **`feature/channel-max`:** откатан на `eaa65fe` (без UX-design коммита)
+- **Дальше:** checkout `feature/max-batch-ux` → PR1 в `experiments/max_invoice_bot/bot.py`
 
 ### 2026-07-05 — MAX batch upload UX (design only)
 - **Инцидент:** 10 файлов за 11 с (2026-07-05 22:21, `logs/dev_stack/5.log`) → лавина reply + blank-сообщений в MAX

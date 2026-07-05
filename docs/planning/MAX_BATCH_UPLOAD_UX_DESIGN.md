@@ -1,7 +1,7 @@
 # MAX: UX пачки файлов (черновик → обработка → сводка)
 
 > **Статус:** design approved by owner (2026-07-05), **код не меняли** — только спецификация  
-> **Ветка:** `feature/channel-max`  
+> **Ветка:** `feature/max-batch-ux` (мерж в `feature/channel-max` после PR1+)  
 > **Канал:** MAX invoice bot (`experiments/max_invoice_bot/`)  
 > **Эталон:** Telegram `app/bot/manager.py` (механика чата, не тексты)  
 > **Инцидент:** `logs/dev_stack/5.log` 2026-07-05 22:21 — 10 файлов за 11 с → лавина reply-сообщений
