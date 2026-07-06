@@ -906,7 +906,7 @@ class InvoicePipelineService:
         if not (settings.sotaocr_api_key or "").strip() or not settings.sotaocr_hybrid_enabled:
             if strict:
                 raise UserFacingError(
-                    "SotaOCR не настроен на сервере.",
+                    "Распознавание документов не настроено на сервере.",
                     code="llm_unavailable",
                 )
             return None
@@ -1010,7 +1010,7 @@ class InvoicePipelineService:
             )
             if strict:
                 raise UserFacingError(
-                    "SotaOCR временно недоступен. Попробуйте через минуту.",
+                    "Не удалось прочитать документ. Попробуйте через минуту.",
                     code="llm_timeout",
                 ) from exc
             return None
@@ -1036,7 +1036,7 @@ class InvoicePipelineService:
             )
             if strict:
                 raise UserFacingError(
-                    "OpenAI временно недоступен. Попробуйте через минуту.",
+                    "Не удалось сформировать отчёт. Попробуйте через минуту.",
                     code="llm_unavailable",
                 ) from exc
             return None

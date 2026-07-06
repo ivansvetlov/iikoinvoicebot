@@ -338,9 +338,9 @@ class Msg:
         "🧾 Сверяю суммы и НДС…",
         "⏳ Почти готово…",
     )
-    HYBRID_PROGRESS_OCR = "📄 SotaOCR: читаю документ…"
+    HYBRID_PROGRESS_OCR = "📄 Читаю документ…"
     HYBRID_PROGRESS_OCR_DONE = "✅ Текст накладной распознан"
-    HYBRID_PROGRESS_LLM = "🧾 Формирую отчёт (gpt-4o-mini)…"
+    HYBRID_PROGRESS_LLM = "🧾 Распознаю позиции…"
     HYBRID_PROGRESS_ITEMS = "✅ Позиции распознаны: {count}"
     HYBRID_PROGRESS_VALIDATE = "🔍 Сверяю суммы и НДС…"
     STATUS_TIMEOUT = "⏱ Превышено время ожидания.\nПроверьте /status или отправьте файл снова."

@@ -45,8 +45,10 @@ class MaxChannelTests(unittest.TestCase):
         )
 
     def test_hybrid_progress_messages_exist(self) -> None:
-        self.assertIn("SotaOCR", Msg.HYBRID_PROGRESS_OCR)
-        self.assertIn("gpt-4o-mini", Msg.HYBRID_PROGRESS_LLM)
+        self.assertIn("Читаю документ", Msg.HYBRID_PROGRESS_OCR)
+        self.assertIn("Распознаю позиции", Msg.HYBRID_PROGRESS_LLM)
+        self.assertNotIn("SotaOCR", Msg.HYBRID_PROGRESS_OCR)
+        self.assertNotIn("gpt-4o", Msg.HYBRID_PROGRESS_LLM)
 
 
 class ProcessingStageTests(unittest.TestCase):
