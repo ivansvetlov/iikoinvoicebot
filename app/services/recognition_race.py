@@ -112,6 +112,7 @@ async def race_image_recognition(
                     text_hint,
                     user_id,
                     request_id,
+                    call_kind="vision_raw",
                 ),
                 timeout=max(5.0, vision_budget * 0.5),
             )

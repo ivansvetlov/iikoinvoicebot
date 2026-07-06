@@ -11,6 +11,7 @@ from typing import Any, Literal
 import httpx
 
 from app.config import settings
+from app.services.llm_usage_log import log_openai_response
 
 
 DecisionType = Literal["convert_to_mass", "convert_to_volume", "keep_pieces", "insufficient"]
@@ -99,6 +100,11 @@ class LlmUnitResolver:
                 response = client.post("https://api.openai.com/v1/responses", headers=headers, json=body)
                 response.raise_for_status()
                 raw = response.json()
+                log_openai_response(
+                    raw,
+                    model=str(body.get("model") or settings.invoice_flow_llm_model),
+                    call_kind="unit_resolver",
+                )
         except Exception:
             return None
 

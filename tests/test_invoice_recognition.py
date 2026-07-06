@@ -526,7 +526,7 @@ class PipelineCostSummaryTests(unittest.TestCase):
         service = InvoicePipelineService()
         with tempfile.TemporaryDirectory() as temp_dir:
             summary_path = Path(temp_dir) / "llm_costs_summary.json"
-            with patch("app.services.pipeline.LLM_COSTS_SUMMARY", summary_path):
+            with patch("app.services.llm_usage_log.LLM_COSTS_SUMMARY", summary_path):
                 with patch.object(service, "_get_usd_rub_rate", return_value=100.0):
                     service._update_cost_summary(
                         user_id="42",

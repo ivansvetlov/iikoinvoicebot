@@ -30,6 +30,15 @@ from app.schemas import InvoiceItem, InvoiceParseResult, ProcessResponse
 from app.services.user_store import get_iiko_credentials
 from app.services.invoice_flow import InvoiceFlowRunner
 from app.services.invoice_validator import is_likely_invoice
+from app.services.llm_usage_log import (
+    LLM_COSTS_LOG,
+    LLM_COSTS_SUMMARY,
+    MODEL_PRICING_USD_PER_1M,
+    log_openai_response,
+    reset_usage_context,
+    set_usage_context,
+    update_cost_summary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +46,7 @@ REQUESTS_DIR = Path(__file__).resolve().parents[2] / "logs" / "requests"
 REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
 USERS_DIR = REQUESTS_DIR / "users"
 USERS_DIR.mkdir(parents=True, exist_ok=True)
-LLM_COSTS_LOG = Path(__file__).resolve().parents[2] / "logs" / "llm_costs.csv"
-LLM_COSTS_SUMMARY = Path(__file__).resolve().parents[2] / "logs" / "llm_costs_summary.json"
+
 MAX_TEXT_HINT_CHARS = 12000
 PDF_IMAGE_RESOLUTION = 200
 PDF_SPLIT_HEIGHT_THRESHOLD = 1600
@@ -151,8 +159,8 @@ class InvoicePipelineService:
         self._iiko_client = IikoServerClient()
         self._iiko_import_exporter = IikoImportExporter(settings.iiko_import_export_dir)
         self._pricing = {
-            "gpt-4o-mini": {"input": 0.30, "output": 1.20},
-            "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
+            key: {"input": value["input"], "output": value["output"]}
+            for key, value in MODEL_PRICING_USD_PER_1M.items()
         }
 
     def _build_function_schema(self) -> dict[str, Any]:
@@ -828,7 +836,8 @@ class InvoicePipelineService:
                     response.text[:300],
                     extra={"request_id": request_id},
                 )
-                response.raise_for_status()
+            body = response.json()
+            log_openai_response(body, model=model, call_kind="hybrid_probe", request_id=request_id)
             response.raise_for_status()
 
     async def _sotaocr_with_openai_probe(
@@ -921,6 +930,7 @@ class InvoicePipelineService:
                     plain,
                     user_id,
                     request_id,
+                    call_kind="hybrid_parse",
                 ),
                 timeout=llm_timeout,
             )
@@ -1220,6 +1230,8 @@ class InvoicePipelineService:
         content: bytes,
         extracted_text: str,
         model_override: str | None = None,
+        *,
+        call_kind: str = "parse",
     ) -> dict[str, Any]:
         if not settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is not configured")
@@ -1248,7 +1260,7 @@ class InvoicePipelineService:
             "content-type": "application/json",
         }
 
-        async def _post_once(max_output_tokens: int) -> dict[str, Any]:
+        async def _post_once(max_output_tokens: int, *, kind: str) -> dict[str, Any]:
             payload = dict(base_payload)
             payload["max_output_tokens"] = max_output_tokens
             async with httpx.AsyncClient(timeout=300) as client:
@@ -1261,9 +1273,11 @@ class InvoicePipelineService:
                         extra={"request_id": "llm"},
                     )
                 response.raise_for_status()
-                return response.json()
+                body = response.json()
+            log_openai_response(body, model=model, call_kind=kind)
+            return body
 
-        data = await _post_once(LLM_MAX_OUTPUT_TOKENS)
+        data = await _post_once(LLM_MAX_OUTPUT_TOKENS, kind=call_kind)
 
         incomplete = isinstance(data, dict) and data.get("status") == "incomplete"
         incomplete_reason = (
@@ -1276,7 +1290,7 @@ class InvoicePipelineService:
                 "Retrying LLM call with larger max_output_tokens due to truncation",
                 extra={"request_id": "llm", "model": model},
             )
-            data = await _post_once(LLM_MAX_OUTPUT_TOKENS_RETRY)
+            data = await _post_once(LLM_MAX_OUTPUT_TOKENS_RETRY, kind=f"{call_kind}_trunc_retry")
 
         usage = data.get("usage", {}) if isinstance(data, dict) else {}
         if usage:
@@ -1399,11 +1413,15 @@ class InvoicePipelineService:
         user_id: str | None,
         request_id: str,
         model_override: str | None = None,
+        *,
+        call_kind: str = "parse",
     ) -> tuple[dict[str, Any], list[InvoiceItem], list[str]]:
         async def _attempt(
             attempt_prompt: str,
             attempt_text_hint: str,
             attempt_model: str | None = None,
+            *,
+            attempt_kind: str = "parse",
         ) -> dict[str, Any]:
             return await self._call_llm(
                 attempt_prompt,
@@ -1412,10 +1430,11 @@ class InvoicePipelineService:
                 content,
                 attempt_text_hint,
                 model_override=attempt_model,
+                call_kind=attempt_kind,
             )
 
         try:
-            llm_data = await _attempt(prompt, text_hint, model_override)
+            llm_data = await _attempt(prompt, text_hint, model_override, attempt_kind=call_kind)
         except UserFacingError as exc:
             if exc.code != "llm_bad_response" or source_type != "image":
                 raise
@@ -1428,7 +1447,7 @@ class InvoicePipelineService:
 
             # Retry #1: same model, but remove noisy OCR hint from request.
             try:
-                llm_data = await _attempt(rescue_prompt, "", model_override)
+                llm_data = await _attempt(rescue_prompt, "", model_override, attempt_kind="parse_rescue")
             except UserFacingError as retry_exc:
                 if retry_exc.code != "llm_bad_response":
                     raise
@@ -1440,12 +1459,14 @@ class InvoicePipelineService:
                     fallback_model = (settings.openai_model or "").strip()
 
                 if fallback_model and model_override is None and fallback_model != selected_model:
-                    llm_data = await _attempt(rescue_prompt, "", fallback_model)
+                    llm_data = await _attempt(
+                        rescue_prompt,
+                        "",
+                        fallback_model,
+                        attempt_kind="parse_fallback",
+                    )
                 else:
                     raise
-
-        if llm_data.get("_cost"):
-            self._append_cost_log(user_id, request_id, llm_data["_cost"])
 
         items = self._build_items_from_llm(llm_data)
         garbage_reasons = self._detect_garbage_items(items, llm_data)
@@ -1465,6 +1486,8 @@ class InvoicePipelineService:
         text_hint: str,
         user_id: str | None,
         request_id: str,
+        *,
+        call_kind: str = "vision",
     ) -> tuple[dict[str, Any], list[InvoiceItem], list[str]]:
         """Один проход vision-распознавания (OpenAI over image bytes).
 
@@ -1473,7 +1496,14 @@ class InvoicePipelineService:
         приватный метод напрямую.
         """
         return await self._run_llm_pass(
-            prompt, "image", filename, content, text_hint, user_id, request_id
+            prompt,
+            "image",
+            filename,
+            content,
+            text_hint,
+            user_id,
+            request_id,
+            call_kind=call_kind,
         )
 
     async def recognize_via_sotaocr_hybrid(
@@ -1510,110 +1540,9 @@ class InvoicePipelineService:
         """
         return self._detect_garbage_items(items, llm_data)
 
-    def _append_cost_log(self, user_id: str | None, request_id: str, cost: dict[str, Any]) -> None:
-        """Быстро дописывает строку в `logs/llm_costs.csv`.
-
-        Раньше файл перечитывался и перезаписывался целиком (с пересчётом TOTAL/TOTAL_RUB) при каждом запросе,
-        что начинало тормозить при росте нагрузки. Для прод-метрик totals лучше считать отдельным батчем/агрегацией.
-
-        Формат строк:
-            user_id,request_id,model,input_tokens,output_tokens,input_cost_usd,output_cost_usd,total_cost_usd
-        """
-
-        header = "user_id,request_id,model,input_tokens,output_tokens,input_cost_usd,output_cost_usd,total_cost_usd"
-        safe_user = user_id or "unknown"
-
-        row = [
-            safe_user,
-            request_id,
-            str(cost.get("model")),
-            str(cost.get("input_tokens")),
-            str(cost.get("output_tokens")),
-            str(cost.get("input_cost_usd")),
-            str(cost.get("output_cost_usd")),
-            str(cost.get("total_cost_usd")),
-        ]
-
-        try:
-            # Создаём каталог логов на всякий случай.
-            LLM_COSTS_LOG.parent.mkdir(parents=True, exist_ok=True)
-
-            need_header = True
-            if LLM_COSTS_LOG.exists():
-                try:
-                    # Быстрая проверка: файл не пустой и начинается с заголовка.
-                    with LLM_COSTS_LOG.open("r", encoding="utf-8", errors="replace") as check:
-                        first = check.readline().strip()
-                    need_header = not first.startswith("user_id,request_id,")
-                except Exception:
-                    need_header = True
-
-            with LLM_COSTS_LOG.open("a", encoding="utf-8") as handle:
-                if need_header:
-                    handle.write(header + "\n")
-                handle.write(",".join(row) + "\n")
-
-            self._update_cost_summary(user_id=safe_user, request_id=request_id, cost=cost)
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to append LLM cost log", extra={"request_id": request_id})
-
-    def _request_day(self, request_id: str | None) -> str:
-        if request_id:
-            match = re.match(r"^(?P<date>\d{8})_", request_id)
-            if match:
-                date_raw = match.group("date")
-                return f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
-        return datetime.now().date().isoformat()
-
     def _update_cost_summary(self, user_id: str, request_id: str, cost: dict[str, Any]) -> None:
-        """Обновляет небольшой summary-файл с итогами (без пересчёта всего CSV)."""
-
-        try:
-            LLM_COSTS_SUMMARY.parent.mkdir(parents=True, exist_ok=True)
-            summary: dict[str, Any] = {}
-            if LLM_COSTS_SUMMARY.exists():
-                try:
-                    summary = json.loads(LLM_COSTS_SUMMARY.read_text(encoding="utf-8"))
-                except Exception:
-                    summary = {}
-
-            total_usd = float(summary.get("total_usd") or 0.0)
-            rows = int(summary.get("rows") or 0)
-            added = float(cost.get("total_cost_usd") or 0.0)
-            total_usd += added
-            rows += 1
-
-            by_day = dict(summary.get("by_day") or {})
-            day_key = self._request_day(request_id)
-            day_bucket = dict(by_day.get(day_key) or {})
-            day_bucket["rows"] = int(day_bucket.get("rows") or 0) + 1
-            day_bucket["total_usd"] = round(float(day_bucket.get("total_usd") or 0.0) + added, 6)
-            by_day[day_key] = day_bucket
-
-            by_user = dict(summary.get("by_user") or {})
-            user_bucket = dict(by_user.get(user_id) or {})
-            user_bucket["rows"] = int(user_bucket.get("rows") or 0) + 1
-            user_bucket["total_usd"] = round(float(user_bucket.get("total_usd") or 0.0) + added, 6)
-            by_user[user_id] = user_bucket
-
-            rate = self._get_usd_rub_rate()
-            total_rub = round(total_usd * rate, 2) if rate else None
-
-            payload = {
-                "total_usd": round(total_usd, 6),
-                "total_rub": total_rub,
-                "rate": round(rate, 4) if rate else None,
-                "rows": rows,
-                "by_day": by_day,
-                "by_user": by_user,
-                "updated_at": datetime.now().isoformat(timespec="seconds"),
-            }
-
-            tmp_path = LLM_COSTS_SUMMARY.with_suffix(".tmp")
-            tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp_path.replace(LLM_COSTS_SUMMARY)
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to update LLM cost summary")
+        """Backward-compatible wrapper for tests and rebuild tooling."""
+        update_cost_summary(user_id=user_id, request_id=request_id, cost=cost)
 
     def _get_usd_rub_rate(self) -> float:
         cached = USD_RUB_RATE_CACHE.get("rate")
@@ -1890,7 +1819,14 @@ class InvoicePipelineService:
                     img.save(buffer, format="JPEG", quality=90)
                     img_bytes = buffer.getvalue()
                     part_name = f"{Path(filename).stem}_p{page_index}_s{part_index}.jpg"
-                    data = await self._call_llm(prompt, "image", part_name, img_bytes, "")
+                    data = await self._call_llm(
+                        prompt,
+                        "image",
+                        part_name,
+                        img_bytes,
+                        "",
+                        call_kind="pdf_page_image",
+                    )
                     part_items = self._build_items_from_llm(data)
                     items.extend(part_items)
 
@@ -2249,6 +2185,7 @@ class InvoicePipelineService:
         logger.info("Processing invoice", extra={"request_id": request_id, "file_name": filename})
         source_type = "unknown"
         raw_text = ""
+        usage_ctx = set_usage_context(user_id=user_id, request_id=request_id)
 
         try:
             source_type, raw_text = FileTextExtractor.extract(filename, content)
@@ -2552,6 +2489,8 @@ class InvoicePipelineService:
                 error_code="internal_error",
                 message="Не удалось обработать файл на сервере. Попробуйте ещё раз или отправьте файл в другом формате.",
             )
+        finally:
+            reset_usage_context(usage_ctx)
 
         parsed = InvoiceParseResult(
             source_type=source_type,

@@ -12,7 +12,8 @@ from datetime import datetime
 from pathlib import Path
 import re
 
-from app.services.pipeline import LLM_COSTS_LOG, LLM_COSTS_SUMMARY, InvoicePipelineService
+from app.services.llm_usage_log import LLM_COSTS_LOG, LLM_COSTS_SUMMARY
+from app.services.pipeline import InvoicePipelineService
 
 
 def _request_day(request_id: str | None) -> str:
@@ -38,6 +39,8 @@ def main() -> int:
         reader = csv.DictReader(handle)
         for row in reader:
             try:
+                if not row.get("model"):
+                    continue
                 added = float(row.get("total_cost_usd") or 0.0)
                 total_usd += added
                 rows += 1
