@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from app.utils.subprocess_hidden import hidden_subprocess_kwargs, run_hidden
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -27,21 +29,12 @@ def is_split_tunnel_running() -> bool:
     if sys.platform != "win32":
         return False
     try:
-        completed = subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                f"(Get-Service -Name '{SPLIT_SERVICE}' -ErrorAction SilentlyContinue).Status",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
+        completed = run_hidden(["sc", "query", SPLIT_SERVICE], timeout=15)
     except (OSError, subprocess.TimeoutExpired):
         return False
-    return "Running" in (completed.stdout or "")
+    raw = (completed.stdout or b"") + (completed.stderr or b"")
+    text = raw.decode("cp866", errors="replace")
+    return "RUNNING" in text.upper()
 
 
 def ensure_api_vpn(*, raise_on_failure: bool = False) -> bool:
@@ -63,6 +56,8 @@ def ensure_api_vpn(*, raise_on_failure: bool = False) -> bool:
             [
                 "powershell",
                 "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
@@ -73,6 +68,7 @@ def ensure_api_vpn(*, raise_on_failure: bool = False) -> bool:
             timeout=120,
             check=False,
             env=env,
+            **hidden_subprocess_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         if raise_on_failure:
@@ -137,11 +133,9 @@ def stop_tunnel(*, timeout: int = 30) -> bool:
     if not is_split_tunnel_running():
         return True
     try:
-        subprocess.run(
+        run_hidden(
             ["sc", "stop", SPLIT_SERVICE],
-            capture_output=True,
             timeout=timeout,
-            check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("Failed to stop VPN tunnel: %s", exc)

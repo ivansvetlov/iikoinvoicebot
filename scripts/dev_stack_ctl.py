@@ -26,6 +26,11 @@ from typing import Any
 import httpx
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.utils.subprocess_hidden import hidden_subprocess_kwargs, run_hidden  # noqa: E402
+
 PYTHON = sys.executable
 PROJECT_ROOT_LOW = str(PROJECT_ROOT).lower()
 SYS_EXE_LOW = (PYTHON or "").lower()
@@ -81,11 +86,11 @@ def _list_python_processes() -> list[dict[str, Any]]:
         "ConvertTo-Json -Compress"
     )
     try:
-        raw = subprocess.check_output(
-            ["powershell", "-NoProfile", "-Command", ps],
-            text=True,
+        raw = run_hidden(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
             timeout=20,
-        ).strip()
+            text=True,
+        ).stdout.strip()
     except Exception:
         return []
     if not raw or raw == "null":
@@ -139,10 +144,9 @@ def _taskkill(pids: list[int]) -> None:
     unique = sorted(set(pids))
     if IS_WINDOWS:
         for pid in unique:
-            subprocess.run(
+            run_hidden(
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
                 check=False,
-                capture_output=True,
             )
         return
     for pid in unique:
@@ -173,10 +177,7 @@ def _vpn_ok() -> bool:
     if not IS_WINDOWS:
         return False
     try:
-        raw = subprocess.check_output(
-            ["sc", "query", VPN_SERVICE],
-            timeout=10,
-        )
+        raw = run_hidden(["sc", "query", VPN_SERVICE], timeout=10).stdout
     except Exception:
         return False
     text = raw.decode("cp866", errors="replace")
@@ -189,6 +190,8 @@ def _start_vpn() -> int:
         [
             "powershell",
             "-NoProfile",
+            "-WindowStyle",
+            "Hidden",
             "-ExecutionPolicy",
             "Bypass",
             "-File",
@@ -197,6 +200,7 @@ def _start_vpn() -> int:
         cwd=str(PROJECT_ROOT),
         timeout=120,
         check=False,
+        **hidden_subprocess_kwargs(),
     )
     return proc.returncode
 
@@ -211,10 +215,11 @@ def _tray_running() -> list[int]:
         "Select-Object -ExpandProperty ProcessId"
     )
     try:
-        raw = subprocess.check_output(
-            ["powershell", "-NoProfile", "-Command", ps],
-            text=True, timeout=15,
-        ).strip()
+        raw = run_hidden(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
+            timeout=15,
+            text=True,
+        ).stdout.strip()
     except Exception:
         return []
     if not raw:
@@ -231,9 +236,21 @@ def _start_tray() -> int:
               f"{TRAY_LAUNCHER.relative_to(PROJECT_ROOT)} (worktree absent)")
         return 1
     proc = subprocess.run(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-         "-File", str(TRAY_LAUNCHER)],
-        cwd=str(TRAY_WORKTREE), capture_output=True, timeout=60, check=False,
+        [
+            "powershell",
+            "-NoProfile",
+            "-WindowStyle",
+            "Hidden",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(TRAY_LAUNCHER),
+        ],
+        cwd=str(TRAY_WORKTREE),
+        capture_output=True,
+        timeout=60,
+        check=False,
+        **hidden_subprocess_kwargs(),
     )
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or b"").decode("utf-8", "replace").strip()
@@ -282,6 +299,7 @@ def _run_via_schtasks(key: str, bat_path: Path) -> bool:
         ],
         capture_output=True,
         check=False,
+        **hidden_subprocess_kwargs(),
     )
     if create.returncode != 0:
         err = create.stderr.decode("cp866", errors="replace")
@@ -291,6 +309,7 @@ def _run_via_schtasks(key: str, bat_path: Path) -> bool:
         ["schtasks", "/run", "/tn", task],
         capture_output=True,
         check=False,
+        **hidden_subprocess_kwargs(),
     )
     if run.returncode != 0:
         err = run.stderr.decode("cp866", errors="replace")

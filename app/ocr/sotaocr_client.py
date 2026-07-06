@@ -22,6 +22,7 @@ from urllib3.exceptions import ProtocolError as Urllib3ProtocolError
 from urllib3.util.retry import Retry
 
 from app.config import settings
+from app.utils.subprocess_hidden import hidden_subprocess_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +316,7 @@ class SotaOcrClient:
                 errors="replace",
                 timeout=timeout_sec + 15,
                 check=False,
+                **hidden_subprocess_kwargs(),
             )
         finally:
             for path in temp_paths:
