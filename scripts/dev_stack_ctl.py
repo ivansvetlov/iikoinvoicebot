@@ -33,9 +33,23 @@ IS_WINDOWS = os.name == "nt"
 HEALTH_URL = "http://127.0.0.1:8000/health"
 LOG_DIR = PROJECT_ROOT / "logs" / "dev_stack"
 
+# On Windows, prefer pythonw.exe for the stack components so no console window
+# pops up for each process (the .cmd wrapper via schtasks would otherwise show
+# a cmd.exe window that stays open while the process runs).
+if IS_WINDOWS:
+    _pythonw = Path(PYTHON).with_name("pythonw.exe")
+    STACK_PYTHON = str(_pythonw) if _pythonw.is_file() else PYTHON
+else:
+    STACK_PYTHON = PYTHON
+
 PYTHON_COMPONENTS = frozenset({"1", "2", "5"})
 ALL_COMPONENTS = PYTHON_COMPONENTS | frozenset({"8"})
 VPN_SERVICE = "WireGuardTunnel$vpn188958_split_sotaocr"
+
+# Tray monitor lives in the dev-process-monitor worktree (feature branch).
+# Launched via its own PS launcher which uses schtasks + pythonw (no window).
+TRAY_WORKTREE = PROJECT_ROOT / ".worktrees" / "dev-process-monitor"
+TRAY_LAUNCHER = TRAY_WORKTREE / "scripts" / "run_dev_process_monitor.ps1"
 
 COMPONENTS: dict[str, tuple[str, ...]] = {
     "1": ("app.api:app",),
@@ -51,9 +65,9 @@ COMPONENTS: dict[str, tuple[str, ...]] = {
 }
 
 START_CMDS: dict[str, list[str]] = {
-    "1": [PYTHON, "-m", "uvicorn", "app.api:app", "--host", "127.0.0.1", "--port", "8000"],
-    "2": [PYTHON, "-m", "app.entrypoints.worker"],
-    "5": [PYTHON, "-m", "experiments.max_invoice_bot"],
+    "1": [STACK_PYTHON, "-m", "uvicorn", "app.api:app", "--host", "127.0.0.1", "--port", "8000"],
+    "2": [STACK_PYTHON, "-m", "app.entrypoints.worker"],
+    "5": [STACK_PYTHON, "-m", "experiments.max_invoice_bot"],
 }
 
 
@@ -187,6 +201,63 @@ def _start_vpn() -> int:
     return proc.returncode
 
 
+def _tray_running() -> list[int]:
+    """Return PIDs of the tray monitor (pythonw running dev_process_monitor)."""
+    if not IS_WINDOWS:
+        return []
+    ps = (
+        "Get-CimInstance Win32_Process -Filter \"name='pythonw.exe'\" | "
+        "Where-Object { $_.CommandLine -like '*dev_process_monitor*' } | "
+        "Select-Object -ExpandProperty ProcessId"
+    )
+    try:
+        raw = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", ps],
+            text=True, timeout=15,
+        ).strip()
+    except Exception:
+        return []
+    if not raw:
+        return []
+    return [int(x) for x in raw.splitlines() if x.strip().isdigit()]
+
+
+def _start_tray() -> int:
+    """Launch the tray monitor via its worktree PS launcher (no window)."""
+    if not IS_WINDOWS:
+        return 0
+    if not TRAY_LAUNCHER.is_file():
+        print("[dev_stack_ctl] tray launcher missing: "
+              f"{TRAY_LAUNCHER.relative_to(PROJECT_ROOT)} (worktree absent)")
+        return 1
+    proc = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+         "-File", str(TRAY_LAUNCHER)],
+        cwd=str(TRAY_WORKTREE), capture_output=True, timeout=60, check=False,
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or b"").decode("utf-8", "replace").strip()
+        print(f"[dev_stack_ctl] tray launch failed: {err}", file=sys.stderr)
+        return 1
+    # Give the launcher a moment to register the process.
+    time.sleep(1.0)
+    pids = _tray_running()
+    if pids:
+        print(f"[dev_stack_ctl] tray monitor up PID {pids[0]}")
+        return 0
+    print("[dev_stack_ctl] tray launcher returned OK but process not detected")
+    return 1
+
+
+def _stop_tray() -> None:
+    pids = _tray_running()
+    if not pids:
+        return
+    print(f"[dev_stack_ctl] stop tray: {pids}")
+    _taskkill(pids)
+    time.sleep(0.3)
+
+
 def _schtask_name(key: str) -> str:
     return f"PythonProject_devstack_{key}"
 
@@ -271,6 +342,9 @@ def stop(components: set[str]) -> None:
     py_components = components & set(COMPONENTS)
     pids_map = _find_pids(py_components)
     all_pids = [pid for pids in pids_map.values() for pid in pids]
+    # Also stop the tray monitor when stopping the Python stack.
+    if py_components:
+        _stop_tray()
     if not all_pids:
         print("[dev_stack_ctl] stop: nothing running")
         return
@@ -314,6 +388,13 @@ def start(components: set[str], *, wait_backend: bool = True) -> int:
                 exit_code = 1
         elif key in {"2", "5"}:
             time.sleep(1.2)
+
+    # Auto-start the tray monitor whenever the Python stack comes up, so the
+    # owner can watch backend/worker/max/vpn state at a glance. Skipped when
+    # the caller asked for VPN-only (no 1/2/5).
+    started_python = bool(set(COMPONENTS) & set(components))
+    if started_python and not _tray_running():
+        _start_tray()  # non-fatal if it fails
     return exit_code
 
 
@@ -336,6 +417,10 @@ def status() -> int:
     vpn_mark = "OK" if vpn else "—"
     vpn_detail = " (WireGuard split-tunnel)" if vpn else " (DOWN)"
     lines.append(f"  8: {vpn_mark}{vpn_detail}")
+    tray_pids = _tray_running()
+    tray_mark = "OK" if tray_pids else "—"
+    tray_detail = f" PID {tray_pids[0]}" if tray_pids else " (down)"
+    lines.append(f"  9: {tray_mark}{tray_detail}  tray monitor")
     print("\n".join(lines))
     return 0 if ok else 1
 
