@@ -23,3 +23,20 @@ def is_max_channel_user(user_id: str | None) -> bool:
 def channel_of(user_id: str | None) -> ChannelKind:
     """Определить ``ChannelKind`` по store-id пользователя."""
     return ChannelKind.MAX if is_max_channel_user(user_id) else ChannelKind.TELEGRAM
+
+
+def should_use_max_hybrid_only(
+    user_id: str | None,
+    *,
+    source_type: str,
+    use_fast_parser: bool,
+) -> bool:
+    """MAX images: SotaOCR hybrid path only (no vision/race) when enabled in settings."""
+    from app.config import settings
+
+    return (
+        not use_fast_parser
+        and source_type == "image"
+        and is_max_channel_user(user_id)
+        and bool(getattr(settings, "max_recognition_hybrid_only", True))
+    )

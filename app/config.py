@@ -110,8 +110,8 @@ class Settings(BaseSettings):
     sotaocr_poll_interval_sec: float = Field(default=1.0, alias="SOTAOCR_POLL_INTERVAL_SEC")
     sotaocr_model_profile: str = Field(default="", alias="SOTAOCR_MODEL_PROFILE")
     sotaocr_max_retries: int = Field(default=3, alias="SOTAOCR_MAX_RETRIES")
-    # Transport: "requests" (default) or "auto" (curl for multipart uploads on Windows).
-    sotaocr_prefer_curl: str = Field(default="auto", alias="SOTAOCR_PREFER_CURL")
+    # Transport: "requests" (stable on Windows) or "auto" (curl first on Windows).
+    sotaocr_prefer_curl: str = Field(default="requests", alias="SOTAOCR_PREFER_CURL")
     sotaocr_wg_config: str = Field(
         default="config/wireguard/vpn188958_split_sotaocr.conf",
         alias="SOTAOCR_WG_CONFIG",
@@ -130,12 +130,13 @@ class Settings(BaseSettings):
         default="ресторан или кофейня",
         alias="INVOICE_VENUE_CONTEXT",
     )
-    # MAX-only parallel recognition (enabled when user_id starts with "max:")
-    max_recognition_race_enabled: bool = Field(default=True, alias="MAX_RECOGNITION_RACE_ENABLED")
+    # MAX recognition (user_id max:*): hybrid-only is default; race/vision are opt-in.
+    max_recognition_hybrid_only: bool = Field(default=True, alias="MAX_RECOGNITION_HYBRID_ONLY")
+    max_recognition_race_enabled: bool = Field(default=False, alias="MAX_RECOGNITION_RACE_ENABLED")
     recognition_race_budget_sec: int = Field(default=90, alias="RECOGNITION_RACE_BUDGET_SEC")
     recognition_vision_budget_sec: int = Field(default=45, alias="RECOGNITION_VISION_BUDGET_SEC")
     recognition_sotaocr_budget_sec: int = Field(default=60, alias="RECOGNITION_SOTA_OCR_BUDGET_SEC")
-    max_watch_timeout_sec: int = Field(default=150, alias="MAX_WATCH_TIMEOUT_SEC")
+    max_watch_timeout_sec: int = Field(default=720, alias="MAX_WATCH_TIMEOUT_SEC")
 
 
 settings = Settings()

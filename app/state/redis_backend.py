@@ -145,6 +145,20 @@ class RedisTaskStateBackend:
         except Exception as exc:  # noqa: BLE001
             logger.exception("Redis mark_error failed: %s", exc)
 
+    def set_task_progress(self, request_id: str, message: str) -> None:
+        if not self._available:
+            return
+        try:
+            key = self._key(request_id)
+            data = self.redis.get(key)
+            if data:
+                rec = json.loads(data)
+                if rec.get("status") in ("queued", "processing"):
+                    rec["message"] = message
+                    self.redis.setex(key, settings.worker_ttl_sec or 1800, json.dumps(rec))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Redis set_task_progress failed: %s", exc)
+
     def get_task(self, request_id: str) -> dict[str, Any] | None:
         if not self._available:
             return None

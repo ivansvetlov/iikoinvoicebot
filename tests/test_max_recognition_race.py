@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 from app.bot.messages import Msg
 from app.channels import is_max_channel_user
+from app.channels.users import should_use_max_hybrid_only
+
 from app.schemas import InvoiceItem
 from app.services.recognition_race import race_image_recognition
 from experiments.max_invoice_bot.processing_status import processing_stage_message
@@ -18,6 +20,33 @@ class MaxChannelTests(unittest.TestCase):
         self.assertTrue(is_max_channel_user("max:42"))
         self.assertFalse(is_max_channel_user("6106711925"))
         self.assertFalse(is_max_channel_user(None))
+
+    def test_should_use_max_hybrid_only(self) -> None:
+        self.assertTrue(
+            should_use_max_hybrid_only(
+                "max:42",
+                source_type="image",
+                use_fast_parser=False,
+            )
+        )
+        self.assertFalse(
+            should_use_max_hybrid_only(
+                "6106711925",
+                source_type="image",
+                use_fast_parser=False,
+            )
+        )
+        self.assertFalse(
+            should_use_max_hybrid_only(
+                "max:42",
+                source_type="pdf",
+                use_fast_parser=False,
+            )
+        )
+
+    def test_hybrid_progress_messages_exist(self) -> None:
+        self.assertIn("SotaOCR", Msg.HYBRID_PROGRESS_OCR)
+        self.assertIn("gpt-4o-mini", Msg.HYBRID_PROGRESS_LLM)
 
 
 class ProcessingStageTests(unittest.TestCase):

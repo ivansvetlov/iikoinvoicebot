@@ -60,6 +60,14 @@ def mark_error(request_id: str, message: str, error: str | None = None) -> None:
     _get_backend().mark_error(request_id, message, error)
 
 
+def set_task_progress(request_id: str, message: str) -> None:
+    """Update in-flight status line (MAX task_watcher reads task.message)."""
+    backend = _get_backend()
+    setter = getattr(backend, "set_task_progress", None)
+    if callable(setter):
+        setter(request_id, message)
+
+
 # Bonus helpers (non-breaking additions)
 def get_task(request_id: str) -> dict[str, Any] | None:
     return _get_backend().get_task(request_id)

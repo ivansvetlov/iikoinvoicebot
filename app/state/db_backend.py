@@ -79,6 +79,14 @@ class DBTaskStateBackend:
                 task.message = message
                 task.error = error
 
+    def set_task_progress(self, request_id: str, message: str) -> None:
+        with self._get_session() as session:
+            if session is None:
+                return
+            task = session.query(TaskRecord).filter(TaskRecord.request_id == request_id).one_or_none()
+            if task and task.status in ("queued", "processing"):
+                task.message = message
+
     def get_task(self, request_id: str) -> dict[str, Any] | None:
         with self._get_session() as session:
             if session is None:

@@ -83,10 +83,12 @@ async def watch_and_deliver(
 ) -> None:
     """Poll until task completes, then send/edit result in MAX."""
     if max_wait_sec is None:
-        race_limit = int(getattr(settings, "recognition_race_budget_sec", 90) or 90)
         watch_limit = int(getattr(settings, "max_watch_timeout_sec", 0) or 0)
-        default_watch = race_limit + 60
-        max_wait_sec = float(max(60, watch_limit or default_watch))
+        if watch_limit > 0:
+            max_wait_sec = float(watch_limit)
+        else:
+            race_limit = int(getattr(settings, "recognition_race_budget_sec", 90) or 90)
+            max_wait_sec = float(max(120, race_limit + 60))
     elapsed = 0.0
     last_ping = -8.0
     stage_interval = 8.0
@@ -118,12 +120,19 @@ async def watch_and_deliver(
                     keyboard=keyboard,
                 )
                 return
-        if elapsed - last_ping >= stage_interval and status_message_id:
+        if status_message_id and elapsed - last_ping >= stage_interval:
+            progress_text = None
+            if task and str(task.get("status") or "") == "processing":
+                progress_text = (task.get("message") or "").strip() or None
             try:
                 msg = await bot.get_message(message_id=status_message_id)
                 if msg:
+                    text = progress_text or processing_stage_message(
+                        elapsed,
+                        interval_sec=stage_interval,
+                    )
                     await msg.edit(
-                        text=processing_stage_message(elapsed, interval_sec=stage_interval),
+                        text=text,
                         attachments=[],
                         format=None,
                     )
