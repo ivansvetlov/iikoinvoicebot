@@ -101,9 +101,14 @@ def ensure_recognition_vpn_ok() -> None:
     this is a no-op. On Windows it performs only a **fast** state check and
     raises :class:`UserFacingError` (code ``vpn_unavailable``) if the tunnel
     is down — it never tries to (re)start the tunnel from the request path,
-    avoiding the previous ~120 s blocking behaviour. Worker startup is
-    responsible for bringing the tunnel up once; the Windows service keeps it
-    alive (auto-restart).
+    avoiding the previous ~120 s blocking behaviour.
+
+    Lifecycle model: the tunnel is an explicit dev component ("8. vpn" /
+    ``scripts/vpn_ctl.py``). Worker startup brings it up via
+    ``ensure_api_vpn`` (which self-elevates through the PowerShell helper).
+    Stopping it requires administrator rights and is done explicitly via
+    ``scripts/vpn_ctl.py down`` — it is NOT tied to worker shutdown, because
+    the worker normally runs without elevation and cannot stop the service.
     """
     from app.errors import UserFacingError
 
@@ -113,9 +118,44 @@ def ensure_recognition_vpn_ok() -> None:
         logger.warning("Recognition VPN tunnel is down; rejecting request fast")
         raise UserFacingError(
             "Сервис распознавания временно недоступен. Попробуйте через минуту.",
-            hint="Если ошибка повторяется, проверьте VPN-туннель.",
+            hint="Если ошибка повторяется, проверьте VPN-туннель (`scripts/vpn_ctl.py status`).",
             code="vpn_unavailable",
         )
+
+
+def stop_tunnel(*, timeout: int = 30) -> bool:
+    """Stop the split-tunnel service (Windows only).
+
+    Used by ``scripts/vpn_ctl.py down``. Requires administrator rights (the
+    Windows service cannot be stopped from a non-elevated process); callers
+    that may be non-elevated should self-elevate (see ``_elevated`` in
+    vpn_ctl). Returns True if the service is stopped (or was not running).
+    No-op on non-Windows.
+    """
+    if sys.platform != "win32":
+        return True
+    if not is_split_tunnel_running():
+        return True
+    try:
+        subprocess.run(
+            ["sc", "stop", SPLIT_SERVICE],
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("Failed to stop VPN tunnel: %s", exc)
+        return False
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not is_split_tunnel_running():
+            logger.info("VPN tunnel stopped")
+            return True
+        time.sleep(0.5)
+    logger.warning("VPN tunnel did not stop within %ss", timeout)
+    return False
 
 
 ensure_sotaocr_vpn = ensure_api_vpn

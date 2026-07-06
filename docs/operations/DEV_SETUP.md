@@ -195,29 +195,57 @@ Skill для агентов: `.agents/skills/dev-stack-restart/SKILL.md`.
 
 Для доступа к `sotaocr.com` и `api.openai.com` из РФ используется WireGuard
 **split-tunnel** — через VPN идут только IP этих сервисов, остальной трафик напрямую.
+Рабочая машина **не находится** под VPN постоянно: туннель — это явный dev-компонент
+(«8. vpn» в стеке), который поднимается по необходимости.
 
-**Конфиг:** `config/wireguard/vpn188958_split_sotaocr.conf` (в `.gitignore`; образец —
-`...conf.example`). Сервис: `WireGuardTunnel$vpn188958_split_sotaocr`.
-
-**Одноразовая установка (от администратора):**
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\ensure_sotaocr_vpn.ps1
-```
-
-**Включить авто-restart сервиса** (чтобы туннель поднимался сам при сбое):
+**Управление — единый CLI** `scripts/vpn_ctl.py`:
 
 ```powershell
-# от администратора; restart через 60с при падении, бесконечно
-sc.exe failure "WireGuardTunnel$vpn188958_split_sotaocr" reset= 86400 actions= restart/60000
+.\.venv\Scripts\python.exe scripts\vpn_ctl.py status      # состояние + конфиг + start type
+.\.venv\Scripts\python.exe scripts\vpn_ctl.py up          # поднять (self-elevation UAC)
+.\.venv\Scripts\python.exe scripts\vpn_ctl.py down        # опустить (self-elevation UAC)
+.\.venv\Scripts\python.exe scripts\vpn_ctl.py restart     # down + up
+.\.venv\Scripts\python.exe scripts\vpn_ctl.py logs 50     # последние события WireGuard
+.\.venv\Scripts\python.exe scripts\vpn_ctl.py set-manual  # сервис в Manual start (1 раз)
 ```
 
-> **Важно для архитектуры.** Подъём VPN — ответственность этого Windows-сервиса
-> (через авто-restart) и worker-startup (одна попытка через `ensure_api_vpn`).
-> **Горячий путь распознавания** (`pipeline._call_llm`) **не пытается** поднять
+`up` и `down` запрашивают права через UAC (как и `ensure_sotaocr_vpn.ps1`), их можно
+запускать не из-под админа.
+
+**Одноразовая настройка (новая машина):**
+
+1. Поставить WireGuard (`C:\Program Files\WireGuard\wireguard.exe`).
+2. Положить конфиг `config/wireguard/vpn188958_split_sotaocr.conf` (в `.gitignore`;
+   образец — `...conf.example`). **Никогда не коммитить** — там приватный ключ.
+3. Установить сервис (от админа):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\ensure_sotaocr_vpn.ps1
+   ```
+4. Перевести сервис в Manual start (чтобы не запускался при загрузке ОС):
+   ```powershell
+   .\.venv\Scripts\python.exe scripts\vpn_ctl.py set-manual
+   ```
+
+После этого туннелем управляешь через `vpn_ctl` или run config `8. vpn`.
+
+**Смена провайдера/ключа** — через переменную окружения, без правки кода:
+
+```powershell
+$env:SOTAOCR_WG_CONFIG = "config/wireguard/new_provider.conf"
+.\.venv\Scripts\python.exe scripts\vpn_ctl.py restart
+```
+
+WireGuard-конфиг — универсальный формат: сменишь провайдера → новый `.conf`, переключаешь env.
+
+> **Архитектура горячего пути.** `pipeline._call_llm` **не пытается** поднять
 > туннель — только быстрая проверка `is_split_tunnel_running()` (~0.1 с). Если
-> туннель не активен, запрос быстро падает с `UserFacingError(code=vpn_unavailable)`
-> («попробуйте через минуту») — без прежних ~120 с блокировки.
+> туннель не активен, запрос падает за ~1 с с `UserFacingError(code=vpn_unavailable)`
+> («попробуйте через минуту») — без прежних ~120 с блокировки. Worker при старте
+> делает одну попытку `ensure_api_vpn` (с логом warning при провале), но не падает.
+>
+> **Туннель не привязан к worker lifecycle.** Worker обычно запускается без прав
+> админа и не может остановить сервис. Поэтому подъём/опускание — явные операции
+> через `vpn_ctl` (с elevation), а не автоматически при старте/остановке worker.
 >
 > На Linux/VPS весь этот код no-op: туннель там — забота деплоя (systemd-wireguard
 > или выбор локации VPS).
