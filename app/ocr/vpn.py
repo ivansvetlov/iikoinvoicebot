@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from app.ocr.routing import is_geohide_route_ok, is_local_geohide_stack_listening, recognition_route
 from app.utils.subprocess_hidden import hidden_subprocess_kwargs, run_hidden
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,21 @@ def is_split_tunnel_running() -> bool:
 def ensure_api_vpn(*, raise_on_failure: bool = False) -> bool:
     """Start split-tunnel WireGuard for SotaOCR and OpenAI API if installed."""
     if sys.platform != "win32":
+        return True
+    if recognition_route() == "geohide":
+        if is_geohide_route_ok() or is_local_geohide_stack_listening():
+            logger.info("Recognition route: GeoHide (WireGuard skipped)")
+            return True
+        msg = (
+            "GeoHide route selected but api.openai.com is not rewritten "
+            "(start AdGuard Home + Sing-box, set DNS to 127.0.0.1)"
+        )
+        if raise_on_failure:
+            raise RuntimeError(msg)
+        logger.warning(msg)
+        return False
+    if recognition_route() == "none":
+        logger.info("Recognition route: direct (no VPN)")
         return True
     if is_split_tunnel_running():
         return True
@@ -109,6 +125,21 @@ def ensure_recognition_vpn_ok() -> None:
     from app.errors import UserFacingError
 
     if sys.platform != "win32":
+        return
+    route = recognition_route()
+    if route == "geohide":
+        if is_geohide_route_ok() or is_local_geohide_stack_listening():
+            return
+        logger.warning("GeoHide route is down; rejecting request fast")
+        raise UserFacingError(
+            "Сервис распознавания временно недоступен. Попробуйте через минуту.",
+            hint=(
+                "Проверьте GeoHide: AdGuard Home + Sing-box, DNS 127.0.0.1 "
+                "(`scripts/geohide_ctl.py status`)."
+            ),
+            code="vpn_unavailable",
+        )
+    if route == "none":
         return
     if not is_split_tunnel_running():
         logger.warning("Recognition VPN tunnel is down; rejecting request fast")

@@ -138,6 +138,8 @@ class Settings(BaseSettings):
     recognition_vision_budget_sec: int = Field(default=45, alias="RECOGNITION_VISION_BUDGET_SEC")
     recognition_sotaocr_budget_sec: int = Field(default=60, alias="RECOGNITION_SOTA_OCR_BUDGET_SEC")
     max_watch_timeout_sec: int = Field(default=720, alias="MAX_WATCH_TIMEOUT_SEC")
+    # Windows dev routing to OpenAI/SotaOCR: wireguard (split-tunnel) or geohide (DNS+Sing-box).
+    recognition_route: str = Field(default="wireguard", alias="RECOGNITION_ROUTE")
 
 
 settings = Settings()
