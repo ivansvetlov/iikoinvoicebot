@@ -822,7 +822,7 @@ class InvoicePipelineService:
                     "content": [{"type": "input_text", "text": "ping"}],
                 }
             ],
-            "max_output_tokens": 8,
+            "max_output_tokens": 16,
         }
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
