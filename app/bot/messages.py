@@ -341,6 +341,7 @@ class Msg:
     HYBRID_PROGRESS_OCR = "📄 Читаю документ…"
     HYBRID_PROGRESS_OCR_DONE = "✅ Текст накладной распознан"
     HYBRID_PROGRESS_LLM = "🧾 Распознаю позиции…"
+    HYBRID_PROGRESS_LLM_RETRY = "🧾 Повторяю распознавание позиций…"
     HYBRID_PROGRESS_ITEMS = "✅ Позиции распознаны: {count}"
     HYBRID_PROGRESS_VALIDATE = "🔍 Сверяю суммы и НДС…"
     STATUS_TIMEOUT = "⏱ Превышено время ожидания.\nПроверьте /status или отправьте файл снова."

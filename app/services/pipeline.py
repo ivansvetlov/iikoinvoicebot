@@ -917,16 +917,37 @@ class InvoicePipelineService:
         min_chars = int(getattr(settings, "fast_parser_min_chars", 120) or 120)
         min_items = int(getattr(settings, "fast_parser_min_items", 2) or 2)
 
-        llm_timeout: float | None
-        if unbounded:
-            llm_timeout = None
-        else:
-            llm_timeout = float(
-                max(15, int(llm_timeout_sec or settings.sotaocr_hybrid_llm_timeout_sec or 45))
-            )
+        per_attempt = float(
+            max(15, int(llm_timeout_sec or settings.sotaocr_hybrid_llm_timeout_sec or 45))
+        )
+        max_attempts = (
+            max(1, int(getattr(settings, "sotaocr_hybrid_llm_max_attempts", 3) or 3))
+            if unbounded
+            else 1
+        )
         ocr_timeout = float(ocr_timeout_sec or settings.sotaocr_timeout_sec or 600)
 
         try:
+            if strict and skip_openai_probe:
+                probe_timeout = float(
+                    max(5, int(settings.sotaocr_hybrid_openai_probe_timeout_sec or 15))
+                )
+                try:
+                    await asyncio.wait_for(
+                        self._probe_openai_for_hybrid(request_id),
+                        timeout=probe_timeout,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "SotaOCR hybrid OpenAI preflight failed: %r",
+                        exc,
+                        extra={"request_id": request_id},
+                    )
+                    raise UserFacingError(
+                        "Сервис распознавания временно недоступен. Попробуйте через минуту.",
+                        code="llm_unavailable",
+                    ) from exc
+
             prefer_curl = False if unbounded else None
             client = SotaOcrClient(timeout_sec=ocr_timeout, prefer_curl=prefer_curl)
             self._emit_hybrid_progress(progress_callback, Msg.HYBRID_PROGRESS_OCR)
@@ -956,23 +977,48 @@ class InvoicePipelineService:
             self._emit_hybrid_progress(progress_callback, Msg.HYBRID_PROGRESS_LLM)
 
             prompt = self._build_ocr_prompt(self._load_sotaocr_hybrid_prompt())
-            llm_coro = self._run_llm_pass(
-                prompt,
-                "text",
-                "sotaocr.txt",
-                plain.encode("utf-8"),
-                plain,
-                user_id,
-                request_id,
-                call_kind="hybrid_parse",
-            )
-            if llm_timeout is None:
-                llm_data, items, garbage_reasons = await llm_coro
-            else:
-                llm_data, items, garbage_reasons = await asyncio.wait_for(
-                    llm_coro,
-                    timeout=llm_timeout,
-                )
+            llm_data: dict[str, Any]
+            items: list[InvoiceItem]
+            garbage_reasons: list[str]
+            for attempt in range(1, max_attempts + 1):
+                if attempt > 1:
+                    self._emit_hybrid_progress(
+                        progress_callback,
+                        Msg.HYBRID_PROGRESS_LLM_RETRY,
+                    )
+                try:
+                    llm_data, items, garbage_reasons = await asyncio.wait_for(
+                        self._run_llm_pass(
+                            prompt,
+                            "text",
+                            "sotaocr.txt",
+                            plain.encode("utf-8"),
+                            plain,
+                            user_id,
+                            request_id,
+                            call_kind="hybrid_parse",
+                        ),
+                        timeout=per_attempt,
+                    )
+                    break
+                except (asyncio.TimeoutError, httpx.TimeoutException, httpx.HTTPError) as exc:
+                    logger.warning(
+                        "SotaOCR hybrid LLM attempt %s/%s failed: %r",
+                        attempt,
+                        max_attempts,
+                        exc,
+                        extra={"request_id": request_id},
+                    )
+                    if attempt >= max_attempts:
+                        if isinstance(exc, asyncio.TimeoutError):
+                            raise UserFacingError(
+                                "Формирование отчёта заняло слишком много времени.",
+                                code="llm_timeout",
+                            ) from exc
+                        raise UserFacingError(
+                            "Не удалось сформировать отчёт. Попробуйте через минуту.",
+                            code="llm_unavailable",
+                        ) from exc
             if garbage_reasons or len(items) < max(1, min_items):
                 logger.info(
                     "SotaOCR hybrid skipped: insufficient parse (%s items, garbage=%s)",
@@ -1016,8 +1062,9 @@ class InvoicePipelineService:
             return None
         except asyncio.TimeoutError:
             logger.warning(
-                "SotaOCR hybrid LLM timed out after %ss%s",
-                llm_timeout,
+                "SotaOCR hybrid LLM timed out after %ss (attempts=%s)%s",
+                per_attempt,
+                max_attempts,
                 "" if strict else ", will fall back to vision",
                 extra={"request_id": request_id},
             )
@@ -1029,7 +1076,7 @@ class InvoicePipelineService:
             return None
         except (httpx.TimeoutException, httpx.HTTPError) as exc:
             logger.warning(
-                "SotaOCR hybrid OpenAI failed%s: %s",
+                "SotaOCR hybrid OpenAI failed%s: %r",
                 "" if strict else ", will fall back to vision",
                 exc,
                 extra={"request_id": request_id},

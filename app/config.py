@@ -122,6 +122,7 @@ class Settings(BaseSettings):
         alias="SOTAOCR_HYBRID_PROMPT_PATH",
     )
     sotaocr_hybrid_llm_timeout_sec: int = Field(default=45, alias="SOTAOCR_HYBRID_LLM_TIMEOUT_SEC")
+    sotaocr_hybrid_llm_max_attempts: int = Field(default=3, alias="SOTAOCR_HYBRID_LLM_MAX_ATTEMPTS")
     sotaocr_hybrid_openai_probe_timeout_sec: int = Field(
         default=15,
         alias="SOTAOCR_HYBRID_OPENAI_PROBE_TIMEOUT_SEC",
