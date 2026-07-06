@@ -13,6 +13,7 @@ from experiments.max_invoice_bot.messaging import (
     prepare_outgoing_text,
     split_text,
 )
+from experiments.max_invoice_bot.bot import PENDING_BURST_DEBOUNCE_SEC
 from experiments.max_invoice_bot.task_watcher import (
     _keyboard_for_result,
     _normalize_status,
@@ -87,6 +88,10 @@ class MaxInvoiceBotTests(unittest.TestCase):
         with patch.dict("os.environ", {"MAX_INVOICE_BOT_ALLOWED_USER_IDS": "1, 2;3"}, clear=False):
             s = MaxInvoiceSettings()
             self.assertEqual(s.allowed_ids(), {1, 2, 3})
+
+    def test_pending_burst_debounce_window(self) -> None:
+        self.assertGreaterEqual(PENDING_BURST_DEBOUNCE_SEC, 2.0)
+        self.assertLessEqual(PENDING_BURST_DEBOUNCE_SEC, 3.5)
 
     def test_forwarded_image_detected_without_body_attachments(self) -> None:
         image = SimpleNamespace(type=AttachmentType.IMAGE)

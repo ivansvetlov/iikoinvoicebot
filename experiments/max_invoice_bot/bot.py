@@ -68,10 +68,14 @@ from experiments.max_invoice_bot.edit_state import EditState
 from experiments.max_invoice_bot.keyboards import dict_to_markup
 from experiments.max_invoice_bot.messaging import (
     callback_update,
+    dismiss_message,
+    edit_message,
     prepare_outgoing_text,
     reply_or_edit,
     send_to_user,
 )
+
+PENDING_BURST_DEBOUNCE_SEC = 2.5
 
 from experiments.max_invoice_bot.task_watcher import schedule_watch
 from experiments.max_invoice_bot.user_ids import storage_dir_key, store_user_id
@@ -149,6 +153,9 @@ class MaxInvoiceBot:
         self._split_users: set[str] = set()
         self._pending_users: set[str] = set()
         self._pending_prompt: dict[str, str] = {}
+        self._pending_chats: dict[str, int] = {}
+        self._pending_burst_ctx: dict[str, dict[str, Any]] = {}
+        self._pending_burst_tasks: dict[str, asyncio.Task[None]] = {}
         self._split_prompt: dict[str, str] = {}
         self._status_prompt: dict[str, str] = {}
         self._rate_limits: dict[str, list[datetime]] = {}
@@ -300,12 +307,147 @@ class MaxInvoiceBot:
         return True
 
     def _reset_user_buffers(self, store_key: str) -> None:
+        self._cancel_pending_burst(store_key)
         self._clear_pending_dir(store_key)
         self._clear_split_dir(store_key)
         self._pending_users.discard(store_key)
         self._split_users.discard(store_key)
         self._pending_prompt.pop(store_key, None)
+        self._pending_chats.pop(store_key, None)
+        self._pending_burst_ctx.pop(store_key, None)
         self._split_prompt.pop(store_key, None)
+
+    def _cancel_pending_burst(self, store_key: str) -> None:
+        task = self._pending_burst_tasks.pop(store_key, None)
+        if task and not task.done():
+            task.cancel()
+
+    @staticmethod
+    def _sent_mid(sent: Any) -> str | None:
+        if sent is None:
+            return None
+        msg = getattr(sent, "message", None) or sent
+        return _message_mid(msg)
+
+    async def _dismiss_message_by_id(self, message_id: str) -> None:
+        with suppress(Exception):
+            old_msg = await self.bot.get_message(message_id=message_id)
+            if old_msg:
+                await dismiss_message(old_msg)
+
+    async def _upsert_prompt_card(
+        self,
+        *,
+        store_key: str,
+        prompt_map: dict[str, str],
+        text: str,
+        keyboard: dict[str, Any] | None,
+        chat_id: int | None,
+        user_id: int,
+    ) -> None:
+        old_mid = prompt_map.get(store_key)
+        if old_mid:
+            try:
+                old_msg = await self.bot.get_message(message_id=old_mid)
+                if old_msg:
+                    await edit_message(old_msg, text, keyboard)
+                    return
+            except Exception:
+                logger.debug("Prompt card edit failed for %s, replacing", store_key)
+                await self._dismiss_message_by_id(old_mid)
+
+        sent = await send_to_user(
+            self.bot,
+            chat_id=chat_id,
+            user_id=user_id,
+            text=text,
+            keyboard=keyboard,
+        )
+        mid = self._sent_mid(sent)
+        if mid:
+            prompt_map[store_key] = mid
+
+    def _schedule_pending_burst(self, message: Message, store_key: str, max_uid: int) -> None:
+        chat_id = _chat_id(message)
+        if chat_id is not None:
+            self._pending_chats[store_key] = chat_id
+        self._pending_burst_ctx[store_key] = {
+            "chat_id": chat_id,
+            "max_uid": max_uid,
+            "message": message,
+        }
+        self._ensure_pending_user(store_key)
+        self._cancel_pending_burst(store_key)
+        self._pending_burst_tasks[store_key] = asyncio.create_task(
+            self._finalize_pending_burst(store_key)
+        )
+
+    async def _finalize_pending_burst(self, store_key: str) -> None:
+        try:
+            await asyncio.sleep(PENDING_BURST_DEBOUNCE_SEC)
+        except asyncio.CancelledError:
+            return
+        finally:
+            self._pending_burst_tasks.pop(store_key, None)
+
+        if not self._collect_pending_files(store_key):
+            return
+
+        if not app_settings.enable_split_mode:
+            ctx = self._pending_burst_ctx.get(store_key, {})
+            anchor = ctx.get("message")
+            if anchor is None:
+                return
+            await self._process_pending_as_batch(
+                anchor,
+                store_key,
+                ctx.get("max_uid"),
+            )
+            return
+
+        text, keyboard = self._build_pending_draft_content(store_key)
+        ctx = self._pending_burst_ctx.get(store_key, {})
+        await self._upsert_prompt_card(
+            store_key=store_key,
+            prompt_map=self._pending_prompt,
+            text=text,
+            keyboard=keyboard,
+            chat_id=self._pending_chats.get(store_key) or ctx.get("chat_id"),
+            user_id=int(ctx.get("max_uid") or 0),
+        )
+
+    def _build_pending_draft_content(self, store_key: str) -> tuple[str, dict[str, Any] | None]:
+        files = self._collect_pending_files(store_key)
+        duplicate_count = self._pending_duplicates_count(store_key)
+        count = len(files)
+
+        if count == 1 and any(name.lower().endswith(".pdf") for name, _ in files):
+            current = pdf_mode_label(get_pdf_mode(store_key))
+            text = Msg.PDF_MODE.format(current=current)
+            keyboard = {
+                "inline_keyboard": [
+                    [_button(Msg.BTN_FAST, "pdf:fast", style="primary")],
+                    [_button(Msg.BTN_ACCURATE, "pdf:accurate")],
+                ]
+            }
+            return text, keyboard
+
+        if count == 1:
+            text = Msg.PENDING_SINGLE
+            keyboard = {
+                "inline_keyboard": [
+                    [_button(Msg.BTN_PROCESS_NOW, "mode:process", style="primary")],
+                ]
+            }
+            return text, keyboard
+
+        text = Msg.PENDING_MULTI.format(count=count)
+        if duplicate_count > 0:
+            text += Msg.PENDING_DUPS.format(count=duplicate_count)
+        rows = [[_button(Msg.BTN_MERGE_SEND, "mode:merge", style="success")]]
+        if duplicate_count > 0:
+            rows.append([_button(Msg.BTN_DEDUP, "mode:dedup", style="danger")])
+        return text, {"inline_keyboard": rows}
 
     def _auth_already_keyboard(self) -> dict[str, Any]:
         return {
@@ -611,7 +753,6 @@ class MaxInvoiceBot:
 
         max_bytes = app_settings.max_upload_mb * 1024 * 1024
         dup_count = 0
-        last_pdf = False
 
         for item in files:
             if len(item.content) > max_bytes:
@@ -630,17 +771,14 @@ class MaxInvoiceBot:
         for item in files:
             if self._store_pending_bytes(store_key, item.filename, item.content):
                 dup_count += 1
-            last_pdf = item.filename.lower().endswith(".pdf")
 
-        if dup_count:
+        if dup_count and store_key in self._split_users:
             await self._notify_soft_duplicate(message, dup_count)
 
-        if last_pdf and len(files) == 1:
-            self._ensure_pending_user(store_key)
-            await self._handle_pdf_mode_choice(message, store_key)
+        if store_key in self._split_users:
             return
 
-        await self._handle_pending_choice(message, store_key)
+        self._schedule_pending_burst(message, store_key, max_uid)
 
     async def _notify_soft_duplicate(self, message: Message, duplicate_count: int) -> None:
         if duplicate_count <= 1:
@@ -649,64 +787,24 @@ class MaxInvoiceBot:
             text = Msg.SOFT_DUP_MANY.format(count=duplicate_count)
         await self._answer(message, text)
 
-    async def _handle_pending_choice(self, message: Message, store_key: str) -> None:
+    async def _refresh_pending_draft(self, message: Message, store_key: str) -> None:
         files = self._collect_pending_files(store_key)
-        if not app_settings.enable_split_mode:
-            await self._process_pending_as_batch(message, store_key, _sender_id_from_message(message))
-            return
         if not files:
             await self._answer(message, Msg.NO_PENDING)
             return
-        self._ensure_pending_user(store_key)
-        if len(files) == 1:
-            await self._send_single_file_keyboard(message, store_key)
+        if not app_settings.enable_split_mode:
+            await self._process_pending_as_batch(message, store_key, _sender_id_from_message(message))
             return
-        await self._send_mode_keyboard(message, store_key)
-
-    async def _send_single_file_keyboard(self, message: Message, store_key: str) -> None:
-        keyboard = {
-            "inline_keyboard": [
-                [_button(Msg.BTN_PROCESS_NOW, "mode:process", style="primary")],
-            ]
-        }
-        sent = await self._answer(message, Msg.PENDING_SINGLE, keyboard)
-        mid = _message_mid(sent)
-        if mid:
-            self._pending_prompt[store_key] = mid
-
-    async def _send_mode_keyboard(self, message: Message, store_key: str) -> None:
-        files = self._collect_pending_files(store_key)
-        duplicate_count = self._pending_duplicates_count(store_key)
-        text = Msg.PENDING_MULTI.format(count=len(files))
-        if duplicate_count > 0:
-            text += Msg.PENDING_DUPS.format(count=duplicate_count)
-        rows = [[_button(Msg.BTN_MERGE_SEND, "mode:merge", style="success")]]
-        if duplicate_count > 0:
-            rows.append([_button(Msg.BTN_DEDUP, "mode:dedup", style="danger")])
-        keyboard = {"inline_keyboard": rows}
-        old_mid = self._pending_prompt.get(store_key)
-        sent = await self._answer(message, text, keyboard)
-        mid = _message_mid(sent)
-        if mid:
-            self._pending_prompt[store_key] = mid
-        if old_mid and mid and old_mid != mid:
-            with suppress(Exception):
-                old_msg = await self.bot.get_message(message_id=old_mid)
-                if old_msg:
-                    await old_msg.edit(text=" ", format=None)
-
-    async def _handle_pdf_mode_choice(self, message: Message, store_key: str) -> None:
-        current = pdf_mode_label(get_pdf_mode(store_key))
-        keyboard = {
-            "inline_keyboard": [
-                [_button(Msg.BTN_FAST, "pdf:fast", style="primary")],
-                [_button(Msg.BTN_ACCURATE, "pdf:accurate")],
-            ]
-        }
-        sent = await self._answer(message, Msg.PDF_MODE.format(current=current), keyboard)
-        mid = _message_mid(sent)
-        if mid:
-            self._pending_prompt[store_key] = mid
+        self._ensure_pending_user(store_key)
+        text, keyboard = self._build_pending_draft_content(store_key)
+        await self._upsert_prompt_card(
+            store_key=store_key,
+            prompt_map=self._pending_prompt,
+            text=text,
+            keyboard=keyboard,
+            chat_id=_chat_id(message) or self._pending_chats.get(store_key),
+            user_id=_sender_id_from_message(message) or 0,
+        )
 
     def _build_split_prompt(self, store_key: str, count: int) -> tuple[str, dict[str, Any]]:
         duplicate_count = self._split_duplicates_count(store_key)
@@ -727,16 +825,14 @@ class MaxInvoiceBot:
     async def _update_split_prompt(self, message: Message, store_key: str) -> None:
         count = len(self._collect_split_files(store_key))
         text, keyboard = self._build_split_prompt(store_key, count)
-        old_mid = self._split_prompt.get(store_key)
-        sent = await self._answer(message, text, keyboard)
-        mid = _message_mid(sent)
-        if mid:
-            self._split_prompt[store_key] = mid
-        if old_mid and mid and old_mid != mid:
-            with suppress(Exception):
-                old_msg = await self.bot.get_message(message_id=old_mid)
-                if old_msg:
-                    await old_msg.edit(text=" ", format=None)
+        await self._upsert_prompt_card(
+            store_key=store_key,
+            prompt_map=self._split_prompt,
+            text=text,
+            keyboard=keyboard,
+            chat_id=_chat_id(message) or self._pending_chats.get(store_key),
+            user_id=_sender_id_from_message(message) or 0,
+        )
 
     async def _accept_pending_as_split(self, message: Message, store_key: str, max_uid: int) -> None:
         files = self._collect_pending_files(store_key)
@@ -931,10 +1027,8 @@ class MaxInvoiceBot:
         else:
             old_mid = self._split_prompt.get(store_key)
             if old_mid:
-                with suppress(Exception):
-                    old = await self.bot.get_message(message_id=old_mid)
-                    if old:
-                        await old.edit(text=" ", format=None)
+                await self._dismiss_message_by_id(old_mid)
+                self._split_prompt.pop(store_key, None)
             status_msg = await self._answer(message, Msg.BATCH_COLLECTED.format(count=len(files)))
 
         try:
@@ -984,6 +1078,7 @@ class MaxInvoiceBot:
             await self._handle_status_choice(event, store_key, data, max_uid)
             return
         if data.startswith("pdf:"):
+            self._cancel_pending_burst(store_key)
             await self._handle_pdf_choice(event, store_key, data, max_uid)
             return
         if data.startswith("inv:"):
@@ -996,6 +1091,7 @@ class MaxInvoiceBot:
             await self._handle_split_choice(event, store_key, data, max_uid)
             return
         if data.startswith("mode:"):
+            self._cancel_pending_burst(store_key)
             await self._handle_mode_choice(event, store_key, data, max_uid)
             return
 
@@ -1182,11 +1278,9 @@ class MaxInvoiceBot:
             return
         if data == "mode:dedup":
             stats = self._deduplicate_pending_dir(store_key)
-            await callback_update(
-                event,
-                Msg.DEDUP_DONE.format(removed=stats["removed"], kept=stats["kept"]),
-            )
-            await self._handle_pending_choice(event.message, store_key)
+            draft_text, keyboard = self._build_pending_draft_content(store_key)
+            dedup_note = Msg.DEDUP_DONE.format(removed=stats["removed"], kept=stats["kept"])
+            await callback_update(event, f"{dedup_note}\n\n{draft_text}", keyboard)
             return
         await event.ack(notification=Msg.MODE_UNKNOWN)
 

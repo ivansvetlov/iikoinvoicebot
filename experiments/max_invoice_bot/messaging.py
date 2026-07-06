@@ -86,6 +86,11 @@ async def edit_message(
     )
 
 
+async def dismiss_message(message: Message, *, text: str = " ") -> None:
+    """Blank a message and remove inline keyboard (prevents floating buttons)."""
+    await edit_message(message, text, keyboard=None)
+
+
 async def reply_or_edit(
     message: Message,
     text: str,
